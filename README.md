@@ -55,8 +55,10 @@ window, one line at a time, followed by Enter.
 
 ## Quick start
 
-```
-git clone https://github.com/<the-repo-url>.git
+Copy and paste these commands into a terminal:
+
+```bash
+git clone https://github.com/autowiki4/event-app.git
 cd event-app/demo-server
 node server.js
 ```
