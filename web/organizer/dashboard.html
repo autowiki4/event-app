@@ -15,6 +15,20 @@
     <h1 class="display">Event dashboard</h1>
     <p class="lede">Everything below reads straight from the shared backend — the same data every attendee phone and staff kiosk is writing to.</p>
 
+    <div class="organizer-access" id="organizer-access">
+      <h2>Staff access</h2>
+      <p>Enter the event's organizer key. It stays only in this page's memory and is never stored in the public site files or browser storage.</p>
+      <div class="field">
+        <label for="organizer-key">Organizer access key</label>
+        <input id="organizer-key" type="password" autocomplete="off">
+        <div class="hint">Local demo default: <b>demo</b>. Production uses the key configured in Apps Script.</div>
+        <div class="err" id="err-organizer-key"></div>
+      </div>
+      <button class="btn btn-primary" id="btn-organizer-unlock">Unlock staff view →</button>
+    </div>
+
+    <div id="organizer-content" style="display:none;">
+    <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
     <div class="dash-grid" id="totals-grid"></div>
 
     <div class="section-title">Booth check-ins</div>
@@ -43,23 +57,39 @@
     </table>
 
     <button class="btn btn-ghost" id="btn-reset" style="margin-top:24px;">Reset demo data (rehearsal only)</button>
+    </div>
   </section>
 </div>
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/organizer-auth.js"></script>
 <script src="../shared/toast.js"></script>
 <script>
 function esc(s) { return escapeHtml(s); }
+let refreshTimer = null;
+
+function clearDashboard() {
+  document.getElementById("totals-grid").innerHTML = "";
+  document.querySelector("#booth-table tbody").innerHTML = "";
+  document.querySelector("#trivia-table tbody").innerHTML = "";
+  document.querySelector("#song-table tbody").innerHTML = "";
+  document.querySelector("#signup-table tbody").innerHTML = "";
+}
 
 async function refresh() {
   let data;
+  const authGeneration = OrganizerAuth.generation();
+  const organizerKey = OrganizerAuth.key();
+  if (!organizerKey) return false;
   try {
-    data = await EventAPI.dashboardData();
+    data = await EventAPI.dashboardData(organizerKey);
   } catch (e) {
     console.error(e);
-    return;
+    OrganizerAuth.handleError(e, authGeneration);
+    return false;
   }
+  if (!OrganizerAuth.isCurrent(authGeneration)) return false;
 
   document.getElementById("totals-grid").innerHTML = `
     <div class="dash-card"><div class="num">${data.totals.registered}</div><div class="lbl">Registered</div></div>
@@ -97,32 +127,54 @@ async function refresh() {
 
   signupBody.querySelectorAll(".confirm-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      const requestGeneration = OrganizerAuth.generation();
+      const requestKey = OrganizerAuth.key();
       btn.disabled = true; btn.textContent = "Saving…";
       try {
-        await EventAPI.confirmSignupInPerson(btn.dataset.id, "staff");
+        await EventAPI.confirmSignupInPerson(btn.dataset.id, "staff", requestKey);
+        if (!OrganizerAuth.isCurrent(requestGeneration)) return;
         toast("Confirmed!");
         refresh();
       } catch (e) {
         console.error(e);
+        if (OrganizerAuth.handleError(e, requestGeneration)) return;
         toast("Couldn't confirm — try again.");
         btn.disabled = false; btn.textContent = "Confirm";
       }
     });
   });
+  return true;
 }
-
-refresh();
-setInterval(refresh, 4000);
 
 document.getElementById("btn-reset").addEventListener("click", async () => {
   if (!confirm("Reset all demo data? This clears every attendee, check-in, and sign-up.")) return;
+  const requestGeneration = OrganizerAuth.generation();
+  const requestKey = OrganizerAuth.key();
   try {
-    await fetch(window.EVENT_APP_CONFIG.API_BASE_URL + "/resetDemo", { method: "POST" });
+    await EventAPI.resetDemo(requestKey);
+    if (!OrganizerAuth.isCurrent(requestGeneration)) return;
     toast("Demo data reset.");
     refresh();
   } catch (e) {
+    if (OrganizerAuth.handleError(e, requestGeneration)) return;
     toast("Reset isn't available on this backend.");
   }
+});
+
+if (window.EVENT_APP_CONFIG.API_BASE_URL.includes("script.google.com")) {
+  document.getElementById("btn-reset").style.display = "none";
+}
+
+OrganizerAuth.init({
+  onUnlocked: async () => {
+    const refreshed = await refresh();
+    if (refreshed && OrganizerAuth.key() && !refreshTimer) refreshTimer = setInterval(refresh, 4000);
+  },
+  onLocked: () => {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
+    clearDashboard();
+  },
 });
 </script>
 </body>

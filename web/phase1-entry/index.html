@@ -85,7 +85,13 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
   try {
     const identity = Identity.get();
     const result = await EventAPI.registerAttendee(identity.attendeeId, val);
-    Identity.set({ name: val, raffleNumber: result.raffleNumber });
+    if (result.isNew) Identity.clear();
+    Identity.set({
+      attendeeId: result.attendeeId || identity.attendeeId,
+      name: val,
+      raffleNumber: result.raffleNumber,
+      ...(result.isNew ? { phone: "", email: "" } : {}),
+    });
     document.getElementById("ticket-name").textContent = "Hey, " + val + ".";
     document.getElementById("ticket-number").textContent = "#" + result.raffleNumber;
     document.getElementById("s-welcome").style.display = "none";
@@ -110,6 +116,7 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
     window.location.href = "../phase2-booths/hub.html";
   } catch (e) {
     console.error(e);
+    if (Identity.restartIfMissing(e, "index.html")) return;
     toast("Couldn't confirm — check the connection and try again.");
     btn.disabled = false; btn.textContent = "Enter the Gym →";
   }

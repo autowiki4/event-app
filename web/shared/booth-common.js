@@ -7,7 +7,7 @@
 let _boothStars = 0;
 
 function initBoothGate({ boothId, boothName, onReady }) {
-  const identity = Identity.get();
+  let identity = Identity.get();
   const gateEl = document.getElementById("booth-gate");
   const ifaceEl = document.getElementById("booth-interface");
 
@@ -18,7 +18,15 @@ function initBoothGate({ boothId, boothName, onReady }) {
   }
 
   if (identity.phone) {
-    showInterface();
+    gateEl.style.display = "none";
+    ifaceEl.style.display = "none";
+    EventAPI.myCheckins(identity.attendeeId)
+      .then(showInterface)
+      .catch((error) => {
+        console.error(error);
+        if (Identity.restartIfMissing(error, "../phase1-entry/index.html")) return;
+        toast("Couldn't verify your check-in — check the connection and reload.");
+      });
     return;
   }
 
@@ -28,6 +36,7 @@ function initBoothGate({ boothId, boothName, onReady }) {
     const input = document.getElementById("booth-phone-input");
     const err = document.getElementById("err-booth-phone");
     const digits = input.value.replace(/\D/g, "");
+    err.textContent = "Enter your number to check in at this booth.";
     if (digits.length < 10) { err.style.display = "block"; return; }
     err.style.display = "none";
 
@@ -35,13 +44,25 @@ function initBoothGate({ boothId, boothName, onReady }) {
     btn.disabled = true; btn.textContent = "Checking in…";
     try {
       const result = await EventAPI.findOrRegisterByPhone(identity.attendeeId, digits, identity.name);
-      Identity.set({ phone: digits, name: result.name || identity.name, raffleNumber: result.raffleNumber });
+      Identity.set({
+        attendeeId: result.attendeeId || identity.attendeeId,
+        phone: digits,
+        name: result.name || identity.name,
+        raffleNumber: result.raffleNumber,
+      });
       if (!result.isNew) toast("Checked in! Welcome back, " + (result.name || "friend") + ".");
       else toast("Checked in!");
       showInterface();
     } catch (e) {
       console.error(e);
-      toast("Couldn't check in — check the connection and try again.");
+      if (e.code === "PHONE_ALREADY_LINKED") {
+        err.textContent = "That phone is connected on another device. Restart at Entry on this device, then ask staff to pair the new raffle ticket.";
+        err.style.display = "block";
+      } else if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) {
+        return;
+      } else {
+        toast("Couldn't check in — check the connection and try again.");
+      }
       btn.disabled = false; btn.textContent = "Check in at this booth →";
     }
   });
@@ -81,6 +102,7 @@ async function finishBooth(boothId, boothName) {
     window.location.href = "hub.html";
   } catch (e) {
     console.error(e);
+    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
     toast("Couldn't save — check the connection and try again.");
     btn.disabled = false; btn.textContent = "Done — back to Gym →";
   }

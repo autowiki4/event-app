@@ -71,21 +71,33 @@ You'll see:
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
-  Print QR codes:       http://localhost:3000/organizer/qr-codes.html
+  QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
+  Local testing:        open Phase 1 directly; no QR scan required
+  Local organizer key:  demo
 ```
 
 Open any of those links in your browser — that's the whole app running
 locally on your machine, with a local, throwaway copy of the "database"
 (no attendee's real data, nothing shared with anyone else).
 
+For ordinary local testing, open the Phase 1 URL directly and ignore QR
+codes entirely. QR generation is only needed once the site has a real
+public URL to encode.
+
 **To stop the server:** click back into that terminal window and press
 `Ctrl+C`.
+
+**To run the zero-dependency regression suite:** from `demo-server/`, run
+`npm test`. It covers identity pairing/merging, organizer authorization,
+API error propagation, and the protected dashboard mutations.
 
 **To reset the demo data** (start over with zero attendees): either click
 "Reset demo data" at the bottom of the organizer dashboard, or run:
 
 ```
-curl -X POST http://localhost:3000/api/resetDemo
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"organizerKey":"demo"}' \
+  http://localhost:3000/api/resetDemo
 ```
 
 Want a guided, step-by-step walkthrough of every part of the app, written
@@ -137,7 +149,8 @@ the demo server, or later via a real web host) and they work.
   they are between pages), `booths-config.js` (the list of booths, trivia
   questions, sign-up options — edit this file to change any of that
   content), `booth-common.js` (shared behavior for self-service booths),
-  `toast.js` (the little pop-up confirmation messages).
+  `organizer-auth.js` (page-memory-only staff access), and `toast.js` (the
+  little pop-up confirmation messages).
 
 - **`web/phase1-entry/index.html`** — what the entry QR code points to.
   Name entry → raffle ticket → wristband confirmation checkbox → "Enter
@@ -150,7 +163,11 @@ the demo server, or later via a real web host) and they work.
     Live").
   - **Kiosk** (one staff-held device runs the whole booth; attendees never
     open anything themselves): `kiosk-art.html` ("Art Therapy Table"),
-    `kiosk-newsong.html` ("The New Song in Nashville").
+    `kiosk-newsong.html` ("The New Song in Nashville"). Staff unlock a
+    kiosk on that page (and re-enter the key after a reload). On a phone's
+    first kiosk visit, staff verify the shown name/raffle before confirming
+    the pairing. Visitors who truly skipped entry can be created after staff
+    enter their name; the kiosk shows the new raffle number to give them.
   - **`hub.html`** — "The Gym" screen attendees see after Phase 1, listing
     all five booths and which ones they've already completed.
 
@@ -165,7 +182,8 @@ the demo server, or later via a real web host) and they work.
 - **`web/organizer/`** — for staff, not attendees:
   - **`dashboard.html`** — live-updating view of registrations, wristband
     confirmations, booth check-in counts, the Bible Bowl leaderboard, song
-    votes, and a queue of Phase 3 sign-ups to confirm in person.
+    votes, and a queue of Phase 3 sign-ups to confirm in person. It stays
+    locked until staff enter the runtime organizer key.
   - **`qr-codes.html`** — generates and prints the QR codes for the door
     and each self-service booth.
 
@@ -202,15 +220,22 @@ to. That's on purpose: build and rehearse everything against
   time, since a new visitor is standing there each time.
 - **Dashboard shows nothing / stays at zero** — make sure you're looking
   at the dashboard from the *same* server you registered attendees on
-  (e.g. both on `localhost:3000`, not one on `3000` and one on `3001`).
+  (e.g. both on `localhost:3000`, not one on `3000` and one on `3001`) and
+  that you unlocked it with the local key `demo`.
+- **A kiosk asks for a raffle number** — this is how staff securely attach
+  a first-time kiosk phone number to the attendee record created at entry.
+  Verify the name and number in the confirmation against their ticket.
+  Returning phones can leave it blank. Only mark "skipped entry" when the
+  visitor really has no entry raffle number, then give them the new number
+  displayed by the kiosk.
 
 ---
 
 ## Going from demo to the real event
 
 1. Deploy the production backend — follow `apps-script/README.md`
-   end-to-end (create a Google Sheet, paste in `Code.gs`, deploy as a Web
-   App, copy the URL it gives you).
+   end-to-end (create a Google Sheet, set a strong organizer key in Script
+   Properties, paste in `Code.gs`, deploy as a Web App, and copy its URL).
 2. Host the `web/` folder somewhere public — any static host works
    (Netlify, GitHub Pages, Vercel), since every page is plain HTML/CSS/JS
    with no build step.

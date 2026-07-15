@@ -43,5 +43,13 @@ const Identity = (function () {
     localStorage.removeItem(KEY);
   }
 
-  return { get, set, clear };
+  function restartIfMissing(error, entryUrl) {
+    if (!error || error.code !== "ATTENDEE_NOT_FOUND") return false;
+    clear();
+    try { sessionStorage.removeItem("eventapp.chosen"); } catch (e) { /* optional recap state */ }
+    window.location.href = entryUrl;
+    return true;
+  }
+
+  return { get, set, clear, restartIfMissing };
 })();

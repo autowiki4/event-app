@@ -4,7 +4,8 @@ Goal: show an audience the whole journey — Phase 1 entry, Phase 2 booths
 (both self-service and staff kiosk), Phase 3 sign-up, and the organizer
 dashboard tying it all together in real time — using nothing but a laptop
 and the local demo server (no Google account, no deployment, no internet
-required except to load Google Fonts and the QR library).
+required except to load Google Fonts). QR generation is optional and can be
+skipped completely during local testing.
 
 If you haven't run anything in this repo before, read this section first;
 if you've already got the demo server running, skip to **1. Before the
@@ -47,7 +48,9 @@ prints every URL you need. If you rehearsed earlier and want a clean slate,
 reset first:
 
 ```
-curl -X POST http://localhost:3000/api/resetDemo
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"organizerKey":"demo"}' \
+  http://localhost:3000/api/resetDemo
 ```
 
 (or click "Reset demo data" at the bottom of the organizer dashboard once
@@ -76,6 +79,10 @@ the same time (that's where the "different devices, same person" moment
 lands hardest). Window B can be a second laptop/tablet if you have one, to
 really sell the "staff device" idea — but a third browser window works
 fine too.
+
+When Windows B and C show the staff-access gate, enter the local organizer
+key printed by the server: **`demo`**. It stays only in that page's memory, so
+reloads and other staff pages ask for it again.
 
 ## 2. The walkthrough script
 
@@ -110,7 +117,11 @@ line or two of what to say.
 
 9. Switch to Window B (Art Therapy kiosk). *"This is a tablet sitting at
    the art table all day — nobody's phone touches this, staff run it."*
-10. Type the **same phone number** you used in Window A.
+10. Type the **same phone number** you used in Window A. Because that phone
+    was already linked at the self-service booth, leave raffle number blank.
+    If the kiosk had been the first booth, staff would also enter the raffle
+    number shown in Window A; that securely attaches the phone without
+    creating a second attendee or raffle entry.
 11. *"Watch — it already knows this is Jordan."* — the visitor's name
     appears, pulled from the record Window A created a minute ago.
 12. Show a prompt, click **Done — next visitor**.
@@ -138,11 +149,12 @@ line or two of what to say.
     sign-up table talks to this person face to face. Until someone taps
     this, it's just an intention, not a commitment."*
 
-**QR codes (optional, if time allows)**
+**QR codes (optional — skip for normal local testing)**
 
 19. Open `organizer/qr-codes.html` — show the live-generated codes for the
     door and each self-service booth, and mention printing them before the
-    real event.
+    real event. Nothing else in this walkthrough depends on this page; it is
+    reasonable to leave it out until the app has a deployed public URL.
 
 ## 3. Questions to be ready for
 
@@ -153,8 +165,9 @@ line or two of what to say.
 - **"What if someone doesn't have a smartphone?"** — Any booth can be
   handled by staff on the kiosk pattern already used for Art Therapy /
   New Song — a staff member can walk someone through Phase 1 and 2 on
-  their own device too, using the person's phone number as the ID either
-  way.
+  their own device too. Staff verify and confirm the person's raffle ticket,
+  or enter their name and explicitly mark that they skipped entry; the kiosk
+  then provides a new raffle number.
 - **"Can two people be at the same booth on Window A and Window B at
   once?"** — Yes — every booth page (self-service or kiosk) just calls
   the same backend independently per visit; there's no per-booth
@@ -169,8 +182,9 @@ line or two of what to say.
 1. Find your laptop's local IP (e.g. `ipconfig getifaddr en0` on a Mac).
 2. Make sure phones are on the **same wifi** as the laptop.
 3. Use `http://<that-ip>:3000/...` instead of `localhost` on the phones.
-4. Regenerate QR codes from `organizer/qr-codes.html` with that IP as the
-   base URL so they're actually scannable.
+4. Either type the direct URLs on each device, or regenerate QR codes from
+   `organizer/qr-codes.html` with that IP as the base URL if you specifically
+   want to rehearse scanning.
 
 This is closer to how the real event will feel, but takes a bit more setup
 — the incognito-windows version above is faster to rehearse and just as

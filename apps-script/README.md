@@ -37,7 +37,19 @@ into the Apps Script editor.
 Ctrl/Cmd+S, or the save icon. You can rename the project (top left, "Untitled
 project") to something like "Event App Backend" if you want — optional.
 
-**5. Deploy it as a Web App.**
+**5. Configure the organizer access key.**
+In the Apps Script editor, open **Project Settings** (gear icon), scroll to
+**Script Properties**, and add:
+
+- **Property:** `ORGANIZER_KEY`
+- **Value:** a long, unique event key (use a password-manager-generated value,
+  not a four-digit PIN)
+
+Staff type this value into dashboard and kiosk pages at runtime. It is not
+checked into the static site or placed in a URL. Store it in your team password
+manager and share it only with event staff.
+
+**6. Deploy it as a Web App.**
 Click **Deploy → New deployment**. If it asks for a deployment type,
 click the gear icon and choose **Web app**. Then set:
 - **Execute as:** Me (your Google account)
@@ -45,7 +57,7 @@ click the gear icon and choose **Web app**. Then set:
 
 Click **Deploy**.
 
-**6. Authorize it.**
+**7. Authorize it.**
 The first time, Google will ask you to authorize the script. This part
 trips people up because of a scary-looking warning — here's exactly what
 to click:
@@ -57,12 +69,12 @@ to click:
    script read/write this specific spreadsheet — that's expected, it's
    how it stores attendee data).
 
-**7. Copy the Web app URL.**
+**8. Copy the Web app URL.**
 After deploying, a dialog shows a URL ending in `/exec`. Copy it — you'll
 need it in the next step. (You can always find it again later under
 **Deploy → Manage deployments**.)
 
-**8. Point the app at it.**
+**9. Point the app at it.**
 Open `../web/shared/config.js` in this repo and change:
 
 ```js
@@ -77,18 +89,13 @@ API_BASE_URL: "https://script.google.com/macros/s/YOUR_ID_HERE/exec",
 
 using the URL you copied. Save the file.
 
-**9. Test it.**
-Paste your URL with `/dashboardData` on the end into a browser address
-bar, e.g.:
-
-```
-https://script.google.com/macros/s/YOUR_ID_HERE/exec/dashboardData
-```
-
-You should see plain JSON like `{"totals":{"registered":0,...}}`. If you
-see that, it's working — go host `../web/` somewhere (see the main
-`README.md`'s "Going from demo to the real event" section) and you're
-live.
+**10. Test it through the app.**
+Serve or host the `web/` folder, open `organizer/dashboard.html`, and enter the
+organizer key from step 5. A successful unlock proves the protected POST API
+and Script Property are both working. Then register one throwaway attendee and
+confirm that the dashboard total changes. The dashboard is intentionally not
+testable through a public `/dashboardData` browser URL anymore; that endpoint
+contains names and phone numbers and now requires an authenticated POST body.
 
 ## Redeploying after you edit `Code.gs` again
 
@@ -107,14 +114,15 @@ change `Code.gs`.
 
 ## Troubleshooting
 
-- **"Google hasn't verified this app"** — expected, see step 6. This
+- **"Google hasn't verified this app"** — expected, see step 7. This
   warning appears because it's a script you own but haven't published for
   public verification; it's not a sign anything is wrong.
-- **The test URL from step 9 shows an error page instead of JSON** — make
-  sure you included the action name after `/exec` (e.g. `/dashboardData`,
-  not just `/exec` by itself — hitting bare `/exec` will return an
-  "unknown action" JSON error, which is actually a sign it's *working*,
-  just missing the action name).
+- **The dashboard says organizer access is not configured** — add the exact
+  `ORGANIZER_KEY` Script Property from step 5, then reload. Script Property
+  changes do not require putting the secret in `config.js`.
+- **The dashboard rejects the organizer key** — confirm staff entered the
+  exact Script Property value. The key is case-sensitive and stays only in the
+  current page's memory; re-enter it after reloads and on each staff page.
 - **Changes you made aren't showing up** — you edited `Code.gs` but didn't
   create a **new version** under Manage deployments (see above). Apps
   Script won't auto-update a live deployment.
@@ -124,8 +132,8 @@ change `Code.gs`.
 - **Attendee data isn't showing up in the Sheet's visible tabs** — the
   tabs (`Attendees`, `BoothCheckins`, `SignUps`, `Meta`) are created
   automatically the first time each one is used, not when you first
-  deploy. If you deployed and tested `/dashboardData` before anyone
-  registered, you may only see some tabs at first — that's expected.
+  deploy. If you unlocked the dashboard before anyone registered, you may
+  only see some tabs at first — that's expected.
 - **Want to see the raw data as it comes in?** Just open the Google Sheet
   itself in a browser tab and leave it there — new rows appear as
   attendees interact with the app, no refresh needed (Sheets auto-updates

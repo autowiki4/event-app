@@ -18,11 +18,38 @@
     <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🖌️</span><em>Art Therapy Table</em></h1>
     <p class="lede">One device for the whole booth. Enter each visitor's phone number, show them the prompt, then move to the next person.</p>
 
+    <div class="organizer-access" id="organizer-access">
+      <h2>Staff access</h2>
+      <p>Unlock this kiosk with the event organizer key.</p>
+      <div class="field">
+        <label for="organizer-key">Organizer access key</label>
+        <input id="organizer-key" type="password" autocomplete="off">
+        <div class="hint">Local demo default: <b>demo</b>.</div>
+        <div class="err" id="err-organizer-key"></div>
+      </div>
+      <button class="btn btn-primary" id="btn-organizer-unlock">Unlock staff view →</button>
+    </div>
+
+    <div id="organizer-content" style="display:none;">
+    <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock kiosk</button></div>
     <div id="step-lookup">
       <div class="field">
         <label for="phone-input">Visitor's phone number</label>
         <input id="phone-input" type="tel" inputmode="tel" autocomplete="off" placeholder="(555) 555-5555">
         <div class="err" id="err-phone">Enter their number to check in.</div>
+      </div>
+      <div class="field">
+        <label for="raffle-input">Raffle number</label>
+        <input id="raffle-input" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+        <div class="hint">Needed the first time this phone visits a kiosk. Returning phones can leave it blank.</div>
+        <div class="err" id="err-raffle"></div>
+      </div>
+      <label class="check-row"><input id="skipped-entry" type="checkbox"> This visitor skipped entry and has no raffle number. Create their attendee record here.</label>
+      <div class="field" id="skipped-name-field" style="display:none;">
+        <label for="skipped-name">Visitor's first name</label>
+        <input id="skipped-name" type="text" autocomplete="off" placeholder="e.g. Jordan">
+        <div class="hint">They will receive a new raffle number here.</div>
+        <div class="err" id="err-skipped-name">Enter their name before creating the record.</div>
       </div>
       <button class="btn btn-primary" id="btn-lookup">Check in visitor →</button>
     </div>
@@ -31,6 +58,7 @@
       <div class="booth-guide" style="margin-bottom:16px;">
         <div class="g-kicker" id="visitor-name">Guest</div>
         <div class="g-loc" id="prompt-text">Prompt</div>
+        <div class="g-detail" id="visitor-raffle"></div>
       </div>
       <button class="btn btn-ghost" id="btn-next-prompt">Show a different prompt</button>
       <div class="field" style="margin-top:16px;">
@@ -41,11 +69,13 @@
       </div>
       <button class="btn btn-primary" id="btn-done" style="margin-top:6px;">Done — next visitor →</button>
     </div>
+    </div>
   </section>
 </div>
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/organizer-auth.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script>
@@ -60,31 +90,100 @@ function showPrompt() {
   document.getElementById("prompt-text").textContent = ART_PROMPTS[promptIndex % ART_PROMPTS.length];
 }
 
+function resetKiosk() {
+  currentVisitor = null;
+  stars = 0;
+  document.getElementById("phone-input").value = "";
+  document.getElementById("raffle-input").value = "";
+  document.getElementById("raffle-input").disabled = false;
+  document.getElementById("skipped-entry").checked = false;
+  document.getElementById("skipped-name").value = "";
+  document.getElementById("skipped-name-field").style.display = "none";
+  document.getElementById("err-phone").style.display = "none";
+  document.getElementById("err-raffle").style.display = "none";
+  document.getElementById("err-skipped-name").style.display = "none";
+  document.getElementById("step-prompt").style.display = "none";
+  document.getElementById("step-lookup").style.display = "block";
+  document.getElementById("visitor-name").textContent = "Guest";
+  document.getElementById("prompt-text").textContent = "Prompt";
+  document.getElementById("visitor-raffle").textContent = "";
+  document.getElementById("btn-lookup").disabled = false;
+  document.getElementById("btn-lookup").textContent = "Check in visitor →";
+  document.getElementById("btn-done").disabled = false;
+  document.getElementById("btn-done").textContent = "Done — next visitor →";
+  document.querySelectorAll("#booth-stars .star").forEach((el) => el.classList.remove("on"));
+}
+
 document.getElementById("btn-lookup").addEventListener("click", async () => {
   const input = document.getElementById("phone-input");
   const err = document.getElementById("err-phone");
+  const raffleInput = document.getElementById("raffle-input");
+  const raffleErr = document.getElementById("err-raffle");
+  const skippedEntry = document.getElementById("skipped-entry").checked;
+  const skippedName = document.getElementById("skipped-name").value.trim();
+  const skippedNameErr = document.getElementById("err-skipped-name");
   const digits = input.value.replace(/\D/g, "");
   if (digits.length < 10) { err.style.display = "block"; return; }
+  if (skippedEntry && !skippedName) { skippedNameErr.style.display = "block"; return; }
   err.style.display = "none";
+  raffleErr.style.display = "none";
+  skippedNameErr.style.display = "none";
 
   const btn = document.getElementById("btn-lookup");
   btn.disabled = true; btn.textContent = "Checking in…";
+  const authGeneration = OrganizerAuth.generation();
+  const organizerKey = OrganizerAuth.key();
   try {
-    // Kiosk devices don't carry an attendeeId of their own — identity is
-    // resolved purely by phone number, since a new person walks up each time.
-    const result = await EventAPI.findOrRegisterByPhone(null, digits, "Guest");
-    currentVisitor = { phone: digits, name: result.name };
+    const options = {
+      raffleNumber: skippedEntry ? "" : raffleInput.value,
+      allowCreate: skippedEntry,
+      organizerKey,
+    };
+    let result = await EventAPI.findOrRegisterByPhone(null, digits, skippedEntry ? skippedName : "Guest", options);
+    if (!OrganizerAuth.isCurrent(authGeneration)) return;
+    if (result.requiresPairingConfirmation) {
+      const confirmed = window.confirm(
+        `Confirm the ticket before pairing:\n\n${result.name || "Guest"} · raffle #${result.raffleNumber}\nPhone ending ${digits.slice(-4)}`
+      );
+      if (!confirmed) {
+        raffleErr.textContent = "Pairing cancelled. Check the visitor's ticket and try again.";
+        raffleErr.style.display = "block";
+        return;
+      }
+      result = await EventAPI.findOrRegisterByPhone(null, digits, "Guest", {
+        ...options,
+        confirmPairing: true,
+      });
+      if (!OrganizerAuth.isCurrent(authGeneration)) return;
+    }
+    currentVisitor = {
+      attendeeId: result.attendeeId,
+      phone: digits,
+      name: result.name,
+      raffleNumber: result.raffleNumber,
+    };
     promptIndex = Math.floor(Math.random() * ART_PROMPTS.length);
     stars = 0;
     document.querySelectorAll("#booth-stars .star").forEach((el) => el.classList.remove("on"));
     showPrompt();
+    document.getElementById("visitor-raffle").textContent = "Raffle #" + result.raffleNumber;
+    if (result.isNew) toast("Created attendee — give them raffle #" + result.raffleNumber + ".");
     document.getElementById("step-lookup").style.display = "none";
     document.getElementById("step-prompt").style.display = "block";
   } catch (e) {
     console.error(e);
-    toast("Couldn't check in — check the connection and try again.");
+    const authHandled = OrganizerAuth.handleError(e, authGeneration);
+    if (!authHandled && ["RAFFLE_REQUIRED", "RAFFLE_NOT_FOUND", "IDENTITY_CONFLICT"].includes(e.code)) {
+      raffleErr.textContent = e.message;
+      raffleErr.style.display = "block";
+    } else if (!authHandled) {
+      toast("Couldn't check in — check the connection and try again.");
+    }
+  } finally {
+    if (OrganizerAuth.isCurrent(authGeneration)) {
+      btn.disabled = false; btn.textContent = "Check in visitor →";
+    }
   }
-  btn.disabled = false; btn.textContent = "Check in visitor →";
 });
 
 document.getElementById("btn-next-prompt").addEventListener("click", () => {
@@ -103,27 +202,44 @@ document.querySelectorAll("#booth-stars .star").forEach((s) => {
 
 document.getElementById("btn-done").addEventListener("click", async () => {
   const btn = document.getElementById("btn-done");
+  if (!currentVisitor || btn.disabled) return;
+  const visitor = currentVisitor;
+  const authGeneration = OrganizerAuth.generation();
+  const organizerKey = OrganizerAuth.key();
   btn.disabled = true; btn.textContent = "Saving…";
   try {
     await EventAPI.boothCheckin({
-      phone: currentVisitor.phone,
+      attendeeId: visitor.attendeeId,
+      phone: visitor.phone,
       boothId: BOOTH_ID,
       boothName: BOOTH_NAME,
       checkedInBy: "staff-kiosk",
       rating: stars || null,
       extraData: { promptShown: ART_PROMPTS[promptIndex % ART_PROMPTS.length] },
+      organizerKey,
     });
+    if (!OrganizerAuth.isCurrent(authGeneration) || currentVisitor !== visitor) return;
     toast("Saved! Ready for the next visitor.");
-    currentVisitor = null;
-    document.getElementById("phone-input").value = "";
-    document.getElementById("step-prompt").style.display = "none";
-    document.getElementById("step-lookup").style.display = "block";
+    resetKiosk();
   } catch (e) {
     console.error(e);
-    toast("Couldn't save — check the connection and try again.");
+    if (!OrganizerAuth.handleError(e, authGeneration)) toast("Couldn't save — check the connection and try again.");
+  } finally {
+    if (currentVisitor === visitor && OrganizerAuth.isCurrent(authGeneration)) {
+      btn.disabled = false; btn.textContent = "Done — next visitor →";
+    }
   }
-  btn.disabled = false; btn.textContent = "Done — next visitor →";
 });
+
+document.getElementById("skipped-entry").addEventListener("change", (event) => {
+  const input = document.getElementById("raffle-input");
+  input.disabled = event.target.checked;
+  document.getElementById("skipped-name-field").style.display = event.target.checked ? "block" : "none";
+  document.getElementById("err-skipped-name").style.display = "none";
+  if (event.target.checked) input.value = "";
+});
+
+OrganizerAuth.init({ onLocked: resetKiosk });
 </script>
 </body>
 </html>

@@ -17,11 +17,11 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const url = require("url");
 
-const DB_PATH = path.join(__dirname, "db.json");
+const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json");
 const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
+const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -55,16 +55,81 @@ function digitsOnly(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
+function normalizeRaffleNumber(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function organizerKeyMatches(value) {
+  const supplied = Buffer.from(String(value || ""));
+  const expected = Buffer.from(ORGANIZER_KEY);
+  return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
+function errorResult(status, error, code) {
+  return { status, body: { error, code } };
+}
+
+function requireOrganizer(body) {
+  return organizerKeyMatches(body && body.organizerKey)
+    ? null
+    : errorResult(401, "Organizer access key is invalid.", "AUTH_REQUIRED");
+}
+
+function findAttendeeById(db, attendeeId) {
+  if (!attendeeId) return null;
+  return db.attendees.find((a) => a.attendeeId === attendeeId || (a.aliasIds || []).includes(attendeeId));
+}
+
+function findAttendeeByPhone(db, phone) {
+  const dPhone = digitsOnly(phone);
+  if (!dPhone) return null;
+  return db.attendees.find((a) => a.phone === dPhone);
+}
+
+function findAttendeeByRaffle(db, raffleNumber) {
+  const normalized = normalizeRaffleNumber(raffleNumber);
+  if (!normalized) return null;
+  return db.attendees.find((a) => String(a.raffleNumber) === normalized);
+}
+
 // Find an attendee by attendeeId (checking aliases too — a phone number
 // can get linked to more than one device/attendeeId over the course of
 // the day) or by phone.
 function findAttendee(db, { attendeeId, phone }) {
-  const dPhone = phone ? digitsOnly(phone) : null;
-  return db.attendees.find((a) => {
-    if (attendeeId && (a.attendeeId === attendeeId || (a.aliasIds || []).includes(attendeeId))) return true;
-    if (dPhone && a.phone === dPhone) return true;
-    return false;
+  return findAttendeeById(db, attendeeId) || findAttendeeByPhone(db, phone);
+}
+
+function meaningfulName(primary, fallback) {
+  if (primary && primary !== "Guest") return primary;
+  if (fallback) return fallback;
+  return primary || "Guest";
+}
+
+function mergeAttendees(db, canonical, duplicate, phone) {
+  if (!canonical || !duplicate || canonical === duplicate) return canonical;
+
+  const duplicateIds = new Set([duplicate.attendeeId, ...(duplicate.aliasIds || [])]);
+  canonical.aliasIds = Array.from(new Set([
+    ...(canonical.aliasIds || []),
+    ...duplicateIds,
+  ])).filter((value) => value && value !== canonical.attendeeId);
+  canonical.phone = digitsOnly(phone) || canonical.phone || duplicate.phone || null;
+  canonical.name = meaningfulName(canonical.name, duplicate.name);
+  canonical.wristbandConfirmedAt = canonical.wristbandConfirmedAt || duplicate.wristbandConfirmedAt || null;
+  if (!canonical.registeredAt || (duplicate.registeredAt && duplicate.registeredAt < canonical.registeredAt)) {
+    canonical.registeredAt = duplicate.registeredAt;
+  }
+
+  [db.boothCheckins, db.signups].forEach((rows) => {
+    rows.forEach((row) => {
+      if (!duplicateIds.has(row.attendeeId)) return;
+      row.attendeeId = canonical.attendeeId;
+      row.phone = canonical.phone;
+      row.name = canonical.name;
+    });
   });
+  db.attendees = db.attendees.filter((attendee) => attendee !== duplicate);
+  return canonical;
 }
 
 // ---------- API actions (request body/query already parsed) ----------
@@ -74,7 +139,9 @@ function registerAttendee(body) {
   if (!attendeeId || !name) return { status: 400, body: { error: "attendeeId and name required" } };
   const db = readDb();
   let attendee = findAttendee(db, { attendeeId });
+  let isNew = false;
   if (!attendee) {
+    isNew = true;
     db.raffleCounter += 1;
     attendee = {
       attendeeId, aliasIds: [], name, phone: null,
@@ -86,62 +153,157 @@ function registerAttendee(body) {
     attendee.name = name;
   }
   writeDb(db);
-  return { status: 200, body: { raffleNumber: attendee.raffleNumber, attendeeId: attendee.attendeeId } };
+  return { status: 200, body: { raffleNumber: attendee.raffleNumber, attendeeId: attendee.attendeeId, isNew } };
 }
 
 function confirmWristband(body) {
   const { attendeeId } = body;
   const db = readDb();
   const attendee = findAttendee(db, { attendeeId });
-  if (!attendee) return { status: 404, body: { error: "attendee not found" } };
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
   attendee.wristbandConfirmedAt = new Date().toISOString();
   writeDb(db);
   return { status: 200, body: { ok: true } };
 }
 
 function findOrRegisterByPhone(body) {
-  const { attendeeId, phone, name } = body;
+  const { attendeeId, phone, name, raffleNumber, allowCreate, organizerKey, confirmPairing } = body;
   const dPhone = digitsOnly(phone);
   if (dPhone.length < 10) return { status: 400, body: { error: "valid phone required" } };
-  const db = readDb();
+  const normalizedRaffle = normalizeRaffleNumber(raffleNumber);
+  const isOrganizer = organizerKeyMatches(organizerKey);
 
-  let attendee = db.attendees.find((a) => a.phone === dPhone);
-  if (attendee) {
-    if (attendeeId && attendee.attendeeId !== attendeeId && !(attendee.aliasIds || []).includes(attendeeId)) {
-      attendee.aliasIds = attendee.aliasIds || [];
-      attendee.aliasIds.push(attendeeId);
+  // Staff kiosks have no attendee identity of their own. Their phone lookup,
+  // raffle pairing, and skip-entry creation path are organizer-only.
+  if (!attendeeId && !isOrganizer) return requireOrganizer(body);
+  if (normalizedRaffle && !isOrganizer) return requireOrganizer(body);
+
+  const db = readDb();
+  const phoneAttendee = findAttendeeByPhone(db, dPhone);
+  const idAttendee = findAttendeeById(db, attendeeId);
+
+  if (normalizedRaffle) {
+    let raffleAttendee = findAttendeeByRaffle(db, normalizedRaffle);
+    if (!raffleAttendee) {
+      return errorResult(404, "No attendee has that raffle number.", "RAFFLE_NOT_FOUND");
     }
+    if (raffleAttendee.phone && raffleAttendee.phone !== dPhone) {
+      return errorResult(409, "That raffle number is already linked to another phone.", "IDENTITY_CONFLICT");
+    }
+    const needsPairing = !raffleAttendee.phone || (phoneAttendee && phoneAttendee !== raffleAttendee);
+    if (needsPairing && confirmPairing !== true) {
+      return {
+        status: 200,
+        body: {
+          requiresPairingConfirmation: true,
+          raffleNumber: raffleAttendee.raffleNumber,
+          name: raffleAttendee.name,
+        },
+      };
+    }
+    if (phoneAttendee && phoneAttendee !== raffleAttendee) {
+      raffleAttendee = mergeAttendees(db, raffleAttendee, phoneAttendee, dPhone);
+    }
+    raffleAttendee.phone = dPhone;
     writeDb(db);
-    return { status: 200, body: { raffleNumber: attendee.raffleNumber, isNew: false, name: attendee.name } };
+    return {
+      status: 200,
+      body: {
+        attendeeId: raffleAttendee.attendeeId,
+        raffleNumber: raffleAttendee.raffleNumber,
+        isNew: false,
+        name: raffleAttendee.name,
+      },
+    };
   }
 
-  attendee = attendeeId ? db.attendees.find((a) => a.attendeeId === attendeeId) : null;
-  if (attendee) {
-    attendee.phone = dPhone;
+  if (phoneAttendee) {
+    if (idAttendee && phoneAttendee !== idAttendee) {
+      // Knowing a phone number is not proof of ownership. A staff member must
+      // pair records after the visitor registers this browser at entry.
+      return errorResult(409, "That phone is already linked on another device. Restart at entry on this device, then ask staff for help.", "PHONE_ALREADY_LINKED");
+    }
+    if (!idAttendee && attendeeId && !isOrganizer) {
+      return errorResult(409, "That phone is already linked. Ask staff for help.", "PHONE_ALREADY_LINKED");
+    }
+    if (attendeeId && phoneAttendee.attendeeId !== attendeeId && !(phoneAttendee.aliasIds || []).includes(attendeeId)) {
+      phoneAttendee.aliasIds = Array.from(new Set([...(phoneAttendee.aliasIds || []), attendeeId]));
+    }
     writeDb(db);
-    return { status: 200, body: { raffleNumber: attendee.raffleNumber, isNew: false, name: attendee.name } };
+    return {
+      status: 200,
+      body: {
+        attendeeId: phoneAttendee.attendeeId,
+        raffleNumber: phoneAttendee.raffleNumber,
+        isNew: false,
+        name: phoneAttendee.name,
+      },
+    };
+  }
+
+  if (idAttendee) {
+    if (idAttendee.phone && idAttendee.phone !== dPhone) {
+      return errorResult(409, "This attendee is already linked to another phone.", "IDENTITY_CONFLICT");
+    }
+    idAttendee.phone = dPhone;
+    writeDb(db);
+    return {
+      status: 200,
+      body: {
+        attendeeId: idAttendee.attendeeId,
+        raffleNumber: idAttendee.raffleNumber,
+        isNew: false,
+        name: idAttendee.name,
+      },
+    };
+  }
+
+  // Self-service devices must have registered at Entry first. Only an
+  // authenticated staff kiosk may create a true skipped-entry visitor.
+  if (attendeeId && !isOrganizer) {
+    return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  }
+
+  if (!attendeeId && allowCreate !== true) {
+    return errorResult(409, "Enter the visitor's raffle number, or mark that they skipped entry.", "RAFFLE_REQUIRED");
   }
 
   db.raffleCounter += 1;
-  attendee = {
+  const attendee = {
     attendeeId: attendeeId || id(), aliasIds: [], name: name || "Guest", phone: dPhone,
     raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: new Date().toISOString(),
   };
   db.attendees.push(attendee);
   writeDb(db);
-  return { status: 200, body: { raffleNumber: attendee.raffleNumber, isNew: true, name: attendee.name } };
+  return {
+    status: 200,
+    body: {
+      attendeeId: attendee.attendeeId,
+      raffleNumber: attendee.raffleNumber,
+      isNew: true,
+      name: attendee.name,
+    },
+  };
 }
 
 function boothCheckin(body) {
   const { attendeeId, phone, boothId, boothName, checkedInBy, rating, note, extraData } = body;
   if (!boothId) return { status: 400, body: { error: "boothId required" } };
+  if (checkedInBy === "staff-kiosk") {
+    const authError = requireOrganizer(body);
+    if (authError) return authError;
+  }
   const db = readDb();
-  const attendee = findAttendee(db, { attendeeId, phone });
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  if (phone && attendee.phone && attendee.phone !== digitsOnly(phone)) {
+    return errorResult(409, "phone does not match attendee", "IDENTITY_CONFLICT");
+  }
   const row = {
     id: id(),
-    attendeeId: attendee ? attendee.attendeeId : attendeeId || null,
-    phone: attendee ? attendee.phone : digitsOnly(phone),
-    name: attendee ? attendee.name : null,
+    attendeeId: attendee.attendeeId,
+    phone: attendee.phone,
+    name: attendee.name,
     boothId, boothName: boothName || boothId,
     checkedInBy: checkedInBy || "self",
     checkedInAt: new Date().toISOString(),
@@ -156,12 +318,16 @@ function submitSignup(body) {
   const { attendeeId, phone, optionId, optionTitle, email, stars, comment } = body;
   if (!optionId) return { status: 400, body: { error: "optionId required" } };
   const db = readDb();
-  const attendee = findAttendee(db, { attendeeId, phone });
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  if (phone && attendee.phone && attendee.phone !== digitsOnly(phone)) {
+    return errorResult(409, "phone does not match attendee", "IDENTITY_CONFLICT");
+  }
   const row = {
     id: id(),
-    attendeeId: attendee ? attendee.attendeeId : attendeeId || null,
-    phone: attendee ? attendee.phone : digitsOnly(phone),
-    name: attendee ? attendee.name : null,
+    attendeeId: attendee.attendeeId,
+    phone: attendee.phone,
+    name: attendee.name,
     optionId, optionTitle: optionTitle || optionId,
     email: email || "", stars: stars || null, comment: comment || "",
     submittedAt: new Date().toISOString(),
@@ -174,6 +340,8 @@ function submitSignup(body) {
 
 function confirmSignupInPerson(body) {
   const { signupId, confirmedBy } = body;
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
   const db = readDb();
   const row = db.signups.find((s) => s.id === signupId);
   if (!row) return { status: 404, body: { error: "signup not found" } };
@@ -184,22 +352,25 @@ function confirmSignupInPerson(body) {
   return { status: 200, body: { ok: true } };
 }
 
-function myCheckins(query) {
-  const { attendeeId, phone } = query;
+function myCheckins(body) {
+  const { attendeeId } = body;
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
   const db = readDb();
-  const attendee = findAttendee(db, { attendeeId, phone });
-  if (!attendee) return { status: 200, body: { boothIds: [], attendee: null } };
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
   const ids = [attendee.attendeeId, ...(attendee.aliasIds || [])];
   const boothIds = db.boothCheckins
     .filter((c) => ids.includes(c.attendeeId) || (attendee.phone && c.phone === attendee.phone))
     .map((c) => c.boothId);
   return {
     status: 200,
-    body: { boothIds: Array.from(new Set(boothIds)), attendee: { name: attendee.name, raffleNumber: attendee.raffleNumber, phone: attendee.phone } },
+    body: { boothIds: Array.from(new Set(boothIds)) },
   };
 }
 
-function dashboardData() {
+function dashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
   const db = readDb();
   const totals = {
     registered: db.attendees.length,
@@ -239,16 +410,25 @@ function dashboardData() {
   return { status: 200, body: { totals, boothCounts, triviaLeaderboard, songVotes, signups } };
 }
 
-function resetDemo() {
+function resetDemo(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
   writeDb(emptyDb());
+  return { status: 200, body: { ok: true } };
+}
+
+function verifyOrganizer(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
   return { status: 200, body: { ok: true } };
 }
 
 const POST_ACTIONS = {
   registerAttendee, confirmWristband, findOrRegisterByPhone,
-  boothCheckin, submitSignup, confirmSignupInPerson, resetDemo,
+  boothCheckin, submitSignup, confirmSignupInPerson, dashboardData,
+  resetDemo, verifyOrganizer, myCheckins,
 };
-const GET_ACTIONS = { dashboardData, myCheckins };
+const GET_ACTIONS = {};
 
 // ---------- tiny static file server + router ----------
 function serveStatic(req, res, pathname) {
@@ -270,7 +450,7 @@ function sendJson(res, status, obj) {
 }
 
 const server = http.createServer((req, res) => {
-  const parsed = url.parse(req.url, true);
+  const parsed = new URL(req.url, "http://localhost");
   const pathname = parsed.pathname;
 
   if (pathname.startsWith("/api/")) {
@@ -279,7 +459,7 @@ const server = http.createServer((req, res) => {
     if (req.method === "GET") {
       const handler = GET_ACTIONS[action];
       if (!handler) return sendJson(res, 404, { error: "unknown action: " + action });
-      const result = handler(parsed.query);
+      const result = handler(Object.fromEntries(parsed.searchParams));
       return sendJson(res, result.status, result.body);
     }
 
@@ -304,9 +484,20 @@ const server = http.createServer((req, res) => {
   res.writeHead(405); res.end("Method not allowed");
 });
 
-server.listen(PORT, () => {
-  console.log(`Event app demo server running: http://localhost:${PORT}`);
-  console.log(`  Phase 1 entry:        http://localhost:${PORT}/phase1-entry/index.html`);
-  console.log(`  Organizer dashboard:  http://localhost:${PORT}/organizer/dashboard.html`);
-  console.log(`  Print QR codes:       http://localhost:${PORT}/organizer/qr-codes.html`);
-});
+function startServer(port = PORT) {
+  return server.listen(port, () => {
+    const actualPort = server.address().port;
+    console.log(`Event app demo server running: http://localhost:${actualPort}`);
+    console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
+    console.log(`  Organizer dashboard:  http://localhost:${actualPort}/organizer/dashboard.html`);
+    console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
+    console.log("  Local testing:        open Phase 1 directly; no QR scan required");
+    if (!process.env.EVENT_APP_ORGANIZER_KEY) {
+      console.log("  Local organizer key:  demo");
+    }
+  });
+}
+
+if (require.main === module) startServer();
+
+module.exports = { server, startServer, emptyDb };

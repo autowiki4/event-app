@@ -269,6 +269,19 @@ p.lede{ color:var(--ink-soft); font-size:15px; line-height:1.5; margin:0 0 22px;
   text-align:center; font-size:11px; color:#8b97b8; margin-top:14px; letter-spacing:.02em;
 }
 
+.organizer-access{
+  max-width:440px; margin:22px auto; background:#fff; border:1.5px solid var(--line);
+  border-radius:16px; padding:20px;
+}
+.organizer-access h2{ margin:0 0 6px; color:var(--ink); font-family:'Fraunces',serif; }
+.organizer-access p{ margin:0 0 16px; color:var(--ink-soft); font-size:13px; line-height:1.5; }
+.staff-toolbar{ display:flex; justify-content:flex-end; margin-bottom:8px; }
+.check-row{
+  display:flex; align-items:flex-start; gap:9px; color:var(--ink-soft); font-size:12.5px;
+  line-height:1.4; margin:-4px 0 14px; cursor:pointer;
+}
+.check-row input{ margin-top:2px; }
+
 /* Organizer dashboard is a wide layout, not a phone mock-up */
 .dash-wrap{ max-width:1040px; width:100%; background:transparent; box-shadow:none; }
 .dash-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin:18px 0; }

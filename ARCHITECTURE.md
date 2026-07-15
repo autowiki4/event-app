@@ -23,9 +23,16 @@ People move between devices during the event:
 So there needs to be one durable identity that works regardless of which device the attendee is on. Two keys, one record:
 
 - **`attendeeId`** — a random ID generated in the browser at Phase 1, saved to that phone's `localStorage`. Lets an attendee's *own* phone stay logged in across booths without re-entering anything.
-- **phone number** — collected once, at the first booth check-in. This is the key staff kiosks use to find the attendee's record, since a kiosk has no `localStorage` memory of who's standing in front of it.
+- **phone number** — collected once, at the first booth check-in. On an
+  attendee's own phone it is linked through their random `attendeeId`. At a
+  staff kiosk, the first link is paired with the raffle number already shown
+  at entry; returning phones can then be looked up directly.
 
-Both point at the same row in a Google Sheet. Whichever device is asking, the backend can always resolve "who is this."
+Both point at the same row in a Google Sheet. If staff pair a phone that was
+previously created as a "skipped entry" visitor with a later entry record, the
+backend keeps the entry record and raffle number, migrates its booth/sign-up
+history, retains the old ID as an alias, and removes the duplicate attendee.
+The model assumes one phone number belongs to one attendee for this event.
 
 ## Data store: Google Sheet ("EventDB")
 
@@ -39,9 +46,23 @@ One spreadsheet, one Apps Script Web App in front of it acting as a tiny JSON AP
 
 **Meta** — a small key/value tab; currently holds just one row, `raffleCounter`, the last raffle number handed out. Apps Script increments this under a lock before handing out each new number, so two people registering at the exact same instant can never collide.
 
+Every Apps Script action that touches the Sheet uses the same script-lock
+boundary, including dashboard/history reads. Besides keeping a merge that
+deletes a duplicate attendee row atomic with every row-number-dependent write,
+this serializes creation of the four tabs on a brand-new Sheet. The raffle
+helper requires the already-held lock rather than acquiring a nested lock, and
+pending Sheet writes are flushed before the lock is released. Public strings
+are also forced to text before they reach a Sheet cell so attendee input cannot
+be interpreted as a spreadsheet formula.
+
 This Sheet *is* "the file with everyone's name and number" you asked for — Attendees tab, filterable/exportable to CSV anytime, no separate export step needed. `File > Download > CSV` in Google Sheets covers a one-click end-of-day export. Exact column layout for every tab is in `apps-script/SHEET_SCHEMA.md`.
 
-Apps Script exposes actions like `registerAttendee`, `confirmWristband`, `findOrRegisterByPhone`, `boothCheckin`, `submitSignup`, `confirmSignupInPerson`, `dashboardData` — each just a `doPost`/`doGet` case reading/writing the Sheet. No server to host, no database to manage, free.
+Apps Script exposes actions like `registerAttendee`, `confirmWristband`,
+`findOrRegisterByPhone`, `boothCheckin`, `submitSignup`,
+`confirmSignupInPerson`, and `dashboardData`. Sensitive staff actions are
+authenticated POST requests; the organizer key lives in Apps Script's Script
+Properties rather than the public static site. There is no separate server or
+database to manage.
 
 ## Repo structure
 
@@ -73,7 +94,23 @@ Single QR code, printed once, pointing to `phase1-entry/index.html`.
 
 `hub.html` lists all booths for attendees on their own phone. Self-service booths link straight to that booth's page (identity already cached locally). Kiosk booths just tell the attendee "see staff at this table" — no link needed, since staff run it.
 
-First phone-number entry anywhere (self-service booth *or* kiosk) calls `findOrRegisterByPhone`: looks up the number, links it to the existing `attendeeId`/raffle number if found, or creates one if this is the attendee's very first touchpoint of the day (e.g., they skipped Phase 1 and walked straight to a booth). Every later booth reuses that phone number — nobody re-types it.
+First phone-number entry anywhere calls `findOrRegisterByPhone`. A
+self-service booth links it to the random attendee ID already on that phone.
+A kiosk is unlocked with the organizer key and pairs a new phone with the
+visitor's raffle number, preventing a second attendee/raffle record from being
+created when the kiosk is their first booth. Before a new pairing is written,
+staff see the entry name and raffle number and explicitly confirm the ticket.
+Staff can mark someone as having skipped entry only after entering their name;
+the kiosk then displays the newly assigned raffle number. Returning kiosk
+phones need no raffle re-entry.
+
+Phone knowledge alone is not treated as identity proof. If a self-service
+device enters a phone already attached to another record, it receives a
+generic "ask staff" conflict rather than the other attendee's name or raffle.
+This prototype does not perform SMS verification, so a determined caller can
+still test whether a number is already linked by comparing success with that
+generic conflict. Add OTP verification before treating phone ownership as a
+production security boundary.
 
 Each booth check-in writes its own `BoothCheckins` row with whatever that booth's `extraData` is (trivia score, story answers, chosen art prompt, song vote) — same shape as the prototype's per-booth state, just persisted server-side instead of in-page JS state.
 
@@ -89,11 +126,13 @@ Polls `dashboardData` every 4 seconds. Shows: total registered / wristbands
 confirmed / raffle entries, live count per booth, the Bible Bowl
 leaderboard, song vote tally, and the Phase 3 sign-up confirm queue
 described above, plus a "Reset demo data" button (rehearsal use only — see
-`demo-server/README.md`). No login system needed if it's only ever opened
-on staff's own devices — worth revisiting if that's not a safe assumption
-for your event. Drawing the actual raffle winner isn't automated — pick a
-number from the Attendees list/dashboard count and call it out live, or add
-a "pick random entry" button yourself if you want that automated.
+`demo-server/README.md`). The dashboard and kiosk pages stay behind a runtime
+organizer-key gate, and the backend independently checks that key on every
+sensitive read or mutation. The key stays only in the current page's memory,
+not web storage, static source, or a URL; staff re-enter it after a reload or on
+each staff page. Drawing the actual raffle winner isn't automated — pick a
+number from the Attendees list/dashboard count and call it out live, or add a
+"pick random entry" button if you want that automated.
 
 ## QR codes needed
 
@@ -102,6 +141,8 @@ a "pick random entry" button yourself if you want that automated.
 3. Kiosk booths need no attendee-facing QR — staff open `kiosk-*.html` once on their own device for the day.
 
 Full instructions for generating and printing these are in `qr/QR_PLAN.md`.
+For local testing, QR codes are optional: open the printed localhost URLs
+directly and exercise the entire flow without visiting the QR page.
 
 ## Two interchangeable backends
 

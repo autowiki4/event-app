@@ -170,6 +170,7 @@ document.getElementById("btn-submit").addEventListener("click", async () => {
     window.location.href = "../done/index.html";
   } catch (e) {
     console.error(e);
+    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
     toast("Couldn't save — check the connection and try again.");
     btn.disabled = false; btn.textContent = "Save my answers →";
   }

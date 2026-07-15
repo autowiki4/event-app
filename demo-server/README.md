@@ -31,12 +31,24 @@ You should see:
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
-  Print QR codes:       http://localhost:3000/organizer/qr-codes.html
+  QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
+  Local testing:        open Phase 1 directly; no QR scan required
+  Local organizer key:  demo
 ```
 
 Open any of those URLs in a browser. That's the whole app, running
 locally — every page under `../web/` is being served by this same process,
 and every button click talks to it.
+
+The dashboard and staff kiosks ask for an organizer key. The zero-setup local
+default is `demo`. To rehearse with a different key, start the server with:
+
+```
+EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
+```
+
+You can skip the QR page during local development; open the Phase 1 and booth
+URLs directly. QR codes matter only after there is a public URL to encode.
 
 **To stop it:** click into that terminal window and press `Ctrl+C`.
 
@@ -70,8 +82,23 @@ yourself:
 - Or, from a terminal:
 
   ```
-  curl -X POST http://localhost:3000/api/resetDemo
+  curl -X POST -H "Content-Type: application/json" \
+    -d '{"organizerKey":"demo"}' \
+    http://localhost:3000/api/resetDemo
   ```
+
+## Run the regression tests
+
+There are no packages to install. From this folder:
+
+```
+npm test
+```
+
+The suite starts an isolated temporary server/database and covers organizer
+authorization, secure phone linking, duplicate attendee merging, preserved
+raffle numbers and kiosk history, protected confirmation/reset actions, and
+Apps Script-style HTTP-200 error payloads.
 
 ## How this maps to production
 
@@ -83,3 +110,8 @@ Google Sheet instead of `db.json`. Swapping from this demo server to the
 real event backend is just changing `API_BASE_URL` in
 `../web/shared/config.js` — no frontend code changes, and nothing in
 `../web/` needs to know which backend it's talking to.
+
+Staff-only routes (`verifyOrganizer`, `dashboardData`, kiosk phone lookup,
+staff kiosk check-in, confirmation, and demo reset) require the organizer key
+in their POST JSON. Attendee booth history resolves only by the random
+attendee ID stored on that phone; a phone number alone cannot read a record.

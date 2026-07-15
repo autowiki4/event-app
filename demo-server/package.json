@@ -5,6 +5,7 @@
   "description": "Local demo backend for the event app — same API shape as the production Apps Script backend, backed by a JSON file instead of a Google Sheet. Zero dependencies (plain Node http), so there's nothing to install.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/regression.test.js"
   }
 }

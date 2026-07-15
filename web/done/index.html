@@ -48,9 +48,12 @@ const chosen = FINAL_OPTIONS.filter((o) => chosenIds.includes(o.id));
 async function render() {
   let boothIds = [];
   try {
-    const res = await EventAPI.myCheckins(identity.attendeeId, identity.phone);
+    const res = await EventAPI.myCheckins(identity.attendeeId);
     boothIds = res.boothIds || [];
-  } catch (e) { console.warn(e); }
+  } catch (e) {
+    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+    console.warn(e);
+  }
 
   const list = document.getElementById("summary-list");
   list.innerHTML = `
@@ -113,6 +116,7 @@ function renderConnectBox() {
       toast("Thanks — we'll be in touch!");
     } catch (e) {
       console.error(e);
+      if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
       toast("Couldn't save — check the connection and try again.");
       btn.disabled = false; btn.textContent = "Keep me connected →";
     }

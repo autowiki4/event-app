@@ -9,9 +9,14 @@ and get this Sheet up and running, see `README.md` in this same folder.
 |---|---|---|---|---|---|---|
 
 - `attendeeId`: UUID generated in the browser at Phase 1 (or by a kiosk if someone skips Phase 1).
-- `aliasIds`: JSON array of any other attendeeIds later linked to this same phone number.
+- `aliasIds`: JSON array of older device/attendee IDs retained when staff
+  securely pair and merge records. Old devices continue resolving to the
+  canonical attendee.
 - `phone`: digits only, no formatting.
 - `raffleNumber`: assigned once, server-side, via a locked counter in the `Meta` tab.
+  If a duplicate record is merged, the raffle number shown on the canonical
+  entry record is preserved. The discarded number is never reused, so harmless
+  gaps can appear in the sequence.
 
 ## BoothCheckins
 | id | attendeeId | phone | name | boothId | boothName | checkedInBy | checkedInAt | rating | note | extraData |

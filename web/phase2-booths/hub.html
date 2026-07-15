@@ -45,9 +45,10 @@ async function render() {
   const identity = Identity.get();
   let visited = [];
   try {
-    const res = await EventAPI.myCheckins(identity.attendeeId, identity.phone);
+    const res = await EventAPI.myCheckins(identity.attendeeId);
     visited = res.boothIds || [];
   } catch (e) {
+    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
     console.warn("Couldn't load check-in status", e);
   }
 
