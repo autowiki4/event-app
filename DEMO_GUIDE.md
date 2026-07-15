@@ -1,11 +1,11 @@
 # Demo Guide — presenting the event app live
 
-Goal: show an audience the whole journey — Phase 1 entry, Phase 2 booths
-(both self-service and staff kiosk), Phase 3 sign-up, and the organizer
-dashboard tying it all together in real time — using nothing but a laptop
-and the local demo server (no Google account, no deployment, no internet
-required except to load Google Fonts). QR generation is optional and can be
-skipped completely during local testing.
+Goal: show an audience the whole journey—Phase 1 entry, two of the five
+independent Phase 2 booth rooms, an optional staff kiosk fallback, Phase 3
+sign-up, and the organizer views tying it all together in real time—using
+nothing but a laptop and the local demo server (no Google account, no
+deployment, no internet required except to load Google Fonts). QR generation
+is optional and can be skipped completely during local testing.
 
 If you haven't run anything in this repo before, read this section first;
 if you've already got the demo server running, skip to **1. Before the
@@ -65,8 +65,8 @@ between them live:
 
 | Window | URL | Represents |
 |---|---|---|
-| A | `http://localhost:3000/phase1-entry/index.html` | The attendee, opening each phase's separate link |
-| B | `http://localhost:3000/phase2-booths/kiosk-art.html` | A staff-run kiosk device |
+| A | `http://localhost:3000/phase1-entry/index.html` | The attendee, opening Phase 1 and individual booth-room links |
+| B (optional) | `http://localhost:3000/phase2-booths/kiosk-art.html` | The retained staff-run kiosk fallback |
 | C | `http://localhost:3000/organizer/dashboard.html` | The organizer's live view |
 | D (optional) | `http://localhost:3000/phase2-staff/index.html` | The booth-specific staff directory |
 
@@ -81,9 +81,10 @@ lands hardest). Window B can be a second laptop/tablet if you have one, to
 really sell the "staff device" idea — but a third browser window works
 fine too.
 
-When Windows B and C show the staff-access gate, enter the local organizer
-key printed by the server: **`demo`**. It stays only in that page's memory, so
-reloads and other staff pages ask for it again.
+When Windows B and C show the staff-access gate, enter the local organizer key
+printed by the server: **`demo`**. Window D's directory and the individual
+booth dashboard it opens each ask for the key as well. It stays only in that
+page's memory, so reloads and other staff pages ask for it again.
 
 ## 2. The walkthrough script
 
@@ -103,75 +104,96 @@ line or two of what to say.
    *"In a real event, this checkbox is really your Guardian Angel
    confirming they physically handed over a wristband — not something the
    attendee can just tick themselves. That's a decision made for the demo;
-   flag it if you want it tightened up for the real thing."* Point out that
-   Phase 1 now ends here and preserves the name + raffle details for later.
+   flag it if you want it tightened up for the real thing."* Point out the
+   thank-you message: Phase 1 ends here, tells Jordan the link can be closed,
+   and preserves the name + raffle details for the booth-room logins.
 
-**Phase 2 — separate attendee portal and self-service booth (Window A)**
+**Phase 2 — first booth room (Window A)**
 
-5. Open the separate URL `phase2-booths/hub.html`. The Phase 1 page did not
-   send you here. Enter the same name and raffle number. *"Names can repeat,
-   so both details reopen the correct registration—even on another device."*
-6. From the booth hub, open a self-service booth (Bible Bowl is the most fun
-   to demo — it's scored).
-7. It welcomes the attendee and asks for a phone number — *"first booth,
-   first time, this is the
-   only time today they'll type this in."* Enter any 10-digit number.
-8. Play a question or two, click **Done**.
-9. Go back to the hub — point out the booth now shows "Completed ✓" and that
-   Phase 2 ends without automatically opening Phase 3.
+5. Close the Phase 1 page, then open the exact Bible Bowl room URL:
+   `phase2-booths/booth-trivia.html`. Point out that both login fields start
+   blank. Enter the same name and raffle number. *"Names can repeat, so both
+   details reopen the correct Phase 1 registration—even on another device."*
+6. Point out the booth-specific copy: *"It welcomes Jordan to Bible Bowl and
+   Bible Bowl only. This is the link posted at this physical booth; there is no
+   shared Phase 2 portal to wander through."*
+7. The first booth asks for a phone number. *"This booth login repeats at each
+   room, but the 10-digit phone check-in is remembered for this attendee on
+   this device."* Enter any 10-digit number.
+8. Play a question or two, then click **Finish this booth**. Point out the
+   message telling Jordan to close this link and log in again when they reach
+   another booth.
 
-**Phase 2 — staff kiosk booth (Window B)**
+**Phase 2 — a second, separately locked booth room (Window A)**
 
-10. Switch to Window B (Art Therapy kiosk). *"This is a tablet sitting at
-   the art table all day — nobody's phone touches this, staff run it."*
-11. Type the **same phone number** you used in Window A. Because that phone
+9. Open `phase2-booths/booth-heaven.html`. The name and raffle fields are
+   blank again even though Bible Bowl was just completed. *"A Bible Bowl login
+   never unlocks the Heaven room—or any of the other three rooms."*
+10. Enter the same Phase 1 name and raffle number. Point out the new welcome
+    names only **Can You Draw Heaven?**. The already linked phone is reused, so
+    the booth activity opens without collecting the number again. The same
+    pattern applies to:
+
+    - `phase2-booths/booth-story.html`
+    - `phase2-booths/booth-art.html`
+    - `phase2-booths/booth-newsong.html`
+
+**Phase 2 — optional staff kiosk fallback (Window B)**
+
+11. Switch to Window B (Art Therapy kiosk). *"Art Therapy has its own attendee
+    room now, just like the other four. This older kiosk is still available as
+    an optional staff-operated fallback when a visitor needs help."*
+12. Type the **same phone number** you used in Window A. Because that phone
     was already linked at the self-service booth, leave raffle number blank.
     If the kiosk had been the first booth, staff would also enter the raffle
     number shown in Window A; that securely attaches the phone without
     creating a second attendee or raffle entry.
-12. *"Watch — it already knows this is Jordan."* — the visitor's name
+13. *"Watch—it already knows this is Jordan."* The visitor's name
     appears, pulled from the record Window A created a minute ago.
-13. Show a prompt, click **Done — next visitor**.
+14. Show a prompt, click **Done—next visitor**.
 
 **Phase 2 — booth staff portal (Window D, optional)**
 
-14. Unlock `phase2-staff/index.html`, choose Art Therapy, and unlock that
-    booth page. *"Each booth has its own organizer URL and receives only its
-    own check-ins—not the overall attendee or Phase 3 data."* Point out the
-    count, recent roster, and link to the live kiosk. The custom control area
-    is where each booth's later requirements will go.
+15. Unlock `phase2-staff/index.html`, choose Bible Bowl, and unlock that booth
+    page. *"Each of the five booths has its own organizer URL and receives
+    only its own activity—not the overall attendee list, another booth's
+    activity, or Phase 3 data."* Point out the count, recent roster, direct
+    attendee-room link, and the neutral settings area where only Bible Bowl's
+    future controls will go. Art Therapy and New Song staff pages also expose
+    their optional kiosk links.
 
 **Organizer dashboard (Window C)**
 
-15. Switch to Window C. It's already been polling — point out the Bible
-    Bowl leaderboard has Jordan's score, and the booth check-in table shows
-    one visit each to Bible Bowl and Art Therapy. *"Same person, two
-    completely different devices, one shared record — nothing gets lost
-    as people move around the room."*
+16. Switch to Window C. It has already been polling—point out that the overall
+    organizer still sees the event-wide booth counts, the Bible Bowl
+    leaderboard, and the optional Art Therapy kiosk visit. *"The booth staff
+    page is deliberately narrow; this overall portal remains the complete
+    event view."*
 
 **Phase 3 — sign-up (Window A)**
 
-16. Back in Window A, open the separate URL
+17. Back in Window A, open the separate URL
     `phase3-signup/index.html`. Sign in again with the Phase 1 name + raffle
     number. *"Phase 3 does not require a booth visit or phone number."*
-17. Pick a couple of options (e.g. "Keep me posted" needs an email —
+18. Pick a couple of options (e.g. "Keep me posted" needs an email—
     good excuse to show that field), submit.
-18. Show the recap screen and raffle number one more time.
+19. Show the recap screen and raffle number one more time.
 
 **Organizer dashboard again (Window C)**
 
-19. Refresh (or just wait ~4s, it polls automatically) — the new sign-ups
+20. Refresh (or just wait ~4s, it polls automatically)—the new sign-ups
     appear under their option rosters as **Pending**.
-20. Click **Confirm** — *"This is the actual moment a staff member at the
+21. Click **Confirm**—*"This is the actual moment a staff member at the
     sign-up table talks to this person face to face. Until someone taps
     this, it's just an intention, not a commitment."*
 
 **QR codes (optional — skip for normal local testing)**
 
-21. Open `organizer/qr-codes.html` — show the current live-generated codes for the
-    door and each self-service booth, and mention printing them before the
-    real event. Nothing else in this walkthrough depends on this page; it is
-    reasonable to leave it out until the app has a deployed public URL.
+22. The current `organizer/qr-codes.html` page is intentionally unchanged and
+    still generates the entry code plus the three original self-service booth
+    codes. The final QR decision for all five booth-room links is deferred
+    until the app has a deployed public URL. Nothing else in this walkthrough
+    depends on that page, so skip it during normal local testing.
 
 ## 3. Questions to be ready for
 
@@ -179,16 +201,14 @@ line or two of what to say.
   offline right now; every action is a live network call. Worth deciding
   if that's acceptable for your venue before the real event, or whether
   some booths need an offline fallback.
-- **"What if someone doesn't have a smartphone?"** — Any booth can be
-  handled by staff on the kiosk pattern already used for Art Therapy /
-  New Song — a staff member can walk someone through Phase 1 and 2 on
-  their own device too. Staff verify and confirm the person's raffle ticket,
-  or enter their name and explicitly mark that they skipped entry; the kiosk
-  then provides a new raffle number.
-- **"Can two people be at the same booth on Window A and Window B at
-  once?"** — Yes — every booth page (self-service or kiosk) just calls
-  the same backend independently per visit; there's no per-booth
-  bottleneck.
+- **"What if someone doesn't have a smartphone?"** — A staff member can walk
+  someone through an attendee room on a staff device. Art Therapy and New Song
+  also retain their dedicated kiosk fallback, where staff verify the raffle
+  ticket or explicitly mark that a visitor skipped entry and provide the new
+  raffle number.
+- **"Can two people be in the same booth room at once?"** — Yes. Every browser
+  calls the same backend independently per visit; there is no one-device or
+  one-attendee bottleneck in an attendee room.
 - **"Where does the final list of names and numbers live?"** — In the demo,
   `demo-server/db.json`. In production, the `Attendees` tab of the Google
   Sheet — see `apps-script/SHEET_SCHEMA.md` for the exact columns, and it's
@@ -199,9 +219,9 @@ line or two of what to say.
 1. Find your laptop's local IP (e.g. `ipconfig getifaddr en0` on a Mac).
 2. Make sure phones are on the **same wifi** as the laptop.
 3. Use `http://<that-ip>:3000/...` instead of `localhost` on the phones.
-4. Either type the direct URLs on each device, or regenerate QR codes from
-   `organizer/qr-codes.html` with that IP as the base URL if you specifically
-   want to rehearse scanning.
+4. Type or bookmark the direct booth-room URLs on each device. The QR generator
+   has intentionally not been expanded to all five rooms yet; finish that work
+   only after the final public deployment URL and QR plan are decided.
 
 This is closer to how the real event will feel, but takes a bit more setup
 — the incognito-windows version above is faster to rehearse and just as

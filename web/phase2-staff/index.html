@@ -47,7 +47,7 @@ staffList.innerHTML = CONNECTOR_BOOTHS.map((booth) => `
     <div class="booth-icon">${booth.icon}</div>
     <div class="booth-info">
       <div class="name">${escapeHtml(booth.title)}</div>
-      <div class="hint">${booth.mode === "kiosk" ? "Staff-run kiosk" : "Self-service attendee booth"}</div>
+      <div class="hint">Independent booth dashboard and settings area</div>
     </div>
     <a class="stamp-btn" href="${escapeHtml(booth.staffPage)}">Open</a>
   </div>

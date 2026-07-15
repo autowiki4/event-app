@@ -31,11 +31,11 @@
 <body>
 
 <div class="phone" id="phone">
+  <div id="booth-room-content" style="display:none;">
   <div id="booth-header">
     <div class="progress" id="progress"></div>
     <section class="screen">
-      <a class="btn-link" href="hub.html">← Back to Gym</a>
-      <p class="eyebrow">Connector Booth · Self-service</p>
+      <p class="eyebrow">Phase 2 · Heaven booth room</p>
       <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎨</span><em>Can You Draw Heaven?</em></h1>
       <p class="lede">We'll show you the Kingdom of Heaven as described in Revelation — then you can draw it!</p>
     </section>
@@ -48,7 +48,7 @@
       <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
       <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
     </div>
-    <button class="btn btn-primary" id="btn-booth-checkin">Check in at this booth →</button>
+    <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
   </section>
 
   <div id="booth-interface" style="display:none;">
@@ -64,8 +64,9 @@
           <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
         </div>
       </div>
-      <button class="btn btn-primary" id="btn-booth-done">Done — back to Gym →</button>
+      <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
     </section>
+  </div>
   </div>
 </div>
 
@@ -76,9 +77,11 @@
 <script src="../shared/toast.js"></script>
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
+<script src="../shared/booth-room.js"></script>
 <script>
 const BOOTH_ID = "heaven";
 const BOOTH_NAME = "Can You Draw Heaven?";
+const BOOTH_ROOM_NAME = "Heaven";
 const HEAVEN_VERSE_TEXT = "And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,";
 
 function renderProgress() {
@@ -146,7 +149,7 @@ function renderHeaven() {
 
 window.getBoothExtraData = () => ({ reachedPage: heavenState.page });
 
-initBoothGate({ boothId: BOOTH_ID, boothName: BOOTH_NAME, onReady: renderHeaven });
+initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderHeaven });
 renderBoothFooter();
 document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>

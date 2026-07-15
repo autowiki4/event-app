@@ -1,9 +1,7 @@
-/* Shared booth metadata — the hub, the organizer dashboard, and each
+/* Shared booth metadata — attendee rooms, staff dashboards, and each
  * booth page all read from this one list so they can't drift out of sync.
- * `mode` decides how attendees reach it:
- *   "self"  — attendee's own phone, own printed QR code, its own page.
- *   "kiosk" — one staff-run device for the whole booth; attendee never
- *             opens anything themselves, staff types their phone number.
+ * Every booth has its own attendee `page` and staff page. `mode` preserves
+ * the current operating model: Art and New Song also retain staff kiosks.
  */
 const CONNECTOR_BOOTHS = [
   {
@@ -39,6 +37,7 @@ const CONNECTOR_BOOTHS = [
     icon: "🖌️",
     blurb: "Guided drawing and reflection with the booth leader. ~20 min",
     mode: "kiosk",
+    page: "booth-art.html",
     staffPage: "art.html",
     kioskPage: "../phase2-booths/kiosk-art.html",
   },
@@ -48,6 +47,7 @@ const CONNECTOR_BOOTHS = [
     icon: "🎵",
     blurb: "Vote on what plays next — then hear about the song only the redeemed can sing. ~20 min",
     mode: "kiosk",
+    page: "booth-newsong.html",
     staffPage: "newsong.html",
     kioskPage: "../phase2-booths/kiosk-newsong.html",
   },

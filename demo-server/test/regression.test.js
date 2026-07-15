@@ -202,6 +202,23 @@ async function runApiRegression(port) {
     organizerKey,
   });
   assert.equal(res.status, 200);
+  const artCheckinId = res.body.checkinId;
+
+  res = await request(port, "boothCheckin", {
+    attendeeId: "entry-a",
+    phone: "6155550101",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "self",
+    rating: 4,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.checkinId, artCheckinId);
+  assert.equal(res.body.updated, true);
+  const artRows = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
+    .filter((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
+  assert.equal(artRows.length, 1);
+  assert.equal(artRows[0].rating, 4);
 
   res = await request(port, "myCheckins", { phone: "6155550101" });
   assert.equal(res.status, 400);
@@ -379,6 +396,13 @@ async function runApiRegression(port) {
   for (const pathname of [
     "/phase1-entry/index.html",
     "/phase2-booths/hub.html",
+    "/phase2-booths/booth-heaven.html",
+    "/phase2-booths/booth-trivia.html",
+    "/phase2-booths/booth-story.html",
+    "/phase2-booths/booth-art.html",
+    "/phase2-booths/booth-newsong.html",
+    "/phase2-booths/kiosk-art.html",
+    "/phase2-booths/kiosk-newsong.html",
     "/phase3-signup/index.html",
     "/done/index.html",
     "/phase2-staff/index.html",
@@ -441,23 +465,30 @@ async function runFrontendContractRegression() {
   }
   const identityStorage = new FakeStorage();
   const portalStorage = new FakeStorage();
+  const backendPortalCalls = [];
   const identityContext = {
     window: { crypto: { randomUUID: () => "generated-id" }, location: { href: "" } },
     localStorage: identityStorage,
     sessionStorage: portalStorage,
     EventAPI: {
-      loginAttendee: async (name, raffleNumber) => ({
-        attendeeId: "portal-attendee",
-        name: name.trim(),
-        raffleNumber,
-        phoneLinked: false,
-      }),
-      attendeePortalSession: async (attendeeId) => ({
-        attendeeId,
-        name: "Jordan Lee",
-        raffleNumber: "1001",
-        phoneLinked: true,
-      }),
+      loginAttendee: async (name, raffleNumber, portal) => {
+        backendPortalCalls.push(["login", portal]);
+        return {
+          attendeeId: "portal-attendee",
+          name: name.trim(),
+          raffleNumber,
+          phoneLinked: false,
+        };
+      },
+      attendeePortalSession: async (attendeeId, portal) => {
+        backendPortalCalls.push(["restore", portal]);
+        return {
+          attendeeId,
+          name: "Jordan Lee",
+          raffleNumber: "1001",
+          phoneLinked: true,
+        };
+      },
     },
   };
   vm.createContext(identityContext);
@@ -471,14 +502,23 @@ async function runFrontendContractRegression() {
   const attendeePortalSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "attendee-portal.js"), "utf8");
   vm.runInContext(`${attendeePortalSource}\nthis.__attendeePortal = AttendeePortal;`, identityContext);
   const attendeePortal = identityContext.__attendeePortal;
-  let portalIdentity = await attendeePortal.signIn("phase2", "Jordan Lee", "1001");
+  let portalIdentity = await attendeePortal.signIn("phase2.heaven", "Jordan Lee", "1001");
   assert.equal(portalIdentity.attendeeId, "portal-attendee");
-  assert.equal(attendeePortal.hasAccess("phase2"), true);
+  assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
+  assert.equal(attendeePortal.hasAccess("phase2.trivia"), false);
   assert.equal(attendeePortal.hasAccess("phase3"), false);
-  portalIdentity = await attendeePortal.restore("phase2");
+  assert.deepEqual(backendPortalCalls[0], ["login", "phase2"]);
+  portalIdentity = await attendeePortal.restore("phase2.heaven");
   assert.equal(portalIdentity.phoneLinked, true);
+  assert.deepEqual(backendPortalCalls[1], ["restore", "phase2"]);
+  await attendeePortal.signIn("phase2.trivia", "Jordan Lee", "1001");
+  assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
+  assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
+  attendeePortal.clearAccess("phase2.heaven");
+  assert.equal(attendeePortal.hasAccess("phase2.heaven"), false);
+  assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
   await attendeePortal.signIn("phase3", "Jordan Lee", "1001");
-  assert.equal(attendeePortal.hasAccess("phase2"), true);
+  assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
   assert.equal(attendeePortal.hasAccess("phase3"), true);
 
   const apiSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "api.js"), "utf8");
@@ -587,33 +627,65 @@ async function runFrontendContractRegression() {
   const phase2Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "hub.html"), "utf8");
   const phase3Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase3-signup", "index.html"), "utf8");
   const doneSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "done", "index.html"), "utf8");
+  const boothRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-room.js"), "utf8");
+  const boothCommonSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"), "utf8");
+  const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
+  const boothsConfigContext = {};
+  vm.createContext(boothsConfigContext);
+  vm.runInContext(`${boothsConfigSource}\nthis.__booths = CONNECTOR_BOOTHS;`, boothsConfigContext);
+  const boothConfigs = Array.from(boothsConfigContext.__booths, (booth) => ({ ...booth }));
   assert.match(dashboardSource, /if \(!OrganizerAuth\.isCurrent\(authGeneration\)\) return false/);
   assert.match(dashboardSource, /groupSignupsByOption\(data\.signups\)/);
   assert.match(dashboardSource, /Phone\.formatDisplay\(s\.phone\)/);
+  assert.match(dashboardSource, /EventAPI\.dashboardData\(/);
   assert.doesNotMatch(dashboardSource, /id="signup-table"/);
   assert.match(artKioskSource, /OrganizerAuth\.isCurrent\(authGeneration\)/);
   assert.match(songKioskSource, /let isSaving = false/);
   assert.match(songKioskSource, /if \(isSaving \|\| !currentVisitor\) return/);
   assert.doesNotMatch(phase1Source, /window\.location\.href = "\.\.\/phase2-booths\/hub\.html"/);
   assert.match(phase1Source, /Phase 1 complete/);
-  assert.match(phase2Source, /AttendeePortal\.signIn\("phase2"/);
-  assert.doesNotMatch(phase2Source, /AttendeePortal\.prefill/);
-  assert.match(phase2Source, /id="phase2-name"[^>]*autocomplete="off"/);
+  assert.match(phase1Source, /Thank you/);
+  assert.match(phase1Source, /when you get to a booth/i);
+  assert.match(phase1Source, /close this link now/i);
+  assert.doesNotMatch(phase2Source, /AttendeePortal|phase2-login/);
+  assert.match(phase2Source, /no longer has one shared attendee portal/i);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
+  assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
+  assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
+  assert.match(boothRoomSource, /id="booth-login-name"[^>]*autocomplete="off"/);
+  assert.match(boothRoomSource, /id="booth-login-raffle"[^>]*autocomplete="off"/);
+  assert.doesNotMatch(boothCommonSource, /hub\.html/);
+  assert.match(boothCommonSource, /completeBoothRoom/);
+  assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);
   assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="off"/);
   assert.match(phase3Source, /you can continue even if you skipped the booths/i);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
 
+  assert.equal(boothConfigs.length, 5);
+  assert.equal(new Set(boothConfigs.map((booth) => booth.page)).size, 5);
+  assert.equal(new Set(boothConfigs.map((booth) => booth.staffPage)).size, 5);
+
   [dashboardSource, artKioskSource, songKioskSource].forEach((source) => {
     assert.match(source, /shared\/phone\.js/);
   });
-  ["booth-heaven.html", "booth-story.html", "booth-trivia.html"].forEach((filename) => {
+  const attendeeRooms = {
+    "booth-heaven.html": "heaven",
+    "booth-trivia.html": "trivia",
+    "booth-story.html": "story",
+    "booth-art.html": "art",
+    "booth-newsong.html": "newsong",
+  };
+  Object.entries(attendeeRooms).forEach(([filename, boothId]) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", filename), "utf8");
     assert.match(source, /shared\/phone\.js/);
     assert.match(source, /shared\/attendee-portal\.js/);
+    assert.match(source, /shared\/booth-room\.js/);
     assert.match(source, /maxlength="14"/);
+    assert.match(source, new RegExp(`const BOOTH_ID = "${boothId}"`));
+    assert.match(source, /initBoothRoom\(/);
+    assert.doesNotMatch(source, /href="hub\.html"|Back to Gym/);
   });
 
   const boothStaffCommon = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-staff-common.js"), "utf8");
@@ -622,6 +694,7 @@ async function runFrontendContractRegression() {
   ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
+    assert.match(source, /id="staff-settings"/);
   });
 
   const gasSource = fs.readFileSync(path.join(__dirname, "..", "..", "apps-script", "Code.gs"), "utf8");
@@ -844,6 +917,19 @@ function runAppsScriptRegression() {
   const checkinHeaders = checkinSheet.rows[0];
   const attendeeIdColumn = checkinHeaders.indexOf("attendeeId");
   assert.equal(checkinSheet.rows[1][attendeeIdColumn], "gas-entry-c");
+  const originalNewsongCheckinId = checkinSheet.rows[1][checkinHeaders.indexOf("id")];
+  result = gas.actionBoothCheckin({
+    attendeeId: "gas-entry-c",
+    phone: "6155550202",
+    boothId: "newsong",
+    boothName: "The New Song in Nashville",
+    checkedInBy: "self",
+    rating: 5,
+  });
+  assert.equal(result.checkinId, originalNewsongCheckinId);
+  assert.equal(result.updated, true);
+  assert.equal(checkinSheet.rows.length, 2);
+  assert.equal(checkinSheet.rows[1][checkinHeaders.indexOf("rating")], 5);
   result = gas.actionMyCheckins({ attendeeId: kioskId });
   assert.deepEqual(Array.from(result.boothIds), ["newsong"]);
 

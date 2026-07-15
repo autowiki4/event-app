@@ -8,10 +8,11 @@ stages:
    confirms they physically received a wristband before letting them into
    the gym.
 2. **Phase 2 — Booths.** Attendees visit connector booths around the gym.
-   Some booths run on the attendee's own phone (self-service); others run
-   on one staff-held device per booth (kiosk), where staff type in each
-   visitor's phone number. Either way, every visit gets tied back to the
-   same attendee record.
+   Each of the five booths has its own attendee link and its own login, so
+   opening one booth never drops someone into a shared Phase 2 hub or unlocks
+   the other four. Every booth also has a separate, booth-scoped staff
+   dashboard. Art Therapy and New Song retain optional staff-held kiosk pages
+   as a fallback.
 3. **Phase 3 — Sign-up.** Before leaving, attendees pick what they're
    interested in next (future events, Bible study, a course, etc.). Staff
    later confirm in person which of those sign-ups actually happened.
@@ -72,12 +73,17 @@ You'll see:
 ```
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
-  Phase 2 attendee:     http://localhost:3000/phase2-booths/hub.html
+  Phase 2 booth rooms:
+    Heaven:             http://localhost:3000/phase2-booths/booth-heaven.html
+    Bible Bowl:         http://localhost:3000/phase2-booths/booth-trivia.html
+    The Sower:          http://localhost:3000/phase2-booths/booth-story.html
+    Art Therapy:        http://localhost:3000/phase2-booths/booth-art.html
+    New Song:           http://localhost:3000/phase2-booths/booth-newsong.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Local testing:        each phase uses its own link; no QR scan required
+  Local testing:        open each booth room directly; no QR scan required
   Local organizer key:  demo
 ```
 
@@ -85,19 +91,22 @@ Open any of those links in your browser — that's the whole app running
 locally on your machine, with a local, throwaway copy of the "database"
 (no attendee's real data, nothing shared with anyone else).
 
-For ordinary local testing, open the Phase 1, Phase 2, and Phase 3 URLs
-directly and ignore QR codes entirely. They are intentionally separate
-attendee portals: Phase 1 registers a person, while Phase 2 and Phase 3 each
-ask for the Phase 1 name and raffle number. QR generation is only needed once
+For ordinary local testing, open Phase 1, any of the five Phase 2 booth-room
+URLs, and Phase 3 directly; ignore QR codes entirely. Phase 1 registers a
+person and ends by telling them they can close the link. At the event, they
+open the link for the booth where they are standing and enter their Phase 1
+name and raffle number. They repeat that login at each booth. Phase 3 keeps its
+existing separate login. Deployment QR work is intentionally deferred until
 the site has a real public URL to encode.
 
 **To stop the server:** click back into that terminal window and press
 `Ctrl+C`.
 
 **To run the zero-dependency regression suite:** from `demo-server/`, run
-`npm test`. It covers phase login lookup, identity pairing/merging, scoped
-booth staff data, organizer authorization, API error propagation, and the
-protected dashboard mutations.
+`npm test`. It covers independent booth-room and Phase 3 login lookup,
+identity pairing/merging, duplicate booth-completion protection, scoped booth
+staff data, organizer authorization, API error propagation, and the protected
+dashboard mutations.
 
 **To reset the demo data** (start over with zero attendees): either click
 "Reset demo data" at the bottom of the organizer dashboard, or run:
@@ -126,7 +135,7 @@ event-app/
 ├── web/                    every page a person actually opens in a browser
 │   ├── shared/              code shared by every page (see below)
 │   ├── phase1-entry/        Phase 1: name → wristband confirmation → raffle ticket
-│   ├── phase2-booths/       Phase 2 attendee login + booth hub + attendee booths
+│   ├── phase2-booths/       five independent attendee booth rooms + optional kiosks
 │   ├── phase2-staff/        Phase 2 staff hub + one scoped page per booth
 │   ├── phase3-signup/       Phase 3 attendee login + "what's next" choices
 │   ├── done/                 final recap screen + "stay connected" email capture
@@ -157,37 +166,46 @@ the demo server, or later via a real web host) and they work.
   the backend), `identity.js` and `attendee-portal.js` (phase-specific
   attendee sign-in), `booths-config.js` (the list of booths, trivia
   questions, sign-up options — edit this file to change any of that
-  content), `booth-common.js` (shared attendee-booth behavior),
+  content), `booth-room.js` (the independent login shell used by all five
+  attendee rooms), `booth-common.js` (shared attendee-booth behavior),
   `booth-staff-common.js` (scoped booth-staff data), `organizer-auth.js`
   (page-memory-only staff access), and `toast.js` (confirmation messages).
 
 - **`web/phase1-entry/index.html`** — what the entry QR code points to.
   Name entry → raffle ticket → wristband confirmation → a Phase 1-complete
-  screen. It no longer sends attendees directly into Phase 2.
+  screen that thanks the attendee, tells them they can close the link, and
+  reminds them to use the same name and raffle number when they reach a booth.
+  It no longer sends attendees directly into Phase 2.
 
-- **`web/phase2-booths/`** — five booths total:
-  - **Self-service** (attendee scans that booth's own QR code and plays
-    on their own phone): `booth-heaven.html` ("Can You Draw Heaven?"),
-    `booth-trivia.html` ("Bible Bowl"), `booth-story.html` ("The Sower,
-    Live").
-  - **Kiosk** (one staff-held device runs the whole booth; attendees never
-    open anything themselves): `kiosk-art.html` ("Art Therapy Table"),
-    `kiosk-newsong.html` ("The New Song in Nashville"). Staff unlock a
-    kiosk on that page (and re-enter the key after a reload). On a phone's
-    first kiosk visit, staff verify the shown name/raffle before confirming
-    the pairing. Visitors who truly skipped entry can be created after staff
-    enter their name; the kiosk shows the new raffle number to give them.
-  - **`hub.html`** — the independent Phase 2 attendee link. It finds the
-    Phase 1 registration by name + raffle number, explains the one-time phone
-    step, then lists all five booths and completed visits. It does not send
-    the attendee directly into Phase 3.
+- **`web/phase2-booths/`** — five independent attendee rooms:
+  - `booth-heaven.html` ("Can You Draw Heaven?"), `booth-trivia.html`
+    ("Bible Bowl"), `booth-story.html` ("The Sower, Live"),
+    `booth-art.html` ("Art Therapy Table"), and `booth-newsong.html`
+    ("The New Song in Nashville").
+  - On first arrival, every room opens with blank name and raffle-number
+    fields, validates the Phase 1 registration, welcomes the attendee to that
+    booth only, and keeps its own tab-level access marker. Signing in at
+    Heaven, for example, does not unlock Bible Bowl. The first booth also
+    collects a 10-digit phone number; the same attendee record is reused as
+    they move between rooms.
+  - `kiosk-art.html` and `kiosk-newsong.html` remain available as optional
+    staff-operated fallback tools. Staff unlock them with the organizer key,
+    verify a first-time visitor's name and raffle number, and can explicitly
+    create a visitor who truly skipped entry. They are not the primary
+    attendee links.
+  - `hub.html` is now only a compatibility notice explaining that Phase 2 has
+    no shared attendee portal. It does not provide a login or a booth list.
 
 - **`web/phase2-staff/`** — the independent Phase 2 staff side:
   - **`index.html`** — staff booth directory.
   - **`heaven.html`, `trivia.html`, `story.html`, `art.html`, and
     `newsong.html`** — five distinct organizer URLs. Each calls a
     server-filtered endpoint that returns only that booth's count and recent
-    check-ins. Art and New Song also link to their existing live kiosks.
+    check-ins. Each includes a booth-only settings area ready for the controls
+    that will be defined later. Art and New Song also link to their optional
+    staff kiosks. The pages currently share one organizer key, so this is
+    server-enforced data scoping and UI separation rather than five separate
+    staff credentials.
 
 - **`web/phase3-signup/index.html`** — the independent Phase 3 attendee
   link. It finds the Phase 1 registration by name + raffle number, then shows
@@ -205,7 +223,9 @@ the demo server, or later via a real web host) and they work.
     confirmation. Phone numbers are shown in `(555) 555-5555` format. It
     stays locked until staff enter the runtime organizer key.
   - **`qr-codes.html`** — generates and prints the QR codes for the door
-    and each self-service booth.
+    and the three original self-service booths. It remains unchanged for now;
+    the deployment-time QR update for all five booth-room links is deferred
+    until a real public URL exists.
 
 ### `demo-server/` vs `apps-script/` — two interchangeable backends
 
@@ -262,8 +282,10 @@ to. That's on purpose: build and rehearse everything against
    with no build step.
 3. In `web/shared/config.js`, set `API_BASE_URL` to the Apps Script
    `/exec` URL from step 1.
-4. Print QR codes from `organizer/qr-codes.html`, pointed at your real,
-   public URL (not `localhost`) — see `qr/QR_PLAN.md`.
+4. Once the final public routes are deployed, finish the deferred QR setup and
+   print codes pointed at that real public URL (not `localhost`) — see
+   `qr/QR_PLAN.md`. The current generator has intentionally not yet been
+   expanded to all five booth rooms.
 5. Do a full run-through with a couple of real phones and one kiosk
    device before the actual day — `DEMO_GUIDE.md` doubles as a rehearsal
    script for this.

@@ -3,184 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>The Gym — The Perfect Summer Day</title>
+<title>Phase 2 Booth Rooms — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
   :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
 </style>
 </head>
 <body>
-
-<div class="phone" id="phone">
-  <div class="progress" id="progress"></div>
-  <section class="screen" id="phase2-login">
-    <p class="eyebrow">Phase 2 · Attendee portal</p>
-    <h1 class="display">Find your <em>registration.</em></h1>
-    <p class="lede">Phase 2 has its own link. Use the name and raffle number from Phase 1 so we open the right booth experience.</p>
-    <div class="field">
-      <label for="phase2-name">Name used in Phase 1</label>
-      <input id="phase2-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
+<div class="phone">
+  <section class="screen">
+    <p class="eyebrow">Phase 2 · Booth rooms</p>
+    <h1 class="display">Open the link at <em>your booth.</em></h1>
+    <p class="lede">Phase 2 no longer has one shared attendee portal. Each of the five booths has its own link and its own login.</p>
+    <div class="booth-guide">
+      <div class="g-kicker">At the event</div>
+      <div class="g-loc">Use the link posted in the booth room</div>
+      <div class="g-detail">That link opens only the booth you are standing in. You will log in again when you arrive at another booth.</div>
     </div>
-    <div class="field">
-      <label for="phase2-raffle">Raffle number</label>
-      <input id="phase2-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
-      <div class="hint">Names can repeat, so the raffle number makes sure this is your registration.</div>
-      <div class="err" id="phase2-login-error"></div>
-    </div>
-    <button class="btn btn-primary" id="btn-phase2-login">Enter Phase 2 →</button>
-    <p class="top-note">Not registered yet? Complete the separate Phase 1 entry first.</p>
-  </section>
-
-  <section class="screen" id="phase2-content" style="display:none;">
-    <div class="staff-toolbar"><button class="btn-link" id="btn-phase2-signout">Switch attendee</button></div>
-    <p class="eyebrow">Phase 2 · The Gym</p>
-    <h1 class="display">Welcome, <em id="phase2-attendee-name">friend.</em></h1>
-    <p class="lede" id="lede-text">Visit the connector booths whenever you're ready — or just have fun. It's up to you.</p>
-
-    <div class="placeholder-note" id="phase2-phone-note"></div>
-
-    <div class="booth-list" id="booth-list"></div>
-
-    <div class="placeholder-note">Phase 2 ends here. When you're ready to wrap up, open the separate Phase 3 attendee link and find your registration again.</div>
+    <p class="top-note">You can close this page now.</p>
   </section>
 </div>
-
-<script src="../shared/config.js"></script>
-<script src="../shared/api.js"></script>
-<script src="../shared/identity.js"></script>
-<script src="../shared/attendee-portal.js"></script>
-<script src="../shared/toast.js"></script>
-<script src="../shared/booths-config.js"></script>
-<script>
-function renderProgress() {
-  const el = document.getElementById("progress");
-  el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const d = document.createElement("div");
-    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(d);
-  }
-}
-renderProgress();
-
-function safeNextPage() {
-  const requested = new URLSearchParams(window.location.search).get("next") || "";
-  const page = requested.split("?")[0];
-  return CONNECTOR_BOOTHS.some((booth) => booth.mode === "self" && booth.page === page) ? requested : "";
-}
-
-function showLogin(message) {
-  document.getElementById("phase2-content").style.display = "none";
-  document.getElementById("phase2-login").style.display = "block";
-  const error = document.getElementById("phase2-login-error");
-  error.textContent = message || "";
-  error.style.display = message ? "block" : "none";
-}
-
-async function showPortal(identity) {
-  document.getElementById("phase2-login").style.display = "none";
-  document.getElementById("phase2-content").style.display = "block";
-  document.getElementById("phase2-attendee-name").textContent = (identity.name || "friend") + ".";
-  document.getElementById("phase2-phone-note").textContent = identity.phoneLinked
-    ? "You're signed in and your phone is already linked. Open any self-service booth when you're ready."
-    : `Welcome, ${identity.name || "friend"}! At your first self-service booth, enter your 10-digit phone number once to connect your visits.`;
-
-  let visited = [];
-  try {
-    const res = await EventAPI.myCheckins(identity.attendeeId);
-    visited = res.boothIds || [];
-  } catch (e) {
-    if (e.code === "ATTENDEE_NOT_FOUND") {
-      Identity.clear();
-      showLogin("That registration is no longer available. Find your Phase 1 registration again.");
-      return;
-    }
-    console.warn("Couldn't load check-in status", e);
-    toast("Couldn't load booth status — check the connection and try again.");
-  }
-
-  const wrap = document.getElementById("booth-list");
-  wrap.innerHTML = "";
-  CONNECTOR_BOOTHS.forEach((b) => {
-    const done = visited.includes(b.id);
-    const card = document.createElement("div");
-    card.className = "booth-card" + (done ? " visited" : "");
-    const modeNote = b.mode === "kiosk"
-      ? "🧑‍🤝‍🧑 Staff-run — just walk up, no need to open this on your phone"
-      : "📱 Self-service — tap Open to check in on your phone";
-    const action = b.mode === "kiosk"
-      ? `<span class="stamp-btn disabled">${done ? "Visited ✓" : "See staff"}</span>`
-      : `<a class="stamp-btn ${done ? "done" : ""}" href="${b.page}?boothId=${b.id}">${done ? "Completed ✓" : "Open"}</a>`;
-    card.innerHTML = `
-      <div class="booth-icon">${b.icon}</div>
-      <div class="booth-info">
-        <div class="name">${b.title}</div>
-        <div class="hint">${b.blurb}</div>
-        <div class="hint" style="opacity:.6; margin-top:2px;">${modeNote}</div>
-      </div>
-      ${action}
-    `;
-    wrap.appendChild(card);
-  });
-}
-
-document.getElementById("btn-phase2-login").addEventListener("click", async () => {
-  const name = document.getElementById("phase2-name").value.trim();
-  const raffleNumber = document.getElementById("phase2-raffle").value.trim();
-  if (!name || !raffleNumber) {
-    showLogin("Enter both your Phase 1 name and raffle number.");
-    return;
-  }
-  const button = document.getElementById("btn-phase2-login");
-  button.disabled = true;
-  button.textContent = "Finding registration…";
-  try {
-    const identity = await AttendeePortal.signIn("phase2", name, raffleNumber);
-    const nextPage = safeNextPage();
-    if (nextPage) window.location.href = nextPage;
-    else await showPortal(identity);
-  } catch (e) {
-    console.error(e);
-    if (["ATTENDEE_LOGIN_FAILED", "LOGIN_FIELDS_REQUIRED", "PHASE1_INCOMPLETE"].includes(e.code)) {
-      showLogin(e.message);
-    } else {
-      toast("Couldn't sign in — check the connection and try again.");
-    }
-  } finally {
-    button.disabled = false;
-    button.textContent = "Enter Phase 2 →";
-  }
-});
-
-document.getElementById("btn-phase2-signout").addEventListener("click", () => {
-  AttendeePortal.signOut("hub.html");
-});
-
-async function initPortal() {
-  document.getElementById("phase2-name").value = "";
-  document.getElementById("phase2-raffle").value = "";
-  if (!AttendeePortal.hasAccess("phase2")) {
-    showLogin();
-    return;
-  }
-  try {
-    const identity = await AttendeePortal.restore("phase2");
-    const nextPage = safeNextPage();
-    if (nextPage) window.location.href = nextPage;
-    else await showPortal(identity);
-  } catch (e) {
-    console.error(e);
-    if (["ATTENDEE_NOT_FOUND", "PHASE1_INCOMPLETE", "PORTAL_LOGIN_REQUIRED"].includes(e.code)) {
-      Identity.clear();
-      showLogin(e.code === "PHASE1_INCOMPLETE" ? e.message : "Find your Phase 1 registration to enter Phase 2.");
-    } else {
-      showLogin();
-      toast("Couldn't restore your Phase 2 session — try signing in again.");
-    }
-  }
-}
-
-initPortal();
-</script>
 </body>
 </html>

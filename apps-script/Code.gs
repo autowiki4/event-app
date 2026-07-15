@@ -429,9 +429,11 @@ function actionBoothCheckin(payload) {
     if (phone && attendee.phone && String(attendee.phone) !== digitsOnly(phone)) {
       throw apiError("phone does not match attendee", "IDENTITY_CONFLICT");
     }
-    const checkinId = newId();
-    appendRow(SHEET_NAMES.BOOTH_CHECKINS, {
-      id: checkinId,
+    const existing = readRows(SHEET_NAMES.BOOTH_CHECKINS).find((checkin) => (
+      String(checkin.attendeeId) === String(attendee.attendeeId)
+        && String(checkin.boothId) === String(boothId)
+    ));
+    const checkin = {
       attendeeId: attendee.attendeeId,
       phone: attendee.phone,
       name: attendee.name,
@@ -442,7 +444,13 @@ function actionBoothCheckin(payload) {
       rating: rating || "",
       note: note || "",
       extraData: extraData ? JSON.stringify(extraData) : "",
-    });
+    };
+    if (existing) {
+      updateRow(SHEET_NAMES.BOOTH_CHECKINS, existing._row, checkin);
+      return { ok: true, checkinId: existing.id, updated: true };
+    }
+    const checkinId = newId();
+    appendRow(SHEET_NAMES.BOOTH_CHECKINS, Object.assign({ id: checkinId }, checkin));
     return { ok: true, checkinId };
   });
 }

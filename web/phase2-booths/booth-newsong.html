@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>The New Song in Nashville — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+  .song-choice.selected{ background:var(--teal); color:#fff; border-color:var(--teal); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div id="booth-room-content" style="display:none;">
+    <div class="progress" id="progress"></div>
+    <section class="screen">
+      <p class="eyebrow">Phase 2 · New Song room</p>
+      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎵</span><em>The New Song in Nashville</em></h1>
+      <p class="lede">Vote on what plays next, then hear about the song only the redeemed can sing.</p>
+    </section>
+
+    <section id="booth-gate" class="screen">
+      <div class="field">
+        <label for="booth-phone-input">Your phone number to check in</label>
+        <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
+        <div class="hint">You'll only need to enter this once today.</div>
+        <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
+      </div>
+      <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
+    </section>
+
+    <div id="booth-interface" style="display:none;">
+      <section class="screen" style="padding-top:0;">
+        <div id="booth-content"></div>
+      </section>
+      <section class="screen" style="padding-top:0;">
+        <div class="field">
+          <label for="booth-note">Anything you'd like to share?</label>
+          <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+        </div>
+        <div class="field">
+          <label>Rate this booth</label>
+          <div class="stars" id="booth-stars">
+            <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/attendee-portal.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script src="../shared/phone.js"></script>
+<script src="../shared/booth-common.js"></script>
+<script src="../shared/booth-room.js"></script>
+<script>
+const BOOTH_ID = "newsong";
+const BOOTH_NAME = "The New Song in Nashville";
+const BOOTH_ROOM_NAME = "New Song";
+let votedFor = "";
+
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(dot);
+  }
+}
+renderProgress();
+
+function renderSongRoom() {
+  document.getElementById("booth-content").innerHTML = `
+    <p class="poll-q">What should play next?</p>
+    <div id="song-choices"></div>
+    <div class="placeholder-note">${votedFor ? `Your current choice is <strong>${escapeHtml(votedFor)}</strong>.` : "Choose one song before you finish, or leave it blank if you only want to listen."}</div>
+  `;
+  const choices = document.getElementById("song-choices");
+  SONG_LIST.forEach((song) => {
+    const button = document.createElement("button");
+    button.className = "poll-opt song-choice" + (votedFor === song ? " selected" : "");
+    button.textContent = song;
+    button.addEventListener("click", () => {
+      votedFor = song;
+      renderSongRoom();
+    });
+    choices.appendChild(button);
+  });
+}
+
+window.getBoothExtraData = () => votedFor ? { votedFor } : null;
+
+initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderSongRoom });
+renderBoothFooter();
+document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+</script>
+</body>
+</html>

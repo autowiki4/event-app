@@ -52,6 +52,9 @@ const Identity = (function () {
     localStorage.removeItem(KEY);
     try {
       sessionStorage.removeItem("eventapp.portal.phase2");
+      ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
+        sessionStorage.removeItem(`eventapp.portal.phase2.${boothId}`);
+      });
       sessionStorage.removeItem("eventapp.portal.phase3");
       sessionStorage.removeItem("eventapp.chosen");
     } catch (e) { /* session storage is optional */ }

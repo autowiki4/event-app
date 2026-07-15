@@ -13,15 +13,19 @@ function initBoothStaff(boothId) {
   document.getElementById("staff-booth-name").textContent = booth.title;
   document.getElementById("staff-booth-description").textContent = booth.blurb;
   document.getElementById("staff-booth-mode").textContent = booth.mode === "kiosk"
-    ? "Staff-run kiosk booth"
-    : "Self-service attendee booth";
+    ? "Staff-guided booth dashboard"
+    : "Self-service booth dashboard";
+
+  const roomLaunch = document.getElementById("staff-room-launch");
+  roomLaunch.innerHTML = `<a class="btn btn-primary" href="../phase2-booths/${escapeHtml(booth.page)}">Open attendee booth room →</a>`;
 
   const kioskLaunch = document.getElementById("staff-kiosk-launch");
   if (booth.kioskPage) {
-    kioskLaunch.innerHTML = `<a class="btn btn-primary" href="${escapeHtml(booth.kioskPage)}">Open live check-in kiosk →</a>`;
+    kioskLaunch.innerHTML = `<div style="margin-top:10px;"><a class="btn btn-ghost" href="${escapeHtml(booth.kioskPage)}">Open optional staff kiosk →</a></div>`;
   } else {
-    kioskLaunch.innerHTML = `<div class="placeholder-note">This booth currently runs on the attendee's phone. Booth-specific staff controls can be added to this page when you define them.</div>`;
+    kioskLaunch.innerHTML = "";
   }
+  document.getElementById("staff-settings").textContent = `Only ${booth.title} settings will appear here. Controls will be added after this booth's rules are defined.`;
 
   let refreshTimer = null;
 

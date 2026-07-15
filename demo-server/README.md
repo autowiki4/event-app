@@ -30,12 +30,17 @@ You should see:
 ```
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
-  Phase 2 attendee:     http://localhost:3000/phase2-booths/hub.html
+  Phase 2 booth rooms:
+    Heaven:             http://localhost:3000/phase2-booths/booth-heaven.html
+    Bible Bowl:         http://localhost:3000/phase2-booths/booth-trivia.html
+    The Sower:          http://localhost:3000/phase2-booths/booth-story.html
+    Art Therapy:        http://localhost:3000/phase2-booths/booth-art.html
+    New Song:           http://localhost:3000/phase2-booths/booth-newsong.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Local testing:        each phase uses its own link; no QR scan required
+  Local testing:        open each booth room directly; no QR scan required
   Local organizer key:  demo
 ```
 
@@ -50,9 +55,19 @@ default is `demo`. To rehearse with a different key, start the server with:
 EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
 ```
 
-You can skip the QR page during local development; open the separate Phase 1,
-Phase 2, Phase 3, and staff URLs directly. QR codes matter only after there is
-a public URL to encode.
+You can skip the QR page during local development. Open Phase 1, then open the
+exact Phase 2 room for the booth you want to test; each of the five rooms asks
+for the Phase 1 name and raffle number independently. The old
+`phase2-booths/hub.html` URL is only a compatibility notice, not a shared
+login. Phase 3 and the overall organizer dashboard remain separate and
+unchanged. Final QR generation for the five booth-room links is deferred until
+there is a real public URL to encode; the current generator is intentionally
+unchanged.
+
+Every booth also has a scoped staff page under `phase2-staff/`. It receives
+only that booth's activity and contains a neutral booth-only settings area for
+future controls. Art Therapy and New Song retain their organizer-key kiosks as
+optional staff fallbacks.
 
 **To stop it:** click into that terminal window and press `Ctrl+C`.
 
@@ -100,10 +115,10 @@ npm test
 ```
 
 The suite starts an isolated temporary server/database and covers separate
-phase login lookup, organizer authorization, booth-scoped staff data, secure
-phone linking, duplicate attendee merging, preserved raffle numbers and kiosk
-history, protected confirmation/reset actions, and Apps Script-style HTTP-200
-error payloads.
+per-booth and Phase 3 login lookup, organizer authorization, booth-scoped staff
+data, duplicate booth-completion protection, secure phone linking, duplicate
+attendee merging, preserved raffle numbers and kiosk history, protected
+confirmation/reset actions, and Apps Script-style HTTP-200 error payloads.
 
 ## How this maps to production
 

@@ -356,6 +356,15 @@ function boothCheckin(body) {
     checkedInAt: new Date().toISOString(),
     rating: rating || null, note: note || "", extraData: extraData || null,
   };
+  const existing = db.boothCheckins.find((checkin) => (
+    checkin.attendeeId === attendee.attendeeId && checkin.boothId === boothId
+  ));
+  if (existing) {
+    const checkinId = existing.id;
+    Object.assign(existing, row, { id: checkinId });
+    writeDb(db);
+    return { status: 200, body: { ok: true, checkinId, updated: true } };
+  }
   db.boothCheckins.push(row);
   writeDb(db);
   return { status: 200, body: { ok: true, checkinId: row.id } };
@@ -564,12 +573,17 @@ function startServer(port = PORT) {
     const actualPort = server.address().port;
     console.log(`Event app demo server running: http://localhost:${actualPort}`);
     console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
-    console.log(`  Phase 2 attendee:     http://localhost:${actualPort}/phase2-booths/hub.html`);
+    console.log("  Phase 2 booth rooms:");
+    console.log(`    Heaven:             http://localhost:${actualPort}/phase2-booths/booth-heaven.html`);
+    console.log(`    Bible Bowl:         http://localhost:${actualPort}/phase2-booths/booth-trivia.html`);
+    console.log(`    The Sower:          http://localhost:${actualPort}/phase2-booths/booth-story.html`);
+    console.log(`    Art Therapy:        http://localhost:${actualPort}/phase2-booths/booth-art.html`);
+    console.log(`    New Song:           http://localhost:${actualPort}/phase2-booths/booth-newsong.html`);
     console.log(`  Phase 3 attendee:     http://localhost:${actualPort}/phase3-signup/index.html`);
     console.log(`  Phase 2 staff hub:    http://localhost:${actualPort}/phase2-staff/index.html`);
     console.log(`  Organizer dashboard:  http://localhost:${actualPort}/organizer/dashboard.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
-    console.log("  Local testing:        each phase uses its own link; no QR scan required");
+    console.log("  Local testing:        open each booth room directly; no QR scan required");
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {
       console.log("  Local organizer key:  demo");
     }

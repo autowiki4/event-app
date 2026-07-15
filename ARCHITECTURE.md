@@ -9,16 +9,18 @@ plan.
 
 Built from `event-app.html` (the original single-file sketch), split into
 a real multi-page, multi-device app. Backend: Google Sheets + Apps Script
-in production, a zero-dependency Node server for local demos. Booths: a
-mix of self-service (attendee's own phone) and staff-run kiosks.
-Organizer: a live dashboard.
+in production, a zero-dependency Node server for local demos. Every booth has
+its own attendee room and booth-scoped staff dashboard; Art Therapy and New
+Song also retain optional staff-run kiosk fallbacks. Organizer: a live
+dashboard.
 
 ## The core problem this solves
 
-People move between phases and devices during the event. Phase 1, Phase 2,
-and Phase 3 therefore have separate attendee URLs instead of one automatic
-consumer flow. Phase 2 can run on an attendee phone or staff tablet, and Phase
-3 remains available even when somebody skipped the booths.
+People move between phases, booths, and devices during the event. Phase 1 and
+Phase 3 have separate attendee URLs, while Phase 2 has five separate attendee
+URLs—one for each physical booth—instead of one automatic consumer flow.
+Optional staff kiosks can support Art Therapy and New Song, and Phase 3
+remains available even when somebody skipped the booths.
 
 One attendee row is reopened in three ways:
 
@@ -28,8 +30,10 @@ One attendee row is reopened in three ways:
   extra spaces, and a wrong pair returns one generic error without attendee
   details.
 - **`attendeeId`** — a random canonical ID created in Phase 1 and saved after
-  a successful portal lookup. Phase 2 and Phase 3 use separate tab-level
-  access markers, so entering one portal does not silently unlock the other.
+  a successful portal lookup. Each Phase 2 booth uses its own tab-level marker
+  (`eventapp.portal.phase2.<boothId>`), and Phase 3 uses
+  `eventapp.portal.phase3`. Entering one booth therefore does not silently
+  unlock another booth or Phase 3.
 - **phone number** — collected once, at the first booth check-in. On an
   attendee's own phone it is linked through their random `attendeeId`. At a
   staff kiosk, the first link is paired with the raffle number already shown
@@ -41,7 +45,7 @@ names and cross-device continuity for the current event prototype. Add phone
 OTP or another verified credential before using it as a production security
 boundary.
 
-Both point at the same row in a Google Sheet. If staff pair a phone that was
+All three resolve to the same row in a Google Sheet. If staff pair a phone that was
 previously created as a "skipped entry" visitor with a later entry record, the
 backend keeps the entry record and raffle number, migrates its booth/sign-up
 history, retains the old ID as an alias, and removes the duplicate attendee.
@@ -83,15 +87,16 @@ database to manage.
 See the annotated file tree in the main `README.md` — it's kept there
 (rather than duplicated here) so there's only one place it can go stale.
 
-The short version: each booth is its own static HTML file — its own
-little "platform" — importing only `shared/api.js` and `shared/identity.js`.
-That's what keeps them separable (a booth leader's page has nothing but
-its own booth's code) while still writing to the same backend so nothing
-gets lost as people move around.
+The short version: each booth is its own static HTML file—its own little
+"platform"—using the shared booth-room login and check-in modules. That keeps
+the attendee experience specific to the booth where the person is standing
+while still writing to the same backend so nothing gets lost as people move
+around.
 
-Self-service vs. kiosk is a per-booth choice — see the `mode: "self"` /
-`mode: "kiosk"` field on each entry in `web/shared/booths-config.js` — no
-need to force every booth into the same interaction model.
+All five booths now have attendee-room pages. The `mode: "self"` /
+`mode: "kiosk"` metadata in `web/shared/booths-config.js` preserves the current
+operating model and optional kiosk links; it no longer means that Art Therapy
+or New Song lacks an attendee room.
 
 ## Phase 1 — Entry (own phone, one QR code)
 
@@ -102,35 +107,53 @@ Single QR code, printed once, pointing to `phase1-entry/index.html`.
    number assigned server-side.
 3. A Guardian Angel confirms the wristband handoff in the current prototype.
 4. The page ends on a Phase 1-complete screen showing the two details needed
-   later: registered name and raffle number. It does not navigate to Phase 2.
+   later: registered name and raffle number. It thanks the attendee, tells
+   them they can close the link, and instructs them to open and log in to the
+   room link when they arrive at each booth. It does not navigate to Phase 2.
 
 ## Phase 2 — Booths (phone number becomes the shared key)
 
-`phase2-booths/hub.html` is its own attendee portal. Even on the same phone
-used at entry, the attendee explicitly finds the Phase 1 record using name +
-raffle number. A completed wristband check is required. The hub then explains
-that the first self-service booth will ask for a phone once, lists all booths,
-and shows completed visits. It ends inside Phase 2 rather than linking directly
-to Phase 3.
+There is no shared Phase 2 attendee login. The five attendee-room links are:
 
-Direct self-service booth links preserve the intended booth while routing an
-unsigned attendee through the Phase 2 lookup. Kiosk booths still tell the
-attendee to see staff because staff run those experiences.
+- `phase2-booths/booth-heaven.html`
+- `phase2-booths/booth-trivia.html`
+- `phase2-booths/booth-story.html`
+- `phase2-booths/booth-art.html`
+- `phase2-booths/booth-newsong.html`
 
-First phone-number entry anywhere calls `findOrRegisterByPhone`. A
-self-service booth links it to the random attendee ID already on that phone.
-A kiosk is unlocked with the organizer key and pairs a new phone with the
-visitor's raffle number, preventing a second attendee/raffle record from being
-created when the kiosk is their first booth. Before a new pairing is written,
-staff see the entry name and raffle number and explicitly confirm the ticket.
-Staff can mark someone as having skipped entry only after entering their name;
-the kiosk then displays the newly assigned raffle number. Returning kiosk
-phones need no raffle re-entry. The current event flow accepts exactly ten
-phone digits: inputs format them as `(555) 555-5555`, while the backends and
-stored rows keep the canonical digits-only value (`5555555555`).
+On first arrival, each room starts with blank name and raffle-number fields.
+The attendee explicitly reopens the Phase 1 record, even on the same phone used
+at entry, and sees a welcome naming only the booth they are currently visiting.
+A completed wristband check is required. The browser stores access under that
+booth's own `eventapp.portal.phase2.<boothId>` session marker, while backend
+login/session calls still use the common `phase2` policy. This means the same
+Phase 1 eligibility check applies everywhere without allowing a Heaven-room
+login to unlock Bible Bowl, for example.
 
-Phone knowledge alone is not treated as identity proof. If a self-service
-device enters a phone already attached to another record, it receives a
+`phase2-booths/hub.html` remains only as a compatibility notice for old links;
+it explains that the attendee should open the link posted at their current
+booth and contains neither the shared login nor a booth picker. Completing a
+booth thanks the attendee and tells them they can close that link. Phase 2 does
+not automatically navigate into another booth or Phase 3. If the same attendee
+finishes the same booth again, the backend updates that booth record instead of
+adding a duplicate person to its activity count.
+
+First phone-number entry anywhere calls `findOrRegisterByPhone`. An attendee
+room links it to the random attendee ID already on that phone.
+The phone gate is still collected once and then reused for the same attendee on
+that browser. The optional Art Therapy and New Song kiosks are unlocked with
+the organizer key and can pair a new phone with the visitor's raffle number,
+preventing a second attendee/raffle record from being created when a kiosk is
+their first booth. Before a new pairing is written, staff see the entry name
+and raffle number and explicitly confirm the ticket. Staff can mark someone as
+having skipped entry only after entering their name; the kiosk then displays
+the newly assigned raffle number. Returning kiosk phones need no raffle
+re-entry. The current event flow accepts exactly ten phone digits: inputs
+format them as `(555) 555-5555`, while the backends and stored rows keep the
+canonical digits-only value (`5555555555`).
+
+Phone knowledge alone is not treated as identity proof. If an attendee device
+enters a phone already attached to another record, it receives a
 generic "ask staff" conflict rather than the other attendee's name or raffle.
 This prototype does not perform SMS verification, so a determined caller can
 still test whether a number is already linked by comparing success with that
@@ -143,9 +166,12 @@ The separate staff side starts at `phase2-staff/index.html`. Every booth has
 its own URL under that folder. Those pages call authenticated
 `boothDashboardData`, which filters on the server and returns only that
 booth's count and recent check-ins—never the overall dashboard, Phase 3
-sign-ups, or phone numbers. All pages temporarily share the organizer key, so
-this is data/UI separation rather than per-booth authorization; dedicated
-booth keys can be introduced when the final controls are defined.
+sign-ups, or phone numbers. Each page also has a neutral booth-only settings
+area; actual controls will be added after that booth's rules are defined. All
+pages temporarily share the organizer key, so this is data/UI separation
+rather than per-booth authorization; dedicated booth keys can be introduced
+when the final controls are defined. Art Therapy and New Song staff pages also
+link to their optional kiosk fallbacks.
 
 ## Phase 3 — Sign-up (app UI + in-person confirmation)
 
@@ -182,17 +208,18 @@ number from the Attendees list/dashboard count and call it out live, or add a
 ## QR codes and separate links
 
 1. **Entry QR** (Phase 1) — one, printed at the door.
-2. **Phase 2 attendee link** — opens the independent Gym login/hub.
-3. **Booth QRs** — one per self-service booth; a logged-out visitor is sent
-   through the Phase 2 lookup and returned to that booth.
-4. **Phase 3 attendee link** — opens the independent final signup login.
-5. Kiosk booths need no attendee-facing QR — staff use their booth staff page
-   and live kiosk.
+2. **Five Phase 2 booth-room links** — one direct attendee URL per physical
+   booth, each with its own login and welcome.
+3. **Phase 3 attendee link** — opens the independent final signup login.
+4. **Optional staff kiosks** — Art Therapy and New Song retain separate staff
+   tools, but those do not replace their new attendee-room links.
 
-Full instructions for generating and printing these are in `qr/QR_PLAN.md`.
-For local testing, QR codes are optional: open the printed localhost URLs
-directly and exercise the entire flow without visiting the QR page. The QR
-generator itself remains deployment-time work for when a public URL exists.
+The current QR generator is intentionally unchanged and still reflects the
+older entry-plus-three-self-service-booths set. Expanding it to the five room
+links, deciding which public routes receive printed codes, and printing those
+codes are deferred until the app has a deployed public URL. For local testing,
+open the localhost room URLs directly and skip the QR page. See
+`qr/QR_PLAN.md` for the current generator and deployment note.
 
 ## Two interchangeable backends
 
