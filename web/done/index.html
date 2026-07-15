@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>You're all set — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+  <section class="screen">
+    <div class="done-badge">✓</div>
+    <h1 class="display" style="text-align:center;">You're not leaving the same.</h1>
+    <p class="lede" style="text-align:center;">Thanks for being here today. Here's a recap:</p>
+    <ul class="summary-list" id="summary-list"></ul>
+    <div id="booth-guides"></div>
+    <div class="connect-card" id="connect-box"></div>
+    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Start over</button>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 2 ? " done" : i === 2 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+const identity = Identity.get();
+const chosenIds = JSON.parse(sessionStorage.getItem("eventapp.chosen") || "[]");
+const chosen = FINAL_OPTIONS.filter((o) => chosenIds.includes(o.id));
+
+async function render() {
+  let boothIds = [];
+  try {
+    const res = await EventAPI.myCheckins(identity.attendeeId, identity.phone);
+    boothIds = res.boothIds || [];
+  } catch (e) { console.warn(e); }
+
+  const list = document.getElementById("summary-list");
+  list.innerHTML = `
+    <li>🎟️ Raffle entry <b>#${identity.raffleNumber || "----"}</b> — we'll call it live if you win.</li>
+    <li>📜 ${boothIds.length} of ${CONNECTOR_BOOTHS.length} connector booths completed.</li>
+  `;
+  if (chosen.length === 0) {
+    list.innerHTML += `<li>You skipped the final options — that's okay, we'll still keep your raffle entry.</li>`;
+  } else {
+    chosen.forEach((o) => { list.innerHTML += `<li>✅ ${o.title}</li>`; });
+  }
+
+  const guides = document.getElementById("booth-guides");
+  guides.innerHTML = "";
+  chosen.filter((o) => o.guide).forEach((o) => {
+    const g = document.createElement("div");
+    g.className = "booth-guide";
+    g.style.marginTop = "10px";
+    g.innerHTML = `<div class="g-kicker">${o.guide.kicker}</div><div class="g-loc">${o.guide.loc}</div><div class="g-detail">${o.guide.detail}</div>`;
+    guides.appendChild(g);
+  });
+
+  renderConnectBox();
+}
+
+function renderConnectBox() {
+  const box = document.getElementById("connect-box");
+  if (identity.email) {
+    box.innerHTML = `
+      <div class="kicker">You're connected</div>
+      <h2>So glad you're here.</h2>
+      <p style="margin-bottom:0;">We've got your email — we'll follow up soon on ${chosen.length ? "the next step you picked" : "what's next"}. Can't wait to see where this takes you.</p>
+    `;
+    return;
+  }
+  box.innerHTML = `
+    <div class="kicker">Before you go</div>
+    <h2>Let's stay connected.</h2>
+    <p>Drop your email and we'll follow up${chosen.length ? " on the next step you picked" : ""} — no spam, just what matters.</p>
+    <input id="fld-connect-email" type="email" placeholder="you@email.com">
+    <button class="btn btn-primary" id="btn-connect-email">Keep me connected →</button>
+  `;
+  document.getElementById("btn-connect-email").addEventListener("click", async () => {
+    const input = document.getElementById("fld-connect-email");
+    const val = input.value.trim();
+    if (!val) { input.focus(); return; }
+    const btn = document.getElementById("btn-connect-email");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await EventAPI.submitSignup({
+        attendeeId: identity.attendeeId,
+        phone: identity.phone,
+        optionId: "connect",
+        optionTitle: "Stay connected (added after wrap-up)",
+        email: val,
+      });
+      Identity.set({ email: val });
+      identity.email = val;
+      renderConnectBox();
+      toast("Thanks — we'll be in touch!");
+    } catch (e) {
+      console.error(e);
+      toast("Couldn't save — check the connection and try again.");
+      btn.disabled = false; btn.textContent = "Keep me connected →";
+    }
+  });
+}
+
+render();
+
+document.getElementById("btn-restart").addEventListener("click", () => {
+  Identity.clear();
+  sessionStorage.removeItem("eventapp.chosen");
+  window.location.href = "../phase1-entry/index.html";
+});
+</script>
+</body>
+</html>

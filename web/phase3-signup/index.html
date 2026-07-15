@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Phase 3 · Sign up — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+  <section class="screen">
+    <p class="eyebrow">Phase 3 · Before you go</p>
+    <h1 class="display">What's <em>next</em> for you?</h1>
+    <p class="lede">Pick anything that fits — you can choose more than one. A staff member will confirm these with you in person before you leave.</p>
+
+    <div class="opt-grid" id="opt-grid"></div>
+    <div id="opt-details"></div>
+
+    <button class="btn btn-primary" id="btn-submit" style="margin-top:6px;">Save my answers →</button>
+    <div class="err" id="err-choice" style="text-align:center; margin-top:10px;">Add the info needed for what you picked.</div>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 2 ? " done" : i === 2 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+const selected = new Set();
+const fields = { email: "", stars: 0, comment: "" };
+
+function renderOptions() {
+  const grid = document.getElementById("opt-grid");
+  grid.innerHTML = "";
+  FINAL_OPTIONS.forEach((opt) => {
+    const isSelected = selected.has(opt.id);
+    const card = document.createElement("div");
+    card.className = "opt-card" + (isSelected ? " selected" : "");
+    card.innerHTML = `
+      <div class="row">
+        <div class="check">${isSelected ? "✓" : ""}</div>
+        <div>
+          <div class="title">${opt.title}</div>
+          <div class="desc">${opt.desc}</div>
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      if (selected.has(opt.id)) selected.delete(opt.id);
+      else selected.add(opt.id);
+      renderOptions();
+    });
+    grid.appendChild(card);
+  });
+  renderOptionDetails();
+}
+
+function renderOptionDetails() {
+  const wrap = document.getElementById("opt-details");
+  wrap.innerHTML = "";
+  FINAL_OPTIONS.forEach((opt) => {
+    if (!selected.has(opt.id)) return;
+    const block = document.createElement("div");
+    block.className = "detail-block";
+    let inner = `<div class="dt-title">${opt.title}</div>`;
+    if (opt.needs.includes("email")) {
+      inner += `
+        <div class="field">
+          <label for="fld-email">Email</label>
+          <input id="fld-email" type="email" placeholder="you@email.com" value="${fields.email}">
+        </div>`;
+    }
+    if (opt.needs.includes("survey")) {
+      inner += `
+        <div class="field">
+          <label>Rate today</label>
+          <div class="stars" id="stars">
+            ${[1, 2, 3, 4, 5].map((n) => `<span class="star ${n <= fields.stars ? "on" : ""}" data-n="${n}">★</span>`).join("")}
+          </div>
+        </div>
+        <div class="field">
+          <label for="fld-comment">Any feedback? (optional)</label>
+          <textarea id="fld-comment" rows="2" placeholder="Tell us what stood out...">${fields.comment}</textarea>
+        </div>`;
+    }
+    if (opt.needs.includes("social")) {
+      inner += `
+        <div class="share-box" style="display:flex; align-items:center; justify-content:space-between; background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:12px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--ink); font-size:14px;">${SOCIAL_HANDLE}</span>
+          <button class="btn btn-ghost btn-small" id="btn-share">Copy link</button>
+        </div>`;
+    }
+    if (opt.guide) {
+      inner += `
+        <div class="booth-guide">
+          <div class="g-kicker">${opt.guide.kicker}</div>
+          <div class="g-loc">${opt.guide.loc}</div>
+          <div class="g-detail">${opt.guide.detail}</div>
+        </div>`;
+    }
+    block.innerHTML = inner;
+    wrap.appendChild(block);
+  });
+
+  const emailEl = document.getElementById("fld-email");
+  if (emailEl) emailEl.addEventListener("input", (e) => fields.email = e.target.value);
+  const commentEl = document.getElementById("fld-comment");
+  if (commentEl) commentEl.addEventListener("input", (e) => fields.comment = e.target.value);
+  const starsEl = document.getElementById("stars");
+  if (starsEl) starsEl.querySelectorAll(".star").forEach((s) => {
+    s.addEventListener("click", () => { fields.stars = parseInt(s.dataset.n, 10); renderOptionDetails(); });
+  });
+  const shareBtn = document.getElementById("btn-share");
+  if (shareBtn) shareBtn.addEventListener("click", async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: "The Perfect Summer Day", url: SOCIAL_URL });
+      else { await navigator.clipboard.writeText(SOCIAL_URL); toast("Link copied!"); }
+    } catch (e) { /* cancelled */ }
+  });
+}
+renderOptions();
+
+document.getElementById("btn-submit").addEventListener("click", async () => {
+  const err = document.getElementById("err-choice");
+  err.style.display = "none";
+  for (const opt of FINAL_OPTIONS) {
+    if (!selected.has(opt.id)) continue;
+    if (opt.needs.includes("email") && !fields.email.trim()) { err.style.display = "block"; return; }
+  }
+
+  const identity = Identity.get();
+  const chosen = FINAL_OPTIONS.filter((o) => selected.has(o.id));
+  const btn = document.getElementById("btn-submit");
+  btn.disabled = true; btn.textContent = "Saving…";
+
+  try {
+    if (chosen.length === 0) {
+      // Still worth recording that they wrapped up with nothing selected —
+      // skip network calls for the demo and just move on.
+    } else {
+      await Promise.all(chosen.map((opt) => EventAPI.submitSignup({
+        attendeeId: identity.attendeeId,
+        phone: identity.phone,
+        optionId: opt.id,
+        optionTitle: opt.title,
+        email: fields.email,
+        stars: fields.stars || null,
+        comment: fields.comment,
+      })));
+    }
+    sessionStorage.setItem("eventapp.chosen", JSON.stringify(chosen.map((o) => o.id)));
+    Identity.set({ email: fields.email });
+    window.location.href = "../done/index.html";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't save — check the connection and try again.");
+    btn.disabled = false; btn.textContent = "Save my answers →";
+  }
+});
+</script>
+</body>
+</html>

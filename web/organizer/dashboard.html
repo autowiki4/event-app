@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organizer Dashboard — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+
+<div class="phone dash-wrap" id="phone">
+  <div class="device-tag organizer">Organizer view</div>
+  <section class="screen">
+    <p class="eyebrow">Live · updates every 4s</p>
+    <h1 class="display">Event dashboard</h1>
+    <p class="lede">Everything below reads straight from the shared backend — the same data every attendee phone and staff kiosk is writing to.</p>
+
+    <div class="dash-grid" id="totals-grid"></div>
+
+    <div class="section-title">Booth check-ins</div>
+    <table class="dash-table" id="booth-table">
+      <thead><tr><th>Booth</th><th>Check-ins</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="section-title">Bible Bowl leaderboard</div>
+    <table class="dash-table" id="trivia-table">
+      <thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="section-title">New Song votes</div>
+    <table class="dash-table" id="song-table">
+      <thead><tr><th>Song</th><th>Votes</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="section-title">Phase 3 sign-ups — confirm in person</div>
+    <p class="lede" style="margin-top:-4px;">Tap Confirm once a staff member has actually talked to that person at the relevant table.</p>
+    <table class="dash-table" id="signup-table">
+      <thead><tr><th>Name</th><th>Phone</th><th>Interested in</th><th>Status</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <button class="btn btn-ghost" id="btn-reset" style="margin-top:24px;">Reset demo data (rehearsal only)</button>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/toast.js"></script>
+<script>
+function esc(s) { return escapeHtml(s); }
+
+async function refresh() {
+  let data;
+  try {
+    data = await EventAPI.dashboardData();
+  } catch (e) {
+    console.error(e);
+    return;
+  }
+
+  document.getElementById("totals-grid").innerHTML = `
+    <div class="dash-card"><div class="num">${data.totals.registered}</div><div class="lbl">Registered</div></div>
+    <div class="dash-card"><div class="num">${data.totals.wristbandsConfirmed}</div><div class="lbl">Wristbands confirmed</div></div>
+    <div class="dash-card"><div class="num">${data.totals.raffleEntries}</div><div class="lbl">Raffle entries</div></div>
+  `;
+
+  const boothBody = document.querySelector("#booth-table tbody");
+  boothBody.innerHTML = data.boothCounts.length
+    ? data.boothCounts.map((b) => `<tr><td>${esc(b.boothName)}</td><td>${b.count}</td></tr>`).join("")
+    : `<tr><td colspan="2" style="color:var(--ink-soft);">No check-ins yet.</td></tr>`;
+
+  const triviaBody = document.querySelector("#trivia-table tbody");
+  triviaBody.innerHTML = data.triviaLeaderboard.length
+    ? data.triviaLeaderboard.map((t, i) => `<tr><td>${i + 1}</td><td>${esc(t.name)}</td><td>${t.score}</td></tr>`).join("")
+    : `<tr><td colspan="3" style="color:var(--ink-soft);">No Bible Bowl scores yet.</td></tr>`;
+
+  const songBody = document.querySelector("#song-table tbody");
+  songBody.innerHTML = data.songVotes.length
+    ? data.songVotes.map((s) => `<tr><td>${esc(s.title)}</td><td>${s.votes}</td></tr>`).join("")
+    : `<tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr>`;
+
+  const signupBody = document.querySelector("#signup-table tbody");
+  signupBody.innerHTML = data.signups.length
+    ? data.signups.map((s) => `
+        <tr>
+          <td>${esc(s.name)}</td>
+          <td>${esc(s.phone)}</td>
+          <td>${esc(s.optionTitle)}</td>
+          <td>${s.confirmedInPerson ? `<span class="pill confirmed">Confirmed</span>` : `<span class="pill pending">Pending</span>`}</td>
+          <td>${s.confirmedInPerson ? "" : `<button class="btn btn-primary btn-small confirm-btn" data-id="${s.id}">Confirm</button>`}</td>
+        </tr>
+      `).join("")
+    : `<tr><td colspan="5" style="color:var(--ink-soft);">No sign-ups yet.</td></tr>`;
+
+  signupBody.querySelectorAll(".confirm-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        await EventAPI.confirmSignupInPerson(btn.dataset.id, "staff");
+        toast("Confirmed!");
+        refresh();
+      } catch (e) {
+        console.error(e);
+        toast("Couldn't confirm — try again.");
+        btn.disabled = false; btn.textContent = "Confirm";
+      }
+    });
+  });
+}
+
+refresh();
+setInterval(refresh, 4000);
+
+document.getElementById("btn-reset").addEventListener("click", async () => {
+  if (!confirm("Reset all demo data? This clears every attendee, check-in, and sign-up.")) return;
+  try {
+    await fetch(window.EVENT_APP_CONFIG.API_BASE_URL + "/resetDemo", { method: "POST" });
+    toast("Demo data reset.");
+    refresh();
+  } catch (e) {
+    toast("Reset isn't available on this backend.");
+  }
+});
+</script>
+</body>
+</html>

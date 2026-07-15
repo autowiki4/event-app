@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Art Therapy Table — Staff Kiosk</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--coral); --phase-color-deep:var(--coral-deep); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="device-tag kiosk">Staff kiosk</div>
+  <section class="screen">
+    <p class="eyebrow">Connector Booth · Staff-run</p>
+    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🖌️</span><em>Art Therapy Table</em></h1>
+    <p class="lede">One device for the whole booth. Enter each visitor's phone number, show them the prompt, then move to the next person.</p>
+
+    <div id="step-lookup">
+      <div class="field">
+        <label for="phone-input">Visitor's phone number</label>
+        <input id="phone-input" type="tel" inputmode="tel" autocomplete="off" placeholder="(555) 555-5555">
+        <div class="err" id="err-phone">Enter their number to check in.</div>
+      </div>
+      <button class="btn btn-primary" id="btn-lookup">Check in visitor →</button>
+    </div>
+
+    <div id="step-prompt" style="display:none;">
+      <div class="booth-guide" style="margin-bottom:16px;">
+        <div class="g-kicker" id="visitor-name">Guest</div>
+        <div class="g-loc" id="prompt-text">Prompt</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-next-prompt">Show a different prompt</button>
+      <div class="field" style="margin-top:16px;">
+        <label>Rate this booth (optional, on their behalf)</label>
+        <div class="stars" id="booth-stars">
+          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-done" style="margin-top:6px;">Done — next visitor →</button>
+    </div>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+const BOOTH_ID = "art";
+const BOOTH_NAME = "Art Therapy Table";
+let currentVisitor = null;
+let promptIndex = Math.floor(Math.random() * ART_PROMPTS.length);
+let stars = 0;
+
+function showPrompt() {
+  document.getElementById("visitor-name").textContent = currentVisitor.name || "Guest";
+  document.getElementById("prompt-text").textContent = ART_PROMPTS[promptIndex % ART_PROMPTS.length];
+}
+
+document.getElementById("btn-lookup").addEventListener("click", async () => {
+  const input = document.getElementById("phone-input");
+  const err = document.getElementById("err-phone");
+  const digits = input.value.replace(/\D/g, "");
+  if (digits.length < 10) { err.style.display = "block"; return; }
+  err.style.display = "none";
+
+  const btn = document.getElementById("btn-lookup");
+  btn.disabled = true; btn.textContent = "Checking in…";
+  try {
+    // Kiosk devices don't carry an attendeeId of their own — identity is
+    // resolved purely by phone number, since a new person walks up each time.
+    const result = await EventAPI.findOrRegisterByPhone(null, digits, "Guest");
+    currentVisitor = { phone: digits, name: result.name };
+    promptIndex = Math.floor(Math.random() * ART_PROMPTS.length);
+    stars = 0;
+    document.querySelectorAll("#booth-stars .star").forEach((el) => el.classList.remove("on"));
+    showPrompt();
+    document.getElementById("step-lookup").style.display = "none";
+    document.getElementById("step-prompt").style.display = "block";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't check in — check the connection and try again.");
+  }
+  btn.disabled = false; btn.textContent = "Check in visitor →";
+});
+
+document.getElementById("btn-next-prompt").addEventListener("click", () => {
+  promptIndex = (promptIndex + 1) % ART_PROMPTS.length;
+  showPrompt();
+});
+
+document.querySelectorAll("#booth-stars .star").forEach((s) => {
+  s.addEventListener("click", () => {
+    stars = parseInt(s.dataset.n, 10);
+    document.querySelectorAll("#booth-stars .star").forEach((el) => {
+      el.classList.toggle("on", parseInt(el.dataset.n, 10) <= stars);
+    });
+  });
+});
+
+document.getElementById("btn-done").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-done");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    await EventAPI.boothCheckin({
+      phone: currentVisitor.phone,
+      boothId: BOOTH_ID,
+      boothName: BOOTH_NAME,
+      checkedInBy: "staff-kiosk",
+      rating: stars || null,
+      extraData: { promptShown: ART_PROMPTS[promptIndex % ART_PROMPTS.length] },
+    });
+    toast("Saved! Ready for the next visitor.");
+    currentVisitor = null;
+    document.getElementById("phone-input").value = "";
+    document.getElementById("step-prompt").style.display = "none";
+    document.getElementById("step-lookup").style.display = "block";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't save — check the connection and try again.");
+  }
+  btn.disabled = false; btn.textContent = "Done — next visitor →";
+});
+</script>
+</body>
+</html>

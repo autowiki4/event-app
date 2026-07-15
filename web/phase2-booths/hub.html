@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>The Gym — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+  <section class="screen">
+    <p class="eyebrow">Phase 2 · The Gym</p>
+    <h1 class="display">Welcome to <em>the Gym.</em></h1>
+    <p class="lede" id="lede-text">Visit the connector booths whenever you're ready — or just have fun. It's up to you.</p>
+
+    <div class="booth-list" id="booth-list"></div>
+
+    <button class="btn btn-primary" id="btn-wrap-up">Wrap up & head out →</button>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+async function render() {
+  const identity = Identity.get();
+  let visited = [];
+  try {
+    const res = await EventAPI.myCheckins(identity.attendeeId, identity.phone);
+    visited = res.boothIds || [];
+  } catch (e) {
+    console.warn("Couldn't load check-in status", e);
+  }
+
+  const wrap = document.getElementById("booth-list");
+  wrap.innerHTML = "";
+  CONNECTOR_BOOTHS.forEach((b) => {
+    const done = visited.includes(b.id);
+    const card = document.createElement("div");
+    card.className = "booth-card" + (done ? " visited" : "");
+    const modeNote = b.mode === "kiosk"
+      ? "🧑‍🤝‍🧑 Staff-run — just walk up, no need to open this on your phone"
+      : "📱 Self-service — tap Open to check in on your phone";
+    const action = b.mode === "kiosk"
+      ? `<span class="stamp-btn disabled">${done ? "Visited ✓" : "See staff"}</span>`
+      : `<a class="stamp-btn ${done ? "done" : ""}" href="${b.page}?boothId=${b.id}">${done ? "Completed ✓" : "Open"}</a>`;
+    card.innerHTML = `
+      <div class="booth-icon">${b.icon}</div>
+      <div class="booth-info">
+        <div class="name">${b.title}</div>
+        <div class="hint">${b.blurb}</div>
+        <div class="hint" style="opacity:.6; margin-top:2px;">${modeNote}</div>
+      </div>
+      ${action}
+    `;
+    wrap.appendChild(card);
+  });
+}
+render();
+
+document.getElementById("btn-wrap-up").addEventListener("click", () => {
+  window.location.href = "../phase3-signup/index.html";
+});
+</script>
+</body>
+</html>

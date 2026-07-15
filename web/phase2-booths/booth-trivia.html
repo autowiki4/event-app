@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Bible Bowl — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+  .live-tag{ display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--coral); text-transform:uppercase; margin-bottom:10px; }
+  .live-dot{ width:7px; height:7px; border-radius:50%; background:var(--coral); animation:pulse 1.4s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+  <section class="screen">
+    <a class="btn-link" href="hub.html">← Back to Gym</a>
+    <p class="eyebrow">Connector Booth · Self-service</p>
+    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🏆</span><em>Bible Bowl</em></h1>
+    <p class="lede">Jeopardy-style trivia — pick it up as you go, rack up points.</p>
+  </section>
+
+  <section id="booth-gate" class="screen">
+    <div class="field">
+      <label for="booth-phone-input">Your phone number to check in</label>
+      <input id="booth-phone-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555">
+      <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+      <div class="err" id="err-booth-phone">Enter your number to check in at this booth.</div>
+    </div>
+    <button class="btn btn-primary" id="btn-booth-checkin">Check in at this booth →</button>
+  </section>
+
+  <div id="booth-interface" style="display:none;">
+    <section class="screen" style="padding-top:0;">
+      <div id="booth-content"></div>
+    </section>
+    <section class="screen" style="padding-top:0;">
+      <div class="field">
+        <label for="booth-note">Anything you'd like to share?</label>
+        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+      </div>
+      <div class="field">
+        <label>Rate this booth</label>
+        <div class="stars" id="booth-stars">
+          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-booth-done">Done — back to Gym →</button>
+    </section>
+  </div>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script src="../shared/booth-common.js"></script>
+<script>
+const BOOTH_ID = "trivia";
+const BOOTH_NAME = "Bible Bowl";
+
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+const triviaState = { index: 0, score: 0, selected: null };
+
+function renderTrivia() {
+  const wrap = document.getElementById("booth-content");
+  if (triviaState.index >= TRIVIA_QUESTIONS.length) {
+    wrap.innerHTML = `
+      <div class="booth-guide" style="margin-bottom:16px;">
+        <div class="g-kicker">Bible Bowl</div>
+        <div class="g-loc">${triviaState.score} points</div>
+        <div class="g-detail">Nice work! Ask the booth leader if you want to go again.</div>
+      </div>
+      <button class="btn btn-ghost btn-small" id="btn-trivia-restart">Play again</button>
+    `;
+    document.getElementById("btn-trivia-restart").addEventListener("click", () => {
+      triviaState.index = 0; triviaState.score = 0; triviaState.selected = null;
+      renderTrivia();
+    });
+    return;
+  }
+  const q = TRIVIA_QUESTIONS[triviaState.index];
+  wrap.innerHTML = `
+    <div class="live-tag"><span class="live-dot"></span>${q.category} · ${q.points} pts</div>
+    <div class="poll-q">${q.q}</div>
+    <div id="trivia-choices"></div>
+    ${triviaState.selected !== null ? `<button class="btn btn-primary" id="btn-trivia-next" style="margin-top:10px;">${triviaState.index === TRIVIA_QUESTIONS.length - 1 ? "See my score →" : "Next question →"}</button>` : ""}
+  `;
+  const cWrap = document.getElementById("trivia-choices");
+  q.choices.forEach((c, i) => {
+    const btn = document.createElement("button");
+    btn.className = "poll-opt";
+    btn.textContent = c;
+    if (triviaState.selected !== null) {
+      btn.disabled = true;
+      if (i === q.correct) { btn.style.background = "var(--teal)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--teal)"; }
+      else if (i === triviaState.selected) { btn.style.background = "var(--coral)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--coral)"; }
+    }
+    btn.addEventListener("click", () => {
+      if (triviaState.selected !== null) return;
+      triviaState.selected = i;
+      if (i === q.correct) triviaState.score += q.points;
+      renderTrivia();
+    });
+    cWrap.appendChild(btn);
+  });
+  const nextBtn = document.getElementById("btn-trivia-next");
+  if (nextBtn) nextBtn.addEventListener("click", () => {
+    triviaState.index++;
+    triviaState.selected = null;
+    renderTrivia();
+  });
+}
+
+window.getBoothExtraData = () => ({ score: triviaState.score, questionsSeen: triviaState.index });
+
+initBoothGate({ boothId: BOOTH_ID, boothName: BOOTH_NAME, onReady: renderTrivia });
+renderBoothFooter();
+document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+</script>
+</body>
+</html>

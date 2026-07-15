@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Can You Draw Heaven? — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+  .sky-mode{
+    padding:0 !important; min-height:80vh; position:relative;
+    background: radial-gradient(ellipse 140% 55% at 50% -8%, rgba(255,248,220,0.95), transparent 62%),
+                radial-gradient(circle at 88% 14%, rgba(255,255,255,0.35), transparent 42%),
+                linear-gradient(180deg, #EAF7FF 0%, #BCE6FF 16%, #6FCBEE 40%, #2E9FD6 66%, #1D7A78 100%);
+  }
+  .sky-mode #booth-content{
+    min-height:80vh; display:flex; flex-direction:column; justify-content:center;
+    padding:64px 28px 110px; text-align:center; color:#fff; width:100%; box-sizing:border-box;
+  }
+  .sky-card{
+    background:rgba(255,255,255,0.16); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,0.45); border-radius:24px; padding:30px 24px;
+    box-shadow:0 24px 46px -22px rgba(8,40,60,0.45);
+  }
+  .sky-bottom-btn.btn-primary{
+    position:absolute; left:0; right:0; bottom:0; margin:0; border-radius:0; padding:20px 28px;
+    background:linear-gradient(90deg, var(--coral-deep), var(--sun-deep)); color:#fff; box-shadow:none;
+  }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div id="booth-header">
+    <div class="progress" id="progress"></div>
+    <section class="screen">
+      <a class="btn-link" href="hub.html">← Back to Gym</a>
+      <p class="eyebrow">Connector Booth · Self-service</p>
+      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎨</span><em>Can You Draw Heaven?</em></h1>
+      <p class="lede">We'll show you the Kingdom of Heaven as described in Revelation — then you can draw it!</p>
+    </section>
+  </div>
+
+  <section id="booth-gate" class="screen">
+    <div class="field">
+      <label for="booth-phone-input">Your phone number to check in</label>
+      <input id="booth-phone-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555">
+      <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+      <div class="err" id="err-booth-phone">Enter your number to check in at this booth.</div>
+    </div>
+    <button class="btn btn-primary" id="btn-booth-checkin">Check in at this booth →</button>
+  </section>
+
+  <div id="booth-interface" style="display:none;">
+    <div id="booth-content"></div>
+    <section class="screen" id="booth-footer-wrap">
+      <div class="field">
+        <label for="booth-note">Anything you'd like to share?</label>
+        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+      </div>
+      <div class="field">
+        <label>Rate this booth</label>
+        <div class="stars" id="booth-stars">
+          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-booth-done">Done — back to Gym →</button>
+    </section>
+  </div>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booth-common.js"></script>
+<script>
+const BOOTH_ID = "heaven";
+const BOOTH_NAME = "Can You Draw Heaven?";
+const HEAVEN_VERSE_TEXT = "And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,";
+
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+const heavenState = { page: 1 };
+
+function setChrome(sky) {
+  document.getElementById("phone").classList.toggle("sky-mode", sky);
+  document.getElementById("booth-header").style.display = sky ? "none" : "";
+  document.getElementById("booth-footer-wrap").style.display = sky ? "none" : "";
+  document.getElementById("progress").style.display = sky ? "none" : "";
+}
+
+function renderHeaven() {
+  const wrap = document.getElementById("booth-content");
+  if (heavenState.page === 1) {
+    setChrome(true);
+    wrap.innerHTML = `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <div class="sky-card">
+          <div style="font-family:'Fraunces',serif; font-weight:700; font-size:28px; letter-spacing:.02em; color:#FFE9B0; margin-bottom:18px; text-shadow:0 2px 14px rgba(8,40,60,0.35);">Revelation 21:10</div>
+          <p style="font-family:'Fraunces',serif; font-style:italic; font-weight:500; font-size:19px; line-height:1.6; color:#fff; margin:0 0 20px; text-shadow:0 2px 16px rgba(8,40,60,0.35);">"${HEAVEN_VERSE_TEXT}"</p>
+          <div style="height:1px; background:rgba(255,255,255,0.35); margin:0 8px 20px;"></div>
+          <p style="font-size:14.5px; line-height:1.55; color:#FFE9B0; font-weight:600; margin:0;">In Revelation 21, the angel shows John the image of the Kingdom of Heaven in the Spiritual Realm.</p>
+        </div>
+      </div>
+      <button class="btn btn-primary sky-bottom-btn" id="btn-heaven-next">What Does It Look Like →</button>
+    `;
+    document.getElementById("btn-heaven-next").addEventListener("click", () => { heavenState.page = 2; renderHeaven(); });
+    return;
+  }
+  if (heavenState.page === 2) {
+    setChrome(false);
+    wrap.innerHTML = `
+      <section class="screen" style="padding-top:6px;">
+        <div class="placeholder-note">🚧 Page 2 — drop in the checklist of New Jerusalem details (12 gates of pearl, streets of gold, river of life, etc.) here once you're ready.</div>
+        <div class="poll-nav" style="margin-top:10px;">
+          <button class="btn btn-ghost" id="btn-heaven-back">← Back</button>
+          <button class="btn btn-primary" id="btn-heaven-next">Next →</button>
+        </div>
+      </section>
+    `;
+    document.getElementById("btn-heaven-back").addEventListener("click", () => { heavenState.page = 1; renderHeaven(); });
+    document.getElementById("btn-heaven-next").addEventListener("click", () => { heavenState.page = 3; renderHeaven(); });
+    return;
+  }
+  setChrome(false);
+  wrap.innerHTML = `
+    <section class="screen" style="padding-top:6px;">
+      <div class="placeholder-note">🚧 Page 3 — drop in the "reveal image" / draw-your-own comparison here once you're ready.</div>
+      <button class="btn btn-ghost" id="btn-heaven-back" style="margin-top:6px;">← Back</button>
+    </section>
+  `;
+  document.getElementById("btn-heaven-back").addEventListener("click", () => { heavenState.page = 2; renderHeaven(); });
+}
+
+window.getBoothExtraData = () => ({ reachedPage: heavenState.page });
+
+initBoothGate({ boothId: BOOTH_ID, boothName: BOOTH_NAME, onReady: renderHeaven });
+renderBoothFooter();
+document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.log
+
+# Local demo data — regenerated automatically (empty) on first run.
+demo-server/db.json

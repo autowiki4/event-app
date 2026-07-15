@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Phase 1 · Entry — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  /* Phase 1 stays on the ink/navy phase color throughout. */
+  :root{ --phase-color:var(--ink-soft); --phase-color-deep:var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+
+  <section class="screen" id="s-welcome">
+    <p class="eyebrow">Lobby · Registration (Phase 1 of 3)</p>
+    <h1 class="display">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
+    <p class="lede">Scan this QR code once, at the door. Enter your name to register — you'll get your wristband from your Guardian Angel next.</p>
+
+    <div class="field">
+      <label for="in-name">Your first name</label>
+      <input id="in-name" type="text" placeholder="e.g. Jordan" autocomplete="given-name">
+      <div class="err" id="err-name">Enter your name to continue.</div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-welcome-next">Experience Heaven →</button>
+    <p class="top-note">We'll ask for your phone number once you check in at your first booth.</p>
+  </section>
+
+  <section class="screen" id="s-pass" style="display:none;">
+    <p class="eyebrow">You're registered</p>
+    <div class="ticket-hero">
+      <div class="kicker">Sunshine Raffle</div>
+      <h2 id="ticket-name">Hey there.</h2>
+      <div class="sub">Hold onto this number — we'll draw it live today.</div>
+      <div class="ticket-stub">
+        <div>
+          <div class="lbl">Entry No.</div>
+          <div class="num" id="ticket-number">#0000</div>
+        </div>
+        <div style="text-align:right">
+          <div class="lbl">Status</div>
+          <div style="font-weight:700; color:#fff; font-size:13px;">Registered ✓</div>
+        </div>
+      </div>
+    </div>
+    <div class="perf"></div>
+    <p class="lede" style="margin-top:0;">Show your ticket to your Guardian Angel to receive a wristband and enter the gym.</p>
+    <div class="field" style="display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px;">
+      <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
+      <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
+    </div>
+    <button class="btn btn-primary" id="btn-enter-gym" disabled>Enter the Gym →</button>
+    <p class="top-note">Barefoot Republic Community Center · 15354 Old Hickory Blvd, Nashville, TN</p>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script>
+function renderProgress(phaseIndex) {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < phaseIndex ? " done" : i === phaseIndex ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress(0);
+
+document.getElementById("btn-welcome-next").addEventListener("click", async () => {
+  const val = document.getElementById("in-name").value.trim();
+  const err = document.getElementById("err-name");
+  if (!val) { err.style.display = "block"; return; }
+  err.style.display = "none";
+
+  const btn = document.getElementById("btn-welcome-next");
+  btn.disabled = true; btn.textContent = "Registering…";
+  try {
+    const identity = Identity.get();
+    const result = await EventAPI.registerAttendee(identity.attendeeId, val);
+    Identity.set({ name: val, raffleNumber: result.raffleNumber });
+    document.getElementById("ticket-name").textContent = "Hey, " + val + ".";
+    document.getElementById("ticket-number").textContent = "#" + result.raffleNumber;
+    document.getElementById("s-welcome").style.display = "none";
+    document.getElementById("s-pass").style.display = "block";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't register — check the connection and try again.");
+    btn.disabled = false; btn.textContent = "Experience Heaven →";
+  }
+});
+
+document.getElementById("in-wristband").addEventListener("change", (e) => {
+  document.getElementById("btn-enter-gym").disabled = !e.target.checked;
+});
+
+document.getElementById("btn-enter-gym").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-enter-gym");
+  btn.disabled = true; btn.textContent = "Entering…";
+  try {
+    const identity = Identity.get();
+    await EventAPI.confirmWristband(identity.attendeeId);
+    window.location.href = "../phase2-booths/hub.html";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't confirm — check the connection and try again.");
+    btn.disabled = false; btn.textContent = "Enter the Gym →";
+  }
+});
+</script>
+</body>
+</html>

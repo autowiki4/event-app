@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>The Perfect Summer Day — Event App</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
+:root{
+  --ink:#152A4E;
+  --ink-soft:#455C86;
+  --parchment:#FBF6E9;
+  --parchment-dim:#F3EAD3;
+  --sun:#F0A83C;
+  --sun-deep:#C97C17;
+  --coral:#E15B3D;
+  --coral-deep:#B8442A;
+  --teal:#1D7A78;
+  --teal-deep:#155C5B;
+  --violet:#6C4E96;
+  --violet-deep:#523A73;
+  --charcoal:#2B2620;
+  --line: rgba(21,42,78,0.14);
+  --card-shadow: 0 12px 30px -14px rgba(21,42,78,0.35);
+  --radius: 20px;
+  --marigold:var(--sun);
+  --marigold-deep:var(--sun-deep);
+  --ember:var(--coral);
+  --sage:var(--teal);
+  --sage-deep:var(--teal-deep);
+  /* current-phase accent: Lobby=navy, Gym=teal, Wrap-up=violet */
+  --phase-color:var(--ink-soft);
+  --phase-color-deep:var(--ink);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background: radial-gradient(circle at 18% -10%, rgba(240,168,60,0.35), transparent 45%),
+              linear-gradient(180deg, #2CB6E3 0%, #1D93C7 38%, #1D7A78 72%, #F0A83C 100%);
+  font-family:'Inter',sans-serif;
+  color:var(--charcoal);
+  min-height:100vh;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  padding:28px 14px 60px;
+}
+
+.phone{
+  width:100%;
+  max-width:420px;
+  background:var(--parchment);
+  border-radius:34px;
+  overflow:hidden;
+  box-shadow: 0 40px 80px -30px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+  position:relative;
+  min-height:80vh;
+}
+
+.progress{
+  display:flex; gap:6px; justify-content:center; align-items:center;
+  padding:16px 20px 0;
+}
+.progress .dot{
+  height:6px; flex:1; border-radius:4px; background:rgba(27,42,74,0.12);
+  position:relative; overflow:hidden;
+}
+.progress .dot.done{ background:var(--phase-color); }
+.progress .dot.current{ background:var(--phase-color); opacity:.55; }
+
+.eyebrow{
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--phase-color-deep); font-weight:700; margin:0 0 6px;
+}
+
+.screen{ display:none; padding:22px 22px 30px; animation: fadeUp .45s ease; }
+.screen.active{ display:block; }
+@keyframes fadeUp{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+.screen.sky-mode{
+  padding:0; min-height:80vh; position:relative;
+  background: radial-gradient(ellipse 140% 55% at 50% -8%, rgba(255,248,220,0.95), transparent 62%),
+              radial-gradient(circle at 88% 14%, rgba(255,255,255,0.35), transparent 42%),
+              linear-gradient(180deg, #EAF7FF 0%, #BCE6FF 16%, #6FCBEE 40%, #2E9FD6 66%, #1D7A78 100%);
+}
+.screen.sky-mode #booth-type-content{
+  min-height:80vh; display:flex; flex-direction:column; justify-content:center;
+  padding:64px 28px 110px; text-align:center; color:#fff; width:100%; box-sizing:border-box;
+}
+.sky-card{
+  background:rgba(255,255,255,0.16); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,0.45); border-radius:24px; padding:30px 24px;
+  box-shadow:0 24px 46px -22px rgba(8,40,60,0.45);
+}
+.sky-bottom-btn.btn-primary{
+  position:absolute; left:0; right:0; bottom:0; margin:0; border-radius:0; padding:20px 28px;
+  background:linear-gradient(90deg, var(--coral-deep), var(--sun-deep));
+  color:#fff; box-shadow:none;
+}
+
+h1.display{
+  font-family:'Fraunces', serif;
+  font-weight:600;
+  font-size:32px;
+  line-height:1.08;
+  color:var(--ink);
+  margin:0 0 10px;
+}
+h1.display em{ font-style:italic; font-weight:500; color:var(--ember); }
+
+p.lede{ color:var(--ink-soft); font-size:15px; line-height:1.5; margin:0 0 22px; }
+
+.perf{
+  height:22px; position:relative; margin: 22px -22px;
+  background-image: radial-gradient(circle at 6px 11px, transparent 6px, var(--parchment) 6.5px);
+  background-size: 18px 22px;
+  background-repeat: repeat-x;
+}
+.perf::before, .perf::after{
+  content:""; position:absolute; top:50%; width:16px; height:16px;
+  background:#0f1830; border-radius:50%; transform:translateY(-50%);
+}
+.perf::before{ left:-8px; } .perf::after{ right:-8px; }
+
+.field{ margin-bottom:16px; }
+.field label{
+  display:block; font-size:12px; font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--ink-soft); margin-bottom:7px;
+}
+.field input, .field textarea{
+  width:100%; border:1.5px solid var(--line); background:#fff;
+  border-radius:12px; padding:13px 14px; font-family:'Inter',sans-serif;
+  font-size:15px; color:var(--charcoal); outline:none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field input:focus, .field textarea:focus{
+  border-color:var(--sun); box-shadow:0 0 0 3px rgba(240,168,60,0.20);
+}
+.field .hint{ font-size:12px; color:var(--ink-soft); margin-top:6px; }
+.field .err{ font-size:12px; color:var(--ember); margin-top:6px; display:none; font-weight:600; }
+
+.btn{
+  appearance:none; border:none; cursor:pointer; font-family:'Inter',sans-serif;
+  font-weight:700; font-size:15px; border-radius:14px; padding:15px 20px;
+  width:100%; text-align:center; transition:transform .12s ease, box-shadow .12s ease, opacity .12s;
+}
+.btn:active{ transform: scale(0.98); }
+.btn-primary{ background:var(--ink); color:var(--parchment); box-shadow:0 10px 22px -10px rgba(27,42,74,0.6); }
+.btn-primary:hover{ background:#243a68; }
+.btn-primary:disabled{ opacity:.4; cursor:not-allowed; }
+.btn-ghost{ background:transparent; color:var(--ink-soft); border:1.5px solid var(--line); }
+.btn-ghost:hover{ border-color:var(--ink-soft); }
+.btn-small{ padding:10px 14px; font-size:13px; width:auto; }
+.btn-link{
+  appearance:none; border:none; background:none; cursor:pointer; color:var(--ink-soft);
+  font-family:'Inter',sans-serif; font-size:12.5px; font-weight:700; padding:6px 0; text-align:left;
+}
+.btn-link:hover{ color:var(--ink); }
+
+.ticket-hero{
+  background:var(--coral); border-radius:18px; padding:26px 20px 22px;
+  color:var(--parchment); position:relative; overflow:hidden; margin-bottom:6px;
+}
+.ticket-hero::before{
+  content:""; position:absolute; inset:0;
+  background: radial-gradient(circle at 88% -12%, rgba(240,168,60,0.45), transparent 52%),
+              radial-gradient(circle at -6% 118%, rgba(21,42,78,0.22), transparent 50%);
+}
+.ticket-hero .kicker{
+  font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:#fff; position:relative; font-weight:700;
+}
+.ticket-hero h2{
+  font-family:'Fraunces',serif; font-weight:600; font-size:26px; margin:8px 0 4px; position:relative;
+}
+.ticket-hero .sub{ font-size:13px; color:rgba(255,255,255,0.85); position:relative; }
+.ticket-stub{
+  position:relative; display:flex; align-items:center; justify-content:space-between;
+  margin-top:18px; padding-top:14px; border-top:1.5px dashed rgba(250,246,234,0.4);
+}
+.ticket-stub .num{ font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700; color:#fff; }
+.ticket-stub .lbl{ font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,0.75); }
+
+.booth-list{ display:flex; flex-direction:column; gap:12px; margin:18px 0 20px; }
+.booth-card{
+  display:flex; align-items:center; gap:14px; background:#fff; border-radius:16px;
+  padding:14px 16px; border:1.5px solid var(--line); transition: border-color .15s, background .15s;
+  cursor:pointer;
+}
+.booth-card.visited{ border-color:var(--teal); background:#eef7f6; }
+.booth-icon{
+  width:44px; height:44px; border-radius:12px; background:var(--parchment-dim);
+  display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;
+}
+.booth-info{ flex:1; min-width:0; }
+.booth-info .name{ font-weight:700; font-size:14.5px; color:var(--ink); }
+.booth-info .hint{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+.stamp-btn{
+  flex-shrink:0; border:none; border-radius:10px; padding:9px 13px; font-weight:700; font-size:12.5px;
+  cursor:pointer; background:var(--coral); color:#fff;
+}
+.stamp-btn.done{ background:var(--coral-deep); color:#fff; }
+
+.placeholder-note{
+  background:#fdf3e4; border:1.5px dashed var(--sun-deep); border-radius:12px; padding:11px 13px;
+  font-size:12.5px; color:#7a4e0f; margin-bottom:16px; line-height:1.4;
+}
+
+.poll-q{ font-family:'Fraunces',serif; font-size:20px; font-weight:600; color:var(--ink); margin:0 0 16px; }
+.poll-opt{
+  display:block; width:100%; text-align:left; background:var(--parchment-dim); border:1.5px solid transparent;
+  border-radius:12px; padding:13px 14px; margin-bottom:10px; font-size:14.5px; font-weight:600;
+  color:var(--charcoal); cursor:pointer; transition:all .15s;
+}
+.poll-opt:hover{ border-color:var(--phase-color); }
+.poll-opt.picked{ background:var(--ink); color:var(--parchment); }
+
+.result-row{ margin-bottom:12px; }
+.result-top{ display:flex; justify-content:space-between; font-size:13px; font-weight:700; color:var(--ink); margin-bottom:6px; }
+.result-bar{ height:12px; border-radius:8px; background:var(--parchment-dim); overflow:hidden; }
+.result-fill{ height:100%; background:linear-gradient(90deg,var(--sage),var(--sage-deep)); border-radius:8px; transition:width .6s cubic-bezier(.2,.8,.2,1); }
+.live-tag{
+  display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace;
+  font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--ember); text-transform:uppercase;
+  margin-bottom:10px;
+}
+.live-dot{ width:7px; height:7px; border-radius:50%; background:var(--ember); animation:pulse 1.4s infinite; }
+@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+.poll-nav{ display:flex; gap:10px; margin-top:16px; }
+
+.opt-grid{ display:flex; flex-direction:column; gap:12px; margin:18px 0 8px; }
+.opt-card{
+  border:1.5px solid var(--line); border-radius:16px; padding:16px; cursor:pointer; background:#fff;
+  transition: border-color .15s, background .15s;
+}
+.opt-card.selected{ border-color:var(--phase-color-deep); background:#f6f1fa; }
+.opt-card .row{ display:flex; align-items:flex-start; gap:12px; }
+.opt-card .check{
+  width:22px; height:22px; border-radius:7px; border:2px solid var(--line); flex-shrink:0; margin-top:2px;
+  display:flex; align-items:center; justify-content:center; font-size:13px; color:#fff; font-weight:900;
+}
+.opt-card.selected .check{ background:var(--phase-color-deep); border-color:var(--phase-color-deep); }
+.opt-card .title{ font-weight:700; font-size:14.5px; color:var(--ink); }
+.opt-card .desc{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; line-height:1.4; }
+
+.detail-block{
+  border-left:3px solid var(--phase-color); background:var(--parchment-dim); border-radius:0 14px 14px 0;
+  padding:16px; margin:10px 0 4px; display:none;
+}
+.detail-block.show{ display:block; }
+.detail-block .dt-title{ font-weight:700; font-size:13px; color:var(--ink); margin-bottom:12px; }
+
+.booth-guide{
+  background:var(--ink); color:var(--parchment); border-radius:14px; padding:16px; margin-top:4px;
+}
+.booth-guide .g-kicker{ font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--sun); font-weight:700; }
+.booth-guide .g-loc{ font-family:'Fraunces',serif; font-size:18px; font-weight:600; margin:6px 0 4px; }
+.booth-guide .g-detail{ font-size:12.5px; color:#c7d0e6; }
+
+.stars{ display:flex; gap:6px; margin-bottom:4px; }
+.star{ font-size:26px; cursor:pointer; color:var(--line); transition:color .1s; }
+.star.on{ color:var(--marigold); }
+
+.share-box{
+  display:flex; align-items:center; justify-content:space-between; background:#fff; border:1.5px solid var(--line);
+  border-radius:12px; padding:12px 14px; margin-bottom:12px;
+}
+.share-box .handle{ font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--ink); font-size:14px; }
+
+.song-row{
+  display:flex; align-items:center; gap:10px; background:#fff; border:1.5px solid var(--line);
+  border-radius:12px; padding:11px 13px; margin-bottom:8px;
+}
+.song-row .song-name{ flex:1; font-weight:700; font-size:13.5px; color:var(--ink); }
+.song-row .song-votes{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--coral); font-weight:700; }
+.add-song-row{ display:flex; gap:8px; margin-bottom:16px; }
+.add-song-row input{ flex:1; }
+.add-song-row button{ width:auto; padding:13px 16px; }
+
+.connect-card{
+  background:var(--ink); color:var(--parchment); border-radius:18px; padding:22px 20px; margin:18px 0 4px;
+}
+.connect-card .kicker{
+  font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--sun); font-weight:700;
+}
+.connect-card h2{ font-family:'Fraunces',serif; font-weight:600; font-size:21px; margin:8px 0 6px; }
+.connect-card p{ font-size:13.5px; color:#c7d0e6; margin:0 0 16px; line-height:1.5; }
+.connect-card input{
+  width:100%; border:none; border-radius:12px; padding:13px 14px; font-family:'Inter',sans-serif;
+  font-size:15px; margin-bottom:10px; outline:none;
+}
+
+.done-badge{
+  width:88px; height:88px; border-radius:50%; background:var(--coral); color:#fff; font-size:40px;
+  display:flex; align-items:center; justify-content:center; margin:8px auto 18px;
+}
+.summary-list{ list-style:none; padding:0; margin:16px 0; display:flex; flex-direction:column; gap:8px; }
+.summary-list li{
+  background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:11px 14px;
+  font-size:13.5px; color:var(--ink); display:flex; gap:8px; align-items:flex-start;
+}
+.summary-list li b{ color:var(--marigold-deep); }
+
+.toast{
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  background:var(--ink); color:var(--parchment); padding:12px 18px; border-radius:12px;
+  font-size:13px; font-weight:600; box-shadow:0 10px 30px rgba(0,0,0,0.4);
+  opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:50;
+}
+.toast.show{ opacity:1; transform:translateX(-50%) translateY(-6px); }
+
+.top-note{
+  text-align:center; font-size:11px; color:#8b97b8; margin-top:14px; letter-spacing:.02em;
+}
+
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+
+  <div class="progress" id="progress"></div>
+
+  <!-- LOBBY: REGISTRATION -->
+  <section class="screen active" id="s-welcome">
+    <p class="eyebrow">Lobby · Registration</p>
+    <h1 class="display">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
+    <p class="lede">Please enter your name to register into the Heaven Experience! You will then get your wristband and will meet your Guardian Angel.</p>
+
+    <div class="field">
+      <label for="in-name">Your first name</label>
+      <input id="in-name" type="text" placeholder="e.g. Jordan" autocomplete="given-name">
+      <div class="err" id="err-name">Enter your name to continue.</div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-welcome-next">Experience Heaven →</button>
+    <p class="top-note">We'll ask for your number once you check in at your first booth.</p>
+  </section>
+
+  <!-- LOBBY: ENTRY PASS -->
+  <section class="screen" id="s-pass">
+    <p class="eyebrow">You're registered</p>
+    <div class="ticket-hero">
+      <div class="kicker">Sunshine Raffle</div>
+      <h2 id="ticket-name">Hey there.</h2>
+      <div class="sub">Hold onto this number — we'll draw it live today.</div>
+      <div class="ticket-stub">
+        <div>
+          <div class="lbl">Entry No.</div>
+          <div class="num" id="ticket-number">#0000</div>
+        </div>
+        <div style="text-align:right">
+          <div class="lbl">Status</div>
+          <div style="font-weight:700; color:#fff; font-size:13px;">Registered ✓</div>
+        </div>
+      </div>
+    </div>
+    <div class="perf"></div>
+    <p class="lede" style="margin-top:0;">Show your ticket to receive a wristband and enter the pearly gates.</p>
+    <div class="field" style="display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px;">
+      <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
+      <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">I have received my wristband</label>
+    </div>
+    <button class="btn btn-primary" id="btn-enter-gym" disabled>Experience Heaven →</button>
+    <p class="top-note">Barefoot Republic Community Center · 15354 Old Hickory Blvd, Nashville, TN</p>
+  </section>
+
+  <!-- GYM: HUB -->
+  <section class="screen" id="s-gym">
+    <p class="eyebrow">Phase 2 · The Gym</p>
+    <h1 class="display">Welcome to <em>the Gym.</em></h1>
+    <p class="lede">Visit the connector booths whenever you're ready — or just have fun. It's up to you.</p>
+
+    <div class="booth-list" id="gym-booth-list"></div>
+
+    <button class="btn btn-primary" id="btn-wrap-up">Wrap up & head out →</button>
+  </section>
+
+  <!-- GYM: CONNECTOR BOOTH DETAIL -->
+  <section class="screen" id="s-booth">
+    <div id="booth-header">
+      <button class="btn-link" id="btn-booth-back">← Back to Gym</button>
+      <p class="eyebrow">Connector Booth</p>
+      <h1 class="display" style="display:flex; align-items:center; gap:10px;">
+        <span id="booth-icon-big"></span><em id="booth-title">Booth</em>
+      </h1>
+      <p id="booth-tagline" style="font-weight:700; color:var(--coral-deep); font-size:15px; margin:2px 0 6px; display:none;"></p>
+      <p class="lede" id="booth-blurb"></p>
+    </div>
+
+    <div id="booth-gate">
+      <div class="field">
+        <label for="booth-phone-input">Your phone number to check in</label>
+        <input id="booth-phone-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555">
+        <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+        <div class="err" id="err-booth-phone">Enter your number to check in at this booth.</div>
+      </div>
+      <button class="btn btn-primary" id="btn-booth-checkin">Check in at this booth →</button>
+    </div>
+
+    <div id="booth-interface" style="display:none;">
+      <div id="booth-type-content"></div>
+      <div id="booth-footer">
+        <div class="field">
+          <label for="booth-note">Anything you'd like to share?</label>
+          <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+        </div>
+        <div class="field">
+          <label>Rate this booth</label>
+          <div class="stars" id="booth-stars">
+            <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="btn-booth-done">Done — back to Gym →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WRAP-UP: FINAL OPTIONS -->
+  <section class="screen" id="s-choice">
+    <p class="eyebrow">Phase 3 · Before you go</p>
+    <h1 class="display">What's <em>next</em> for you?</h1>
+    <p class="lede">Pick anything that fits — you can choose more than one.</p>
+
+    <div class="opt-grid" id="opt-grid"></div>
+    <div id="opt-details"></div>
+
+    <button class="btn btn-primary" id="btn-submit" style="margin-top:6px;">Save my answers →</button>
+    <div class="err" id="err-choice" style="text-align:center; margin-top:10px;">Add the info needed for what you picked.</div>
+  </section>
+
+  <!-- DONE -->
+  <section class="screen" id="s-done">
+    <div class="done-badge">✓</div>
+    <h1 class="display" style="text-align:center;">You're not leaving the same.</h1>
+    <p class="lede" style="text-align:center;">Thanks for being here today. Here's a recap:</p>
+    <ul class="summary-list" id="summary-list"></ul>
+    <div id="booth-guides"></div>
+
+    <div class="connect-card" id="connect-box"></div>
+
+    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Start over</button>
+  </section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   THE PERFECT SUMMER DAY — event companion app (prototype)
+
+   STRUCTURE:
+   Phase 1 (Lobby)  — s-welcome (registration) → s-pass (entry pass,
+                       shown to staff for gym entry)
+   Phase 2 (Gym)    — s-gym (hub) → s-booth (5 connector booths, each
+                       phone-gated at check-in — phone is only asked once,
+                       reused across all booths — each with its own in-app
+                       experience, see CONNECTOR_BOOTHS below)
+   Phase 3 (Wrap-up)— s-choice (final options) → s-done (recap + stay connected)
+
+   There are no "rooms" anymore — every participant follows the same
+   flow through all 5 connector booths.
+   ========================================================= */
+
+const EVENT_NAME = "The Perfect Summer Day";
+
+/* Each booth's `type` controls which renderer runs inside it
+   (see renderBoothTypeContent). `appReliance` is just a label shown
+   to participants ("light" = mostly in-person, "full" = uses the app). */
+const CONNECTOR_BOOTHS = [
+  {
+    id: "heaven",
+    title: "Can You Draw Heaven?",
+    icon: "🎨",
+    blurb: "Draw what you picture from Revelation 21 — then see how close you got. ~20 min",
+    checkinBlurb: "We will soon show you the Kingdom of Heaven as described in Revelation — then you can draw it!",
+    type: "gallery",
+    appReliance: "light",
+  },
+  {
+    id: "trivia",
+    title: "Bible Bowl",
+    icon: "🏆",
+    blurb: "Jeopardy-style trivia — pick it up as you go, rack up points. ~20 min",
+    type: "trivia",
+    appReliance: "full",
+  },
+  {
+    id: "matthew13",
+    title: "The Sower, Live",
+    icon: "🌾",
+    blurb: "Follow Matthew 13 with prompts that pop up as the booth leader talks. ~20 min",
+    type: "story",
+    appReliance: "full",
+  },
+  {
+    id: "art",
+    title: "Art Therapy Table",
+    icon: "🖌️",
+    blurb: "Guided drawing and reflection with the booth leader. ~20 min",
+    type: "prompts",
+    appReliance: "light",
+  },
+  {
+    id: "newsong",
+    title: "The New Song in Nashville",
+    icon: "🎵",
+    blurb: "Vote on what plays next — then hear about the song only the redeemed can sing. ~20 min",
+    type: "voting",
+    appReliance: "full",
+  },
+];
+
+/* ---- Booth 1: Can You Draw Heaven? (Revelation 21) ----
+   3-page flow: page 1 (verse + intro) is built. Pages 2 and 3 are
+   placeholders — tell Claude what goes on each and it'll build them out. */
+const HEAVEN_VERSE_REF = "Revelation 21:10";
+// KJV text (public domain) — swap in your preferred translation if needed.
+const HEAVEN_VERSE_TEXT = "And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,";
+
+// Held for reuse once page 2/3 content is defined — the checklist +
+// reveal-image mechanic from the earlier version of this booth.
+const HEAVEN_DETAILS = [
+  { id: "gates",   text: "12 gates, each a single pearl" },
+  { id: "streets", text: "Streets of gold, clear as glass" },
+  { id: "river",   text: "The river of life flowing from the throne" },
+  { id: "tree",    text: "The tree of life, bearing fruit every month" },
+  { id: "nomore",  text: "No more tears, death, or pain" },
+  { id: "light",   text: "No sun or moon needed — God's glory is the light" },
+];
+// EDIT ME: booth leader — drop in a link to the reference artwork/photo
+// once it's ready, and it can show on page 2 or 3.
+const HEAVEN_REFERENCE_IMAGE = "";
+
+/* ---- Booth 2: Bible Bowl (Jeopardy-style trivia) ---- */
+// EDIT ME: swap in real questions/categories/point values.
+const TRIVIA_QUESTIONS = [
+  { id: "t1", category: "Genesis",    points: 100, q: "On which day did God rest after creating the world?", choices: ["5th", "6th", "7th", "8th"], correct: 2 },
+  { id: "t2", category: "Gospels",    points: 100, q: "Which Gospel opens with \u201cIn the beginning was the Word\u201d?", choices: ["Matthew", "Mark", "Luke", "John"], correct: 3 },
+  { id: "t3", category: "Numbers",    points: 200, q: "How many days and nights did it rain during the flood?", choices: ["7", "40", "100", "150"], correct: 1 },
+  { id: "t4", category: "Miracles",   points: 200, q: "How many loaves and fish fed the 5,000?", choices: ["5 loaves, 2 fish", "2 loaves, 5 fish", "7 loaves, 3 fish", "3 loaves, 7 fish"], correct: 0 },
+  { id: "t5", category: "Kings",      points: 300, q: "Which king asked God for wisdom above riches or long life?", choices: ["David", "Saul", "Solomon", "Hezekiah"], correct: 2 },
+  { id: "t6", category: "Parables",   points: 300, q: "In the Parable of the Sower, what does the seed represent?", choices: ["Money", "The word of God", "Faith", "The Holy Spirit"], correct: 1 },
+  { id: "t7", category: "Revelation", points: 400, q: "How many gates does the New Jerusalem have in Revelation 21?", choices: ["7", "10", "12", "24"], correct: 2 },
+  { id: "t8", category: "Disciples",  points: 400, q: "How many disciples did Jesus choose as His closest followers?", choices: ["10", "12", "7", "70"], correct: 1 },
+];
+
+/* ---- Booth 3: The Sower, Live (Matthew 13) ---- */
+// EDIT ME: sequence these to match the booth leader's actual talking points.
+const STORY_BEATS = [
+  { id: "b1", text: "Jesus told the crowd a story about a farmer scattering seed — some fell on the path, some on rocky ground, some among thorns, and some on good soil." },
+  { id: "b2", text: "Some seed never had a chance — birds snatched it up before it could even take root.", prompt: "What's one thing that tends to \u201csnatch\u201d your attention before God's word can sink in?", placeholder: "e.g. my phone, busyness…" },
+  { id: "b3", text: "Some seed sprang up fast in shallow soil — but with no real root, it withered as soon as the sun got hot." },
+  { id: "b4", text: "Some seed grew, but thorns choked it out. Jesus said this is like worry and the pull of money crowding out what God's planted in us.", prompt: "What's one \u201cthorn\u201d that tends to crowd things out for you?", placeholder: "e.g. stress, comparison…" },
+  { id: "b5", text: "And some seed landed on good soil — and produced far more than was planted.", prompt: "What would it look like for you to be \u201cgood soil\u201d this season?", placeholder: "Type a word or phrase…" },
+  { id: "b6", text: "Jesus often taught in parables — stories that revealed truth to those who were really listening. Take a second to sit with what stood out to you today." },
+];
+
+/* ---- Booth 4: Art Therapy Table ---- */
+// EDIT ME: swap or reorder prompts to match the booth leader's plan.
+const ART_PROMPTS = [
+  "Draw what peace feels like to you right now.",
+  "Draw a moment from this year you want to remember.",
+  "Draw what you'd want to let go of today.",
+  "Draw a picture of hope.",
+  "Draw something you're thankful for.",
+];
+
+/* ---- Booth 5: The New Song in Nashville ---- */
+// EDIT ME: replace with the real 20–25 song playlist for the event.
+const SONG_LIST = [
+  "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life",
+  "Reckless Love", "King of Kings", "Living Hope", "Graves Into Gardens",
+  "Raise a Hallelujah", "The Blessing", "O Come to the Altar", "Do It Again",
+  "House of the Lord", "Same God", "Great Things", "Battle Belongs",
+  "Jireh", "Yes I Will", "Firm Foundation", "Champion",
+];
+function chunkList(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+const SONG_SETS = chunkList(SONG_LIST, 4);
+
+const FINAL_OPTIONS = [
+  {
+    id: "future",
+    title: "Keep me posted on future events",
+    desc: "We'll text you when the next one's happening — and we'd love quick feedback on today's event.",
+    needs: ["email", "survey"],
+  },
+  {
+    id: "bible",
+    title: "One-on-one Bible study",
+    desc: "We'll point you to the right table today.",
+    needs: [],
+    guide: { kicker: "Head over to", loc: "The Purpose Tent", detail: "Past the food line, look for the navy tent. Ask for a leader — they're expecting you." },
+  },
+  {
+    id: "course",
+    title: "The 8-month course",
+    desc: "A deeper commitment. Find the table today to learn more.",
+    needs: [],
+    guide: { kicker: "Head over to", loc: "The Growth Track Tent", detail: "Right next to registration — someone there can walk you through it." },
+  },
+  {
+    id: "art",
+    title: "Art therapy",
+    desc: "A quieter way to process and create. Stop by today.",
+    needs: [],
+    guide: { kicker: "Head over to", loc: "The Creative Corner", detail: "Follow the path past the food tent toward the shade tents." },
+  },
+  {
+    id: "friend",
+    title: "I know someone who'd love this",
+    desc: "Send them our page — no pressure, just a link they can look at on their own time.",
+    needs: ["social"],
+  },
+];
+
+const SOCIAL_HANDLE = "@perfectsummerday";
+const SOCIAL_URL = "https://instagram.com/perfectsummerday";
+
+const state = {
+  name: "",
+  raffleNumber: null,
+  boothsCompleted: new Set(),
+  phoneConfirmed: false,
+  activeBooth: null,
+  selectedOptions: new Set(),
+  fields: { email: "", phone: "", stars: 0, comment: "" },
+  heaven: { page: 1 },
+  trivia: { index: 0, score: 0, selected: null },
+  story: { index: 0, answers: {} },
+  art: { index: 0 },
+  newsong: { setIndex: 0 },
+};
+
+const SCREENS = [
+  "s-welcome", "s-pass",
+  "s-gym", "s-booth",
+  "s-choice", "s-done",
+];
+
+const PHASE_OF_SCREEN = {
+  "s-welcome": 0, "s-pass": 0,
+  "s-gym": 1, "s-booth": 1,
+  "s-choice": 2, "s-done": 2,
+};
+const PHASE_COLORS = [
+  { c: "var(--ink-soft)", d: "var(--ink)" },
+  { c: "var(--teal)",     d: "var(--teal-deep)" },
+  { c: "var(--violet)",   d: "var(--violet-deep)" },
+];
+
+function show(screenId) {
+  SCREENS.forEach(id => document.getElementById(id).classList.toggle("active", id === screenId));
+  renderProgress(screenId);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function renderProgress(screenId) {
+  const phase = PHASE_OF_SCREEN[screenId];
+  document.getElementById("phone").style.setProperty("--phase-color", PHASE_COLORS[phase].c);
+  document.getElementById("phone").style.setProperty("--phase-color-deep", PHASE_COLORS[phase].d);
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < phase ? " done" : i === phase ? " current" : "");
+    d.style.background = i <= phase ? PHASE_COLORS[i].c : "";
+    el.appendChild(d);
+  }
+}
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+async function bumpSharedCount(key) {
+  try {
+    let current = 0;
+    try {
+      const res = await window.storage.get(key, true);
+      current = res ? parseInt(res.value, 10) || 0 : 0;
+    } catch (e) { current = 0; }
+    await window.storage.set(key, String(current + 1), true);
+  } catch (e) {
+    console.error("storage bump failed", e);
+  }
+}
+
+/* Duplicate-entry guard — since multiple booth leaders may be signing
+   people up on separate devices, we treat phone number as the one
+   reliable unique ID and check it against shared storage the moment
+   it's collected (at the first booth check-in). If that number was
+   already registered by anyone, anywhere, we reuse their original
+   raffle number instead of creating a second entry. */
+async function registerOrFindByPhone(digits, name, tentativeRaffleNumber) {
+  const key = "registrant:" + digits;
+  try {
+    const existing = await window.storage.get(key, true);
+    if (existing) {
+      const record = JSON.parse(existing.value);
+      return { isDuplicate: true, raffleNumber: record.raffleNumber, name: record.name };
+    }
+  } catch (e) { /* not found — proceed to register */ }
+  try {
+    await window.storage.set(key, JSON.stringify({
+      name, phone: digits, raffleNumber: tentativeRaffleNumber, registeredAt: Date.now(),
+    }), true);
+  } catch (e) {
+    console.error("registration save failed", e);
+  }
+  await bumpSharedCount("raffle:entries");
+  return { isDuplicate: false, raffleNumber: tentativeRaffleNumber, name };
+}
+
+const GOOGLE_FORM = {
+  actionUrl: "https://docs.google.com/forms/u/0/d/e/1FAIpQLSeK60g1Lf7W2rsvbW22OlG2WxMwPUDCFTXfuBCHEblK4hOIyw/formResponse",
+  entries: {
+    name:         "entry.87904521",
+    email:        "entry.384998510",
+    phone:        "entry.1570226150",
+    raffleNumber: "entry.1729864490",
+    booths:       "entry.942794280",
+    selections:   "entry.1251908356",
+    stars:        "entry.1903119793",
+    comment:      "entry.1211287812",
+    // triviaScore: "entry.YOUR_TRIVIA_ID",  // EDIT ME: add a form field for Bible Bowl score if you want to track it
+  },
+};
+
+async function submitToGoogleForm(record) {
+  if (GOOGLE_FORM.actionUrl.includes("YOUR_FORM_ID")) return false;
+  try {
+    const body = new URLSearchParams();
+    body.append(GOOGLE_FORM.entries.name, record.name || "");
+    body.append(GOOGLE_FORM.entries.email, record.email || "");
+    body.append(GOOGLE_FORM.entries.phone, record.phone || "");
+    body.append(GOOGLE_FORM.entries.raffleNumber, String(record.raffleNumber ?? ""));
+    body.append(GOOGLE_FORM.entries.booths, record.boothsCompleted.join(", "));
+    body.append(GOOGLE_FORM.entries.selections, record.selections.join(", "));
+    body.append(GOOGLE_FORM.entries.stars, String(record.stars ?? ""));
+    body.append(GOOGLE_FORM.entries.comment, record.comment || "");
+    await fetch(GOOGLE_FORM.actionUrl, { method: "POST", mode: "no-cors", body });
+    return true;
+  } catch (e) {
+    console.error("Google Form submission failed", e);
+    return false;
+  }
+}
+
+async function saveSubmission(record) {
+  const sent = await submitToGoogleForm(record);
+  if (!sent) {
+    console.warn("GOOGLE_FORM isn't configured yet — this submission wasn't saved anywhere.");
+  }
+}
+
+document.getElementById("btn-welcome-next").addEventListener("click", () => {
+  const val = document.getElementById("in-name").value.trim();
+  const err = document.getElementById("err-name");
+  if (!val) { err.style.display = "block"; return; }
+  err.style.display = "none";
+  state.name = val;
+  state.raffleNumber = String(Math.floor(1000 + Math.random() * 9000));
+  document.getElementById("ticket-name").textContent = "Hey, " + val + ".";
+  document.getElementById("ticket-number").textContent = "#" + state.raffleNumber;
+  show("s-pass");
+});
+
+document.getElementById("in-wristband").addEventListener("change", (e) => {
+  document.getElementById("btn-enter-gym").disabled = !e.target.checked;
+});
+
+document.getElementById("btn-enter-gym").addEventListener("click", () => {
+  bumpSharedCount("checkin:gym");
+  renderGymBooths();
+  show("s-gym");
+});
+
+function renderGymBooths() {
+  const wrap = document.getElementById("gym-booth-list");
+  wrap.innerHTML = "";
+  CONNECTOR_BOOTHS.forEach(b => {
+    const done = state.boothsCompleted.has(b.id);
+    const card = document.createElement("div");
+    card.className = "booth-card" + (done ? " visited" : "");
+    card.innerHTML = `
+      <div class="booth-icon">${b.icon}</div>
+      <div class="booth-info">
+        <div class="name">${b.title}</div>
+        <div class="hint">${b.blurb}</div>
+        <div class="hint" style="opacity:.6; margin-top:2px;">${b.appReliance === "light" ? "📋 Mostly in person" : "📱 Uses the app"}</div>
+      </div>
+      <button class="stamp-btn ${done ? "done" : ""}" data-id="${b.id}">${done ? "Completed ✓" : "Open"}</button>
+    `;
+    card.querySelector(".stamp-btn").addEventListener("click", () => openBooth(b.id));
+    wrap.appendChild(card);
+  });
+}
+
+document.getElementById("btn-wrap-up").addEventListener("click", () => {
+  renderOptions();
+  show("s-choice");
+});
+
+function openBooth(id) {
+  state.activeBooth = id;
+  const booth = CONNECTOR_BOOTHS.find(b => b.id === id);
+  document.getElementById("booth-icon-big").textContent = booth.icon;
+  document.getElementById("booth-title").textContent = booth.title;
+  const tagline = document.getElementById("booth-tagline");
+  if (booth.tagline) {
+    tagline.textContent = booth.tagline;
+    tagline.style.display = "block";
+  } else {
+    tagline.style.display = "none";
+  }
+  document.getElementById("booth-blurb").textContent = booth.checkinBlurb || booth.blurb;
+  document.getElementById("booth-phone-input").value = state.fields.phone || "";
+  setBoothChrome(true);
+  renderBoothGate();
+  show("s-booth");
+}
+
+/* Lets a specific booth page go full-bleed and minimal (just a
+   background + its own content) by hiding the shared header/footer
+   chrome and the progress dots. Call setBoothChrome(true) to restore
+   normal chrome for any page that needs it. */
+function setBoothChrome(visible) {
+  document.getElementById("booth-header").style.display = visible ? "" : "none";
+  document.getElementById("booth-footer").style.display = visible ? "" : "none";
+  document.getElementById("progress").style.display = visible ? "" : "none";
+  document.getElementById("s-booth").classList.toggle("sky-mode", !visible);
+}
+
+function renderBoothGate() {
+  const confirmed = state.phoneConfirmed;
+  document.getElementById("booth-gate").style.display = confirmed ? "none" : "block";
+  document.getElementById("booth-interface").style.display = confirmed ? "block" : "none";
+  if (confirmed) {
+    const booth = CONNECTOR_BOOTHS.find(b => b.id === state.activeBooth);
+    renderBoothTypeContent(booth);
+  }
+}
+
+function renderBoothTypeContent(booth) {
+  setBoothChrome(true);
+  if (booth.type === "gallery") renderHeavenBooth();
+  else if (booth.type === "trivia") renderTriviaBooth();
+  else if (booth.type === "story") renderStoryBooth();
+  else if (booth.type === "prompts") renderArtBooth();
+  else if (booth.type === "voting") renderNewSongBooth();
+}
+
+/* ---- Booth 1: Sketch the New Jerusalem ---- */
+function renderHeavenBooth() {
+  const wrap = document.getElementById("booth-type-content");
+  const s = state.heaven;
+  setBoothChrome(true);
+
+  if (s.page === 1) {
+    setBoothChrome(false);
+    wrap.innerHTML = `
+      <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <div class="sky-card">
+          <div style="font-family:'Fraunces',serif; font-weight:700; font-size:28px; letter-spacing:.02em; color:#FFE9B0; margin-bottom:18px; text-shadow:0 2px 14px rgba(8,40,60,0.35);">Revelation 21:10</div>
+          <p style="font-family:'Fraunces',serif; font-style:italic; font-weight:500; font-size:19px; line-height:1.6; color:#fff; margin:0 0 20px; text-shadow:0 2px 16px rgba(8,40,60,0.35);">"${HEAVEN_VERSE_TEXT}"</p>
+          <div style="height:1px; background:rgba(255,255,255,0.35); margin:0 8px 20px;"></div>
+          <p style="font-size:14.5px; line-height:1.55; color:#FFE9B0; font-weight:600; margin:0;">In Revelation 21, the angel shows John the image of the Kingdom of Heaven in the Spiritual Realm.</p>
+        </div>
+      </div>
+      <button class="btn btn-primary sky-bottom-btn" id="btn-heaven-next">What Does It Look Like →</button>
+    `;
+    document.getElementById("btn-heaven-next").addEventListener("click", () => {
+      s.page = 2;
+      renderHeavenBooth();
+    });
+    return;
+  }
+
+  if (s.page === 2) {
+    wrap.innerHTML = `
+      <div class="placeholder-note">🚧 Page 2 — tell Claude what goes here and it'll get built out.</div>
+      <div class="poll-nav" style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btn-heaven-back">← Back</button>
+        <button class="btn btn-primary" id="btn-heaven-next">Next →</button>
+      </div>
+    `;
+    document.getElementById("btn-heaven-back").addEventListener("click", () => { s.page = 1; renderHeavenBooth(); });
+    document.getElementById("btn-heaven-next").addEventListener("click", () => { s.page = 3; renderHeavenBooth(); });
+    return;
+  }
+
+  // page 3
+  wrap.innerHTML = `
+    <div class="placeholder-note">🚧 Page 3 — tell Claude what goes here and it'll get built out.</div>
+    <button class="btn btn-ghost" id="btn-heaven-back" style="margin-top:6px;">← Back</button>
+  `;
+  document.getElementById("btn-heaven-back").addEventListener("click", () => { s.page = 2; renderHeavenBooth(); });
+}
+
+/* ---- Booth 2: Bible Bowl (trivia) ---- */
+function renderTriviaBooth() {
+  const wrap = document.getElementById("booth-type-content");
+  const s = state.trivia;
+  if (s.index >= TRIVIA_QUESTIONS.length) {
+    wrap.innerHTML = `
+      <div class="booth-guide" style="margin-bottom:16px;">
+        <div class="g-kicker">Bible Bowl</div>
+        <div class="g-loc">${s.score} points</div>
+        <div class="g-detail">Nice work! Ask the booth leader if you want to go again.</div>
+      </div>
+      <button class="btn btn-ghost btn-small" id="btn-trivia-restart">Play again</button>
+    `;
+    document.getElementById("btn-trivia-restart").addEventListener("click", () => {
+      state.trivia = { index: 0, score: 0, selected: null };
+      renderTriviaBooth();
+    });
+    return;
+  }
+  const q = TRIVIA_QUESTIONS[s.index];
+  wrap.innerHTML = `
+    <div class="live-tag"><span class="live-dot"></span>${q.category} · ${q.points} pts</div>
+    <div class="poll-q">${q.q}</div>
+    <div id="trivia-choices"></div>
+    ${s.selected !== null ? `<button class="btn btn-primary" id="btn-trivia-next" style="margin-top:10px;">${s.index === TRIVIA_QUESTIONS.length - 1 ? "See my score →" : "Next question →"}</button>` : ""}
+  `;
+  const cWrap = document.getElementById("trivia-choices");
+  q.choices.forEach((c, i) => {
+    const btn = document.createElement("button");
+    btn.className = "poll-opt";
+    btn.textContent = c;
+    if (s.selected !== null) {
+      btn.disabled = true;
+      if (i === q.correct) { btn.style.background = "var(--sage)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--sage)"; }
+      else if (i === s.selected) { btn.style.background = "var(--coral)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--coral)"; }
+    }
+    btn.addEventListener("click", () => {
+      if (s.selected !== null) return;
+      s.selected = i;
+      if (i === q.correct) s.score += q.points;
+      renderTriviaBooth();
+    });
+    cWrap.appendChild(btn);
+  });
+  const nextBtn = document.getElementById("btn-trivia-next");
+  if (nextBtn) nextBtn.addEventListener("click", () => {
+    s.index++;
+    s.selected = null;
+    renderTriviaBooth();
+  });
+}
+
+/* ---- Booth 3: The Sower, Live (Matthew 13) ---- */
+function renderStoryBooth() {
+  const wrap = document.getElementById("booth-type-content");
+  const s = state.story;
+  const beat = STORY_BEATS[s.index];
+  const answered = s.answers.hasOwnProperty(beat.id);
+  let inner = `<p class="lede" style="margin-top:0;">${beat.text}</p>`;
+  if (beat.prompt) {
+    if (!answered) {
+      inner += `
+        <div class="field">
+          <label>${beat.prompt}</label>
+          <input type="text" id="story-input" placeholder="${beat.placeholder || ""}" maxlength="80">
+        </div>`;
+    } else {
+      inner += `<p class="lede"><strong>You wrote:</strong> "${escapeHtml(s.answers[beat.id])}"</p>`;
+    }
+  }
+  wrap.innerHTML = inner + `
+    <div class="poll-nav" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-story-prev">← Back</button>
+      <button class="btn btn-primary" id="btn-story-next">${s.index === STORY_BEATS.length - 1 ? "Finish →" : "Next →"}</button>
+    </div>
+  `;
+  document.getElementById("btn-story-prev").style.visibility = s.index === 0 ? "hidden" : "visible";
+  document.getElementById("btn-story-prev").addEventListener("click", () => {
+    if (s.index > 0) { s.index--; renderStoryBooth(); }
+  });
+  document.getElementById("btn-story-next").addEventListener("click", () => {
+    const input = document.getElementById("story-input");
+    if (input) {
+      const val = input.value.trim();
+      if (beat.prompt && !val && !answered) { input.focus(); return; }
+      if (val) s.answers[beat.id] = val;
+    }
+    if (s.index < STORY_BEATS.length - 1) { s.index++; renderStoryBooth(); }
+    else { toast("Great following along!"); }
+  });
+}
+
+/* ---- Booth 4: Art Therapy Table ---- */
+function renderArtBooth() {
+  const wrap = document.getElementById("booth-type-content");
+  const s = state.art;
+  const p = ART_PROMPTS[s.index % ART_PROMPTS.length];
+  wrap.innerHTML = `
+    <div class="detail-block show" style="margin-top:0;">
+      <div class="dt-title">Prompt</div>
+      <p class="lede" style="margin:0;">${p}</p>
+    </div>
+    <button class="btn btn-ghost btn-small" id="btn-art-next" style="margin-top:10px;">Next prompt →</button>
+  `;
+  document.getElementById("btn-art-next").addEventListener("click", () => {
+    s.index++;
+    renderArtBooth();
+  });
+}
+
+/* ---- Booth 5: The New Song in Nashville ---- */
+async function renderNewSongBooth() {
+  const wrap = document.getElementById("booth-type-content");
+  const s = state.newsong;
+  const set = SONG_SETS[s.setIndex];
+  wrap.innerHTML = `
+    <p class="lede" style="margin-top:0;">Vote for the song you want to hear next. Set ${s.setIndex + 1} of ${SONG_SETS.length}.</p>
+    <div id="newsong-choices"></div>
+    <div class="poll-nav" style="margin:10px 0 18px;">
+      <button class="btn btn-ghost btn-small" id="btn-newsong-prev">← Prev set</button>
+      <button class="btn btn-ghost btn-small" id="btn-newsong-next">Next set →</button>
+    </div>
+    <div class="placeholder-note">🎧 DJ/operator: vote counts are live in shared storage under <code>song:&lt;title&gt;</code> — check which song has the most votes and play it from your own device.</div>
+    <button class="btn btn-ghost" id="btn-newsong-reveal" style="margin-top:14px;">About "The New Song" →</button>
+    <div id="newsong-reveal-box"></div>
+  `;
+  await renderNewSongChoices(set);
+  document.getElementById("btn-newsong-prev").style.visibility = s.setIndex === 0 ? "hidden" : "visible";
+  document.getElementById("btn-newsong-next").style.visibility = s.setIndex === SONG_SETS.length - 1 ? "hidden" : "visible";
+  document.getElementById("btn-newsong-prev").addEventListener("click", () => {
+    if (s.setIndex > 0) { s.setIndex--; renderNewSongBooth(); }
+  });
+  document.getElementById("btn-newsong-next").addEventListener("click", () => {
+    if (s.setIndex < SONG_SETS.length - 1) { s.setIndex++; renderNewSongBooth(); }
+  });
+  document.getElementById("btn-newsong-reveal").addEventListener("click", () => {
+    const box = document.getElementById("newsong-reveal-box");
+    box.innerHTML = box.innerHTML
+      ? ""
+      : `
+      <div class="booth-guide" style="margin-top:10px;">
+        <div class="g-kicker">Revelation 5 &amp; 14</div>
+        <div class="g-loc">A song only the redeemed can learn</div>
+        <div class="g-detail">Scripture describes a new song sung before the throne — one that only those who've been redeemed can truly sing. Ask the booth leader to walk you through it before you head to the next stop.</div>
+      </div>
+    `;
+  });
+}
+
+async function renderNewSongChoices(set) {
+  const wrap = document.getElementById("newsong-choices");
+  const counts = await Promise.all(set.map(title =>
+    (async () => {
+      try {
+        const res = await window.storage.get("song:" + title, true);
+        return res ? parseInt(res.value, 10) || 0 : 0;
+      } catch (e) { return 0; }
+    })()
+  ));
+  wrap.innerHTML = set.map((title, i) => `
+    <div class="song-row">
+      <span class="song-name">${escapeHtml(title)}</span>
+      <span class="song-votes">${counts[i]} ♥</span>
+      <button class="btn btn-ghost btn-small vote-newsong-btn" data-title="${escapeHtml(title)}">Vote</button>
+    </div>
+  `).join("");
+  wrap.querySelectorAll(".vote-newsong-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await bumpSharedCount("song:" + btn.dataset.title);
+      renderNewSongChoices(set);
+    });
+  });
+}
+
+document.getElementById("btn-booth-back").addEventListener("click", () => {
+  renderGymBooths();
+  show("s-gym");
+});
+
+document.getElementById("btn-booth-checkin").addEventListener("click", async () => {
+  const val = document.getElementById("booth-phone-input").value.trim();
+  const err = document.getElementById("err-booth-phone");
+  const digits = val.replace(/\D/g, "");
+  if (digits.length < 10) { err.style.display = "block"; return; }
+  err.style.display = "none";
+  state.fields.phone = val;
+
+  const btn = document.getElementById("btn-booth-checkin");
+  btn.disabled = true;
+  btn.textContent = "Checking in…";
+  const result = await registerOrFindByPhone(digits, state.name, state.raffleNumber);
+  btn.disabled = false;
+  btn.textContent = "Check in at this booth →";
+
+  if (result.isDuplicate) {
+    state.raffleNumber = result.raffleNumber;
+    document.getElementById("ticket-number").textContent = "#" + state.raffleNumber;
+    toast("This number's already registered — using your original entry #" + state.raffleNumber);
+  } else {
+    toast("Checked in!");
+  }
+
+  state.phoneConfirmed = true;
+  bumpSharedCount("booth:" + state.activeBooth + ":checkins");
+  renderBoothGate();
+});
+
+document.querySelectorAll("#booth-stars .star").forEach(s => {
+  s.addEventListener("click", () => {
+    const n = parseInt(s.dataset.n, 10);
+    document.querySelectorAll("#booth-stars .star").forEach(el => {
+      el.classList.toggle("on", parseInt(el.dataset.n, 10) <= n);
+    });
+    document.getElementById("booth-stars").dataset.value = n;
+  });
+});
+
+document.getElementById("btn-booth-done").addEventListener("click", () => {
+  state.boothsCompleted.add(state.activeBooth);
+  document.getElementById("booth-note").value = "";
+  document.querySelectorAll("#booth-stars .star").forEach(el => el.classList.remove("on"));
+  renderGymBooths();
+  show("s-gym");
+  toast("Marked complete!");
+});
+
+function renderOptions() {
+  const grid = document.getElementById("opt-grid");
+  grid.innerHTML = "";
+  FINAL_OPTIONS.forEach(opt => {
+    const selected = state.selectedOptions.has(opt.id);
+    const card = document.createElement("div");
+    card.className = "opt-card" + (selected ? " selected" : "");
+    card.dataset.id = opt.id;
+    card.innerHTML = `
+      <div class="row">
+        <div class="check">${selected ? "✓" : ""}</div>
+        <div>
+          <div class="title">${opt.title}</div>
+          <div class="desc">${opt.desc}</div>
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      if (state.selectedOptions.has(opt.id)) state.selectedOptions.delete(opt.id);
+      else state.selectedOptions.add(opt.id);
+      renderOptions();
+      renderOptionDetails();
+    });
+    grid.appendChild(card);
+  });
+  renderOptionDetails();
+}
+
+function renderOptionDetails() {
+  const wrap = document.getElementById("opt-details");
+  wrap.innerHTML = "";
+
+  FINAL_OPTIONS.forEach(opt => {
+    if (!state.selectedOptions.has(opt.id)) return;
+    const block = document.createElement("div");
+    block.className = "detail-block show";
+    let inner = `<div class="dt-title">${opt.title}</div>`;
+
+    if (opt.needs.includes("email")) {
+      inner += `
+        <div class="field">
+          <label for="fld-email">Email</label>
+          <input id="fld-email" type="email" placeholder="you@email.com" value="${state.fields.email}">
+        </div>`;
+    }
+    if (opt.needs.includes("survey")) {
+      inner += `
+        <div class="field">
+          <label>Rate today</label>
+          <div class="stars" id="stars">
+            ${[1,2,3,4,5].map(n => `<span class="star ${n <= state.fields.stars ? "on" : ""}" data-n="${n}">★</span>`).join("")}
+          </div>
+        </div>
+        <div class="field">
+          <label for="fld-comment">Any feedback? (optional)</label>
+          <textarea id="fld-comment" rows="2" placeholder="Tell us what stood out...">${state.fields.comment}</textarea>
+        </div>`;
+    }
+    if (opt.needs.includes("social")) {
+      inner += `
+        <div class="share-box">
+          <span class="handle">${SOCIAL_HANDLE}</span>
+          <button class="btn btn-ghost btn-small" id="btn-share">Copy link</button>
+        </div>`;
+    }
+    if (opt.guide) {
+      inner += `
+        <div class="booth-guide">
+          <div class="g-kicker">${opt.guide.kicker}</div>
+          <div class="g-loc">${opt.guide.loc}</div>
+          <div class="g-detail">${opt.guide.detail}</div>
+        </div>`;
+    }
+
+    block.innerHTML = inner;
+    wrap.appendChild(block);
+  });
+
+  const emailEl = document.getElementById("fld-email");
+  if (emailEl) emailEl.addEventListener("input", e => state.fields.email = e.target.value);
+  const commentEl = document.getElementById("fld-comment");
+  if (commentEl) commentEl.addEventListener("input", e => state.fields.comment = e.target.value);
+
+  const starsEl = document.getElementById("stars");
+  if (starsEl) starsEl.querySelectorAll(".star").forEach(s => {
+    s.addEventListener("click", () => {
+      state.fields.stars = parseInt(s.dataset.n, 10);
+      renderOptionDetails();
+    });
+  });
+
+  const shareBtn = document.getElementById("btn-share");
+  if (shareBtn) shareBtn.addEventListener("click", async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: EVENT_NAME, url: SOCIAL_URL });
+      } else {
+        await navigator.clipboard.writeText(SOCIAL_URL);
+        toast("Link copied!");
+      }
+    } catch (e) { /* user cancelled share, ignore */ }
+  });
+}
+
+document.getElementById("btn-submit").addEventListener("click", async () => {
+  const err = document.getElementById("err-choice");
+  err.style.display = "none";
+
+  for (const opt of FINAL_OPTIONS) {
+    if (!state.selectedOptions.has(opt.id)) continue;
+    if (opt.needs.includes("email") && !state.fields.email.trim()) { err.style.display = "block"; return; }
+  }
+
+  const chosen = FINAL_OPTIONS.filter(o => state.selectedOptions.has(o.id));
+
+  await saveSubmission({
+    name: state.name,
+    raffleNumber: state.raffleNumber,
+    boothsCompleted: Array.from(state.boothsCompleted),
+    selections: chosen.map(o => o.id),
+    email: state.fields.email,
+    phone: state.fields.phone,
+    stars: state.fields.stars,
+    comment: state.fields.comment,
+  });
+
+  for (const id of state.selectedOptions) {
+    bumpSharedCount("choice:" + id);
+  }
+
+  renderDone(chosen);
+  show("s-done");
+});
+
+function renderDone(chosen) {
+  const list = document.getElementById("summary-list");
+  list.innerHTML = `
+    <li>🎟️ Raffle entry <b>#${state.raffleNumber}</b> — we'll call it live if you win.</li>
+    <li>📜 ${state.boothsCompleted.size} of ${CONNECTOR_BOOTHS.length} connector booths completed.</li>
+    ${state.boothsCompleted.has("trivia") ? `<li>🏆 Bible Bowl score: <b>${state.trivia.score} pts</b></li>` : ""}
+  `;
+  if (chosen.length === 0) {
+    list.innerHTML += `<li>You skipped the final options — that's okay, we'll still keep your raffle entry.</li>`;
+  } else {
+    chosen.forEach(o => {
+      list.innerHTML += `<li>✅ ${o.title}</li>`;
+    });
+  }
+
+  const guides = document.getElementById("booth-guides");
+  guides.innerHTML = "";
+  chosen.filter(o => o.guide).forEach(o => {
+    const g = document.createElement("div");
+    g.className = "booth-guide";
+    g.style.marginTop = "10px";
+    g.innerHTML = `
+      <div class="g-kicker">${o.guide.kicker}</div>
+      <div class="g-loc">${o.guide.loc}</div>
+      <div class="g-detail">${o.guide.detail}</div>
+    `;
+    guides.appendChild(g);
+  });
+
+  renderConnectBox(chosen);
+}
+
+function renderConnectBox(chosen) {
+  const box = document.getElementById("connect-box");
+  if (state.fields.email) {
+    box.innerHTML = `
+      <div class="kicker">You're connected</div>
+      <h2>So glad you're here.</h2>
+      <p style="margin-bottom:0;">We've got your email — we'll follow up soon on ${chosen.length ? "the next step you picked" : "what's next"}. Can't wait to see where this takes you.</p>
+    `;
+    return;
+  }
+  box.innerHTML = `
+    <div class="kicker">Before you go</div>
+    <h2>Let's stay connected.</h2>
+    <p>Drop your email and we'll follow up${chosen.length ? " on the next step you picked" : ""} — no spam, just what matters.</p>
+    <input id="fld-connect-email" type="email" placeholder="you@email.com">
+    <button class="btn btn-primary" id="btn-connect-email">Keep me connected →</button>
+  `;
+  document.getElementById("btn-connect-email").addEventListener("click", async () => {
+    const input = document.getElementById("fld-connect-email");
+    const val = input.value.trim();
+    if (!val) { input.focus(); return; }
+    state.fields.email = val;
+    const btn = document.getElementById("btn-connect-email");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    await saveSubmission({
+      name: state.name,
+      raffleNumber: state.raffleNumber,
+      boothsCompleted: Array.from(state.boothsCompleted),
+      selections: chosen.map(o => o.id),
+      email: state.fields.email,
+      phone: state.fields.phone,
+      stars: state.fields.stars,
+      comment: state.fields.comment,
+    });
+    renderConnectBox(chosen);
+    toast("Thanks — we'll be in touch!");
+  });
+}
+
+document.getElementById("btn-restart").addEventListener("click", () => {
+  state.name = "";
+  state.raffleNumber = null;
+  state.boothsCompleted = new Set();
+  state.phoneConfirmed = false;
+  state.activeBooth = null;
+  state.selectedOptions = new Set();
+  state.fields = { email: "", phone: "", stars: 0, comment: "" };
+  state.heaven = { page: 1 };
+  state.trivia = { index: 0, score: 0, selected: null };
+  state.story = { index: 0, answers: {} };
+  state.art = { index: 0 };
+  state.newsong = { setIndex: 0 };
+  document.getElementById("in-name").value = "";
+  document.getElementById("in-wristband").checked = false;
+  document.getElementById("btn-enter-gym").disabled = true;
+  setBoothChrome(true);
+  show("s-welcome");
+});
+
+show("s-welcome");
+
+</script>
+</body>
+</html>

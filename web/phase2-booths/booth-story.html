@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>The Sower, Live — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="progress" id="progress"></div>
+  <section class="screen">
+    <a class="btn-link" href="hub.html">← Back to Gym</a>
+    <p class="eyebrow">Connector Booth · Self-service</p>
+    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🌾</span><em>The Sower, Live</em></h1>
+    <p class="lede">Follow Matthew 13 with prompts that pop up as the booth leader talks.</p>
+  </section>
+
+  <section id="booth-gate" class="screen">
+    <div class="field">
+      <label for="booth-phone-input">Your phone number to check in</label>
+      <input id="booth-phone-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-5555">
+      <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+      <div class="err" id="err-booth-phone">Enter your number to check in at this booth.</div>
+    </div>
+    <button class="btn btn-primary" id="btn-booth-checkin">Check in at this booth →</button>
+  </section>
+
+  <div id="booth-interface" style="display:none;">
+    <section class="screen" style="padding-top:0;">
+      <div id="booth-content"></div>
+    </section>
+    <section class="screen" style="padding-top:0;">
+      <div class="field">
+        <label for="booth-note">Anything you'd like to share?</label>
+        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+      </div>
+      <div class="field">
+        <label>Rate this booth</label>
+        <div class="stars" id="booth-stars">
+          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-booth-done">Done — back to Gym →</button>
+    </section>
+  </div>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script src="../shared/booth-common.js"></script>
+<script>
+const BOOTH_ID = "story";
+const BOOTH_NAME = "The Sower, Live";
+
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement("div");
+    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(d);
+  }
+}
+renderProgress();
+
+const storyState = { index: 0, answers: {} };
+
+function renderStory() {
+  const wrap = document.getElementById("booth-content");
+  const beat = STORY_BEATS[storyState.index];
+  const answered = storyState.answers.hasOwnProperty(beat.id);
+  let inner = `<p class="lede" style="margin-top:0;">${beat.text}</p>`;
+  if (beat.prompt) {
+    if (!answered) {
+      inner += `
+        <div class="field">
+          <label>${beat.prompt}</label>
+          <input type="text" id="story-input" placeholder="${beat.placeholder || ""}" maxlength="80">
+        </div>`;
+    } else {
+      inner += `<p class="lede"><strong>You wrote:</strong> "${escapeHtml(storyState.answers[beat.id])}"</p>`;
+    }
+  }
+  wrap.innerHTML = inner + `
+    <div class="poll-nav" style="margin-top:6px;">
+      <button class="btn btn-ghost" id="btn-story-prev">← Back</button>
+      <button class="btn btn-primary" id="btn-story-next">${storyState.index === STORY_BEATS.length - 1 ? "Finish →" : "Next →"}</button>
+    </div>
+  `;
+  document.getElementById("btn-story-prev").style.visibility = storyState.index === 0 ? "hidden" : "visible";
+  document.getElementById("btn-story-prev").addEventListener("click", () => {
+    if (storyState.index > 0) { storyState.index--; renderStory(); }
+  });
+  document.getElementById("btn-story-next").addEventListener("click", () => {
+    const input = document.getElementById("story-input");
+    if (input) {
+      const val = input.value.trim();
+      if (beat.prompt && !val && !answered) { input.focus(); return; }
+      if (val) storyState.answers[beat.id] = val;
+    }
+    if (storyState.index < STORY_BEATS.length - 1) { storyState.index++; renderStory(); }
+    else { toast("Great following along!"); }
+  });
+}
+
+window.getBoothExtraData = () => ({ answers: storyState.answers, reachedBeat: storyState.index });
+
+initBoothGate({ boothId: BOOTH_ID, boothName: BOOTH_NAME, onReady: renderStory });
+renderBoothFooter();
+document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+</script>
+</body>
+</html>

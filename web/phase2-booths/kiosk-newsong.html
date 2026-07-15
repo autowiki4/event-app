@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The New Song in Nashville — Staff Kiosk</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--coral); --phase-color-deep:var(--coral-deep); }
+  .song-row{ display:flex; align-items:center; gap:10px; background:#fff; border:1.5px solid var(--line); border-radius:12px; padding:11px 13px; margin-bottom:8px; }
+  .song-row .song-name{ flex:1; font-weight:700; font-size:13.5px; color:var(--ink); }
+  .song-row .song-votes{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--coral); font-weight:700; }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="device-tag kiosk">Staff kiosk</div>
+  <section class="screen">
+    <p class="eyebrow">Connector Booth · Staff-run</p>
+    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎵</span><em>The New Song in Nashville</em></h1>
+    <p class="lede">One shared device. Check the visitor in, let them point to the song they want, tap Vote for them.</p>
+
+    <div id="step-lookup">
+      <div class="field">
+        <label for="phone-input">Visitor's phone number</label>
+        <input id="phone-input" type="tel" inputmode="tel" autocomplete="off" placeholder="(555) 555-5555">
+        <div class="err" id="err-phone">Enter their number to check in.</div>
+      </div>
+      <button class="btn btn-primary" id="btn-lookup">Check in visitor →</button>
+    </div>
+
+    <div id="step-vote" style="display:none;">
+      <p class="lede" style="margin-top:0;">Voting for: <b id="visitor-name">Guest</b></p>
+      <div id="song-list"></div>
+      <button class="btn btn-ghost" id="btn-done" style="margin-top:10px;">Skip / done — next visitor →</button>
+    </div>
+  </section>
+</div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+const BOOTH_ID = "newsong";
+const BOOTH_NAME = "The New Song in Nashville";
+let currentVisitor = null;
+let votedFor = null;
+
+function renderSongs() {
+  const wrap = document.getElementById("song-list");
+  wrap.innerHTML = SONG_LIST.map((title) => `
+    <div class="song-row">
+      <span class="song-name">${escapeHtml(title)}</span>
+      <button class="btn btn-primary btn-small vote-btn" data-title="${escapeHtml(title)}">Vote</button>
+    </div>
+  `).join("");
+  wrap.querySelectorAll(".vote-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      votedFor = btn.dataset.title;
+      await finishVisitor();
+    });
+  });
+}
+
+document.getElementById("btn-lookup").addEventListener("click", async () => {
+  const input = document.getElementById("phone-input");
+  const err = document.getElementById("err-phone");
+  const digits = input.value.replace(/\D/g, "");
+  if (digits.length < 10) { err.style.display = "block"; return; }
+  err.style.display = "none";
+
+  const btn = document.getElementById("btn-lookup");
+  btn.disabled = true; btn.textContent = "Checking in…";
+  try {
+    const result = await EventAPI.findOrRegisterByPhone(null, digits, "Guest");
+    currentVisitor = { phone: digits, name: result.name };
+    votedFor = null;
+    document.getElementById("visitor-name").textContent = currentVisitor.name || "Guest";
+    renderSongs();
+    document.getElementById("step-lookup").style.display = "none";
+    document.getElementById("step-vote").style.display = "block";
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't check in — check the connection and try again.");
+  }
+  btn.disabled = false; btn.textContent = "Check in visitor →";
+});
+
+async function finishVisitor() {
+  try {
+    await EventAPI.boothCheckin({
+      phone: currentVisitor.phone,
+      boothId: BOOTH_ID,
+      boothName: BOOTH_NAME,
+      checkedInBy: "staff-kiosk",
+      extraData: votedFor ? { votedFor } : null,
+    });
+    toast(votedFor ? "Vote logged!" : "Saved!");
+  } catch (e) {
+    console.error(e);
+    toast("Couldn't save — check the connection and try again.");
+  }
+  currentVisitor = null;
+  document.getElementById("phone-input").value = "";
+  document.getElementById("step-vote").style.display = "none";
+  document.getElementById("step-lookup").style.display = "block";
+}
+
+document.getElementById("btn-done").addEventListener("click", finishVisitor);
+</script>
+</body>
+</html>
