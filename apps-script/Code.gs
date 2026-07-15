@@ -4,19 +4,11 @@
  * demo-server/server.js so web/shared/api.js works unchanged against
  * either backend — only web/shared/config.js's API_BASE_URL differs.
  *
- * SETUP
- * 1. Create a new Google Sheet, name it whatever you like (e.g. "EventDB").
- * 2. Extensions > Apps Script. Delete the default code, paste this file in.
- * 3. Deploy > New deployment > Web app.
- *      Execute as: Me
- *      Who has access: Anyone
- * 4. Copy the /exec URL it gives you.
- * 5. In web/shared/config.js, set API_BASE_URL to that /exec URL
- *    (or pass it per-device via ?base=... — see config.js).
- * 6. Reload the deployment (Deploy > Manage deployments > edit > New
- *    version) any time you change this file.
- *
- * See SHEET_SCHEMA.md for the exact column layout this creates.
+ * For full step-by-step deployment instructions (including the "Google
+ * hasn't verified this app" prompt you'll hit the first time, and how to
+ * push out changes after the first deploy), see README.md in this same
+ * folder. For the exact spreadsheet columns this creates, see
+ * SHEET_SCHEMA.md.
  */
 
 const SHEET_NAMES = {

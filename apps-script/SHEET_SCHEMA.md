@@ -1,4 +1,8 @@
-# Sheet schema (created automatically by Code.gs on first call)
+# Sheet schema
+
+Reference for the four tabs `Code.gs` creates automatically — you don't
+need to make any of these by hand. For how to actually deploy `Code.gs`
+and get this Sheet up and running, see `README.md` in this same folder.
 
 ## Attendees
 | attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt |

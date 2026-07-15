@@ -6,7 +6,36 @@ dashboard tying it all together in real time — using nothing but a laptop
 and the local demo server (no Google account, no deployment, no internet
 required except to load Google Fonts and the QR library).
 
+If you haven't run anything in this repo before, read this section first;
+if you've already got the demo server running, skip to **1. Before the
+room fills up**.
+
+## 0. First time only: get it running
+
+You need **Node.js** installed (nothing else — no database, no account,
+no `npm install`). Check with:
+
+```
+node --version
+```
+
+If that fails, install it from [nodejs.org](https://nodejs.org) (the
+"LTS" button) and try again. Full details, including what to do if you
+were handed this folder instead of a GitHub link, are in the main
+`README.md` — but the short version, once Node is installed, is:
+
+```
+cd demo-server
+node server.js
+```
+
+Leave that running for the rest of this guide. If it prints an error about
+port 3000 already being in use, see the Troubleshooting section in
+`README.md`.
+
 ## 1. Before the room fills up
+
+Same command as above, if you haven't already started it:
 
 ```
 cd demo-server

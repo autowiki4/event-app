@@ -1,17 +1,17 @@
 # QR codes
 
-Instead of static image files, QR codes are generated **inside the app** at
-`web/organizer/qr-codes.html` — it builds a QR code on the fly for the entry
-page and each self-service booth, using whatever base URL you type in
-(defaults to wherever the page is currently running). Open it, adjust the
-base URL if needed, and print.
+Instead of static image files, QR codes are generated **inside the app**
+at `web/organizer/qr-codes.html` — open it in a browser (via the demo
+server or your real hosted URL) and it builds a QR code on the fly for
+the entry page and each self-service booth, using whatever base URL you
+type in (defaults to wherever the page is currently running).
 
-Why this way instead of pre-made PNGs: the sandbox this was built in has no
-internet access to a QR-generation library, and more importantly, a QR code
-baked in now would point at `localhost` — useless once you deploy somewhere
-real. Generating them from the actual page, on your own machine/browser
-(which does have internet), means they always encode whatever URL you're
-actually running on.
+Requires an internet connection the first time it loads (it pulls a small
+QR-drawing library from a CDN) — after that your browser typically caches
+it.
+
+Jump to **Steps** below if you just want to print codes right now; the
+**Why this way** section explains the reasoning if you're curious.
 
 ## What needs a code
 
@@ -26,3 +26,13 @@ actually running on.
 3. Confirm/edit the base URL field, click **Regenerate codes**.
 4. Print the page (`Cmd/Ctrl+P` — it's laid out to print cleanly, one card per code).
 5. Re-print if the base URL changes later (e.g. moving from a demo laptop to the real production URL).
+
+## Why this way
+
+An alternative would be a handful of pre-made PNG images checked into the
+repo. That falls apart the moment the URL changes — a QR code baked in
+during development would point at `localhost`, which is useless once this
+is hosted somewhere real for the actual event. Generating them from the
+live page instead means they always encode whatever URL you're actually
+running on, demo or production, without anyone needing to regenerate
+image files by hand.
