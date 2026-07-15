@@ -13,10 +13,29 @@
 
 <div class="phone" id="phone">
   <div class="progress" id="progress"></div>
-  <section class="screen">
+  <section class="screen" id="phase3-login">
+    <p class="eyebrow">Phase 3 · Attendee portal</p>
+    <h1 class="display">Find your <em>registration.</em></h1>
+    <p class="lede">Phase 3 is a separate link. Use the name and raffle number you received in Phase 1 — you can continue even if you skipped the booths.</p>
+    <div class="field">
+      <label for="phase3-name">Name used in Phase 1</label>
+      <input id="phase3-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
+    </div>
+    <div class="field">
+      <label for="phase3-raffle">Raffle number</label>
+      <input id="phase3-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <div class="hint">This keeps people with the same name from opening each other's registration.</div>
+      <div class="err" id="phase3-login-error"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-phase3-login">Enter Phase 3 →</button>
+  </section>
+
+  <section class="screen" id="phase3-content" style="display:none;">
+    <div class="staff-toolbar"><button class="btn-link" id="btn-phase3-signout">Switch attendee</button></div>
     <p class="eyebrow">Phase 3 · Before you go</p>
     <h1 class="display">What's <em>next</em> for you?</h1>
     <p class="lede">Pick anything that fits — you can choose more than one. A staff member will confirm these with you in person before you leave.</p>
+    <div class="placeholder-note">Signed in as <strong id="phase3-attendee-name">Guest</strong>.</div>
 
     <div class="opt-grid" id="opt-grid"></div>
     <div id="opt-details"></div>
@@ -29,6 +48,7 @@
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/attendee-portal.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script>
@@ -135,7 +155,50 @@ function renderOptionDetails() {
     } catch (e) { /* cancelled */ }
   });
 }
-renderOptions();
+function showLogin(message) {
+  document.getElementById("phase3-content").style.display = "none";
+  document.getElementById("phase3-login").style.display = "block";
+  const error = document.getElementById("phase3-login-error");
+  error.textContent = message || "";
+  error.style.display = message ? "block" : "none";
+}
+
+function showPortal(identity) {
+  document.getElementById("phase3-login").style.display = "none";
+  document.getElementById("phase3-content").style.display = "block";
+  document.getElementById("phase3-attendee-name").textContent = identity.name || "Guest";
+  renderOptions();
+}
+
+document.getElementById("btn-phase3-login").addEventListener("click", async () => {
+  const name = document.getElementById("phase3-name").value.trim();
+  const raffleNumber = document.getElementById("phase3-raffle").value.trim();
+  if (!name || !raffleNumber) {
+    showLogin("Enter both your Phase 1 name and raffle number.");
+    return;
+  }
+  const button = document.getElementById("btn-phase3-login");
+  button.disabled = true;
+  button.textContent = "Finding registration…";
+  try {
+    const identity = await AttendeePortal.signIn("phase3", name, raffleNumber);
+    showPortal(identity);
+  } catch (e) {
+    console.error(e);
+    if (["ATTENDEE_LOGIN_FAILED", "LOGIN_FIELDS_REQUIRED"].includes(e.code)) {
+      showLogin(e.message);
+    } else {
+      toast("Couldn't sign in — check the connection and try again.");
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = "Enter Phase 3 →";
+  }
+});
+
+document.getElementById("btn-phase3-signout").addEventListener("click", () => {
+  AttendeePortal.signOut("index.html");
+});
 
 document.getElementById("btn-submit").addEventListener("click", async () => {
   const err = document.getElementById("err-choice");
@@ -145,7 +208,7 @@ document.getElementById("btn-submit").addEventListener("click", async () => {
     if (opt.needs.includes("email") && !fields.email.trim()) { err.style.display = "block"; return; }
   }
 
-  const identity = Identity.get();
+  const identity = Identity.peek();
   const chosen = FINAL_OPTIONS.filter((o) => selected.has(o.id));
   const btn = document.getElementById("btn-submit");
   btn.disabled = true; btn.textContent = "Saving…";
@@ -170,11 +233,35 @@ document.getElementById("btn-submit").addEventListener("click", async () => {
     window.location.href = "../done/index.html";
   } catch (e) {
     console.error(e);
-    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+    if (Identity.restartIfMissing(e, "index.html")) return;
     toast("Couldn't save — check the connection and try again.");
     btn.disabled = false; btn.textContent = "Save my answers →";
   }
 });
+
+async function initPortal() {
+  const saved = AttendeePortal.prefill();
+  document.getElementById("phase3-name").value = saved.name;
+  document.getElementById("phase3-raffle").value = saved.raffleNumber;
+  if (!AttendeePortal.hasAccess("phase3")) {
+    showLogin();
+    return;
+  }
+  try {
+    showPortal(await AttendeePortal.restore("phase3"));
+  } catch (e) {
+    console.error(e);
+    if (["ATTENDEE_NOT_FOUND", "PORTAL_LOGIN_REQUIRED"].includes(e.code)) {
+      Identity.clear();
+      showLogin("Find your Phase 1 registration to enter Phase 3.");
+    } else {
+      showLogin();
+      toast("Couldn't restore your Phase 3 session — try signing in again.");
+    }
+  }
+}
+
+initPortal();
 </script>
 </body>
 </html>

@@ -13,6 +13,7 @@ const CONNECTOR_BOOTHS = [
     blurb: "Draw what you picture from Revelation 21 — then see how close you got. ~20 min",
     mode: "self",
     page: "booth-heaven.html",
+    staffPage: "heaven.html",
   },
   {
     id: "trivia",
@@ -21,6 +22,7 @@ const CONNECTOR_BOOTHS = [
     blurb: "Jeopardy-style trivia — pick it up as you go, rack up points. ~20 min",
     mode: "self",
     page: "booth-trivia.html",
+    staffPage: "trivia.html",
   },
   {
     id: "story",
@@ -29,6 +31,7 @@ const CONNECTOR_BOOTHS = [
     blurb: "Follow Matthew 13 with prompts that pop up as the booth leader talks. ~20 min",
     mode: "self",
     page: "booth-story.html",
+    staffPage: "story.html",
   },
   {
     id: "art",
@@ -36,6 +39,8 @@ const CONNECTOR_BOOTHS = [
     icon: "🖌️",
     blurb: "Guided drawing and reflection with the booth leader. ~20 min",
     mode: "kiosk",
+    staffPage: "art.html",
+    kioskPage: "../phase2-booths/kiosk-art.html",
   },
   {
     id: "newsong",
@@ -43,6 +48,8 @@ const CONNECTOR_BOOTHS = [
     icon: "🎵",
     blurb: "Vote on what plays next — then hear about the song only the redeemed can sing. ~20 min",
     mode: "kiosk",
+    staffPage: "newsong.html",
+    kioskPage: "../phase2-booths/kiosk-newsong.html",
   },
 ];
 

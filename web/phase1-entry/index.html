@@ -18,11 +18,11 @@
   <section class="screen" id="s-welcome">
     <p class="eyebrow">Lobby · Registration (Phase 1 of 3)</p>
     <h1 class="display">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
-    <p class="lede">Scan this QR code once, at the door. Enter your name to register — you'll get your wristband from your Guardian Angel next.</p>
+    <p class="lede">Scan this QR code once, at the door. Enter your name to register — you'll use it with your raffle number in the separate Phase 2 and Phase 3 portals.</p>
 
     <div class="field">
-      <label for="in-name">Your first name</label>
-      <input id="in-name" type="text" placeholder="e.g. Jordan" autocomplete="given-name">
+      <label for="in-name">Your name</label>
+      <input id="in-name" type="text" placeholder="e.g. Jordan Lee" autocomplete="name">
       <div class="err" id="err-name">Enter your name to continue.</div>
     </div>
 
@@ -53,8 +53,21 @@
       <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
       <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
     </div>
-    <button class="btn btn-primary" id="btn-enter-gym" disabled>Enter the Gym →</button>
+    <button class="btn btn-primary" id="btn-enter-gym" disabled>Complete Phase 1 →</button>
     <p class="top-note">Barefoot Republic Community Center · 15354 Old Hickory Blvd, Nashville, TN</p>
+  </section>
+
+  <section class="screen" id="s-complete" style="display:none;">
+    <div class="done-badge">✓</div>
+    <p class="eyebrow" style="text-align:center;">Phase 1 complete</p>
+    <h1 class="display" style="text-align:center;">You're registered, <em id="complete-name">friend</em>.</h1>
+    <p class="lede" style="text-align:center;">Keep your raffle number handy. Phase 2 and Phase 3 each use their own attendee link.</p>
+    <div class="ticket-hero">
+      <div class="kicker">Your sign-in details</div>
+      <h2 id="complete-raffle">Raffle #----</h2>
+      <div class="sub">Use the same name you entered here plus this number when another phase asks you to find your registration.</div>
+    </div>
+    <div class="placeholder-note" style="margin-top:18px;">At the Gym, open the separate Phase 2 attendee link. When it is time to wrap up, open the separate Phase 3 attendee link. You can close this page now.</div>
   </section>
 </div>
 
@@ -85,12 +98,14 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
   try {
     const identity = Identity.get();
     const result = await EventAPI.registerAttendee(identity.attendeeId, val);
-    if (result.isNew) Identity.clear();
-    Identity.set({
+    Identity.clear();
+    Identity.replace({
       attendeeId: result.attendeeId || identity.attendeeId,
       name: val,
       raffleNumber: result.raffleNumber,
-      ...(result.isNew ? { phone: "", email: "" } : {}),
+      phone: result.isNew ? "" : identity.phone || "",
+      phoneLinked: result.isNew ? false : !!(identity.phone || identity.phoneLinked),
+      email: result.isNew ? "" : identity.email || "",
     });
     document.getElementById("ticket-name").textContent = "Hey, " + val + ".";
     document.getElementById("ticket-number").textContent = "#" + result.raffleNumber;
@@ -109,16 +124,19 @@ document.getElementById("in-wristband").addEventListener("change", (e) => {
 
 document.getElementById("btn-enter-gym").addEventListener("click", async () => {
   const btn = document.getElementById("btn-enter-gym");
-  btn.disabled = true; btn.textContent = "Entering…";
+  btn.disabled = true; btn.textContent = "Completing…";
   try {
     const identity = Identity.get();
     await EventAPI.confirmWristband(identity.attendeeId);
-    window.location.href = "../phase2-booths/hub.html";
+    document.getElementById("complete-name").textContent = identity.name || "friend";
+    document.getElementById("complete-raffle").textContent = "Raffle #" + (identity.raffleNumber || "----");
+    document.getElementById("s-pass").style.display = "none";
+    document.getElementById("s-complete").style.display = "block";
   } catch (e) {
     console.error(e);
     if (Identity.restartIfMissing(e, "index.html")) return;
     toast("Couldn't confirm — check the connection and try again.");
-    btn.disabled = false; btn.textContent = "Enter the Gym →";
+    btn.disabled = false; btn.textContent = "Complete Phase 1 →";
   }
 });
 </script>

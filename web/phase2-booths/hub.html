@@ -13,20 +13,42 @@
 
 <div class="phone" id="phone">
   <div class="progress" id="progress"></div>
-  <section class="screen">
+  <section class="screen" id="phase2-login">
+    <p class="eyebrow">Phase 2 · Attendee portal</p>
+    <h1 class="display">Find your <em>registration.</em></h1>
+    <p class="lede">Phase 2 has its own link. Use the name and raffle number from Phase 1 so we open the right booth experience.</p>
+    <div class="field">
+      <label for="phase2-name">Name used in Phase 1</label>
+      <input id="phase2-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
+    </div>
+    <div class="field">
+      <label for="phase2-raffle">Raffle number</label>
+      <input id="phase2-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <div class="hint">Names can repeat, so the raffle number makes sure this is your registration.</div>
+      <div class="err" id="phase2-login-error"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-phase2-login">Enter Phase 2 →</button>
+    <p class="top-note">Not registered yet? Complete the separate Phase 1 entry first.</p>
+  </section>
+
+  <section class="screen" id="phase2-content" style="display:none;">
+    <div class="staff-toolbar"><button class="btn-link" id="btn-phase2-signout">Switch attendee</button></div>
     <p class="eyebrow">Phase 2 · The Gym</p>
-    <h1 class="display">Welcome to <em>the Gym.</em></h1>
+    <h1 class="display">Welcome, <em id="phase2-attendee-name">friend.</em></h1>
     <p class="lede" id="lede-text">Visit the connector booths whenever you're ready — or just have fun. It's up to you.</p>
+
+    <div class="placeholder-note" id="phase2-phone-note"></div>
 
     <div class="booth-list" id="booth-list"></div>
 
-    <button class="btn btn-primary" id="btn-wrap-up">Wrap up & head out →</button>
+    <div class="placeholder-note">Phase 2 ends here. When you're ready to wrap up, open the separate Phase 3 attendee link and find your registration again.</div>
   </section>
 </div>
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/attendee-portal.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script>
@@ -41,15 +63,40 @@ function renderProgress() {
 }
 renderProgress();
 
-async function render() {
-  const identity = Identity.get();
+function safeNextPage() {
+  const requested = new URLSearchParams(window.location.search).get("next") || "";
+  const page = requested.split("?")[0];
+  return CONNECTOR_BOOTHS.some((booth) => booth.mode === "self" && booth.page === page) ? requested : "";
+}
+
+function showLogin(message) {
+  document.getElementById("phase2-content").style.display = "none";
+  document.getElementById("phase2-login").style.display = "block";
+  const error = document.getElementById("phase2-login-error");
+  error.textContent = message || "";
+  error.style.display = message ? "block" : "none";
+}
+
+async function showPortal(identity) {
+  document.getElementById("phase2-login").style.display = "none";
+  document.getElementById("phase2-content").style.display = "block";
+  document.getElementById("phase2-attendee-name").textContent = (identity.name || "friend") + ".";
+  document.getElementById("phase2-phone-note").textContent = identity.phoneLinked
+    ? "You're signed in and your phone is already linked. Open any self-service booth when you're ready."
+    : `Welcome, ${identity.name || "friend"}! At your first self-service booth, enter your 10-digit phone number once to connect your visits.`;
+
   let visited = [];
   try {
     const res = await EventAPI.myCheckins(identity.attendeeId);
     visited = res.boothIds || [];
   } catch (e) {
-    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+    if (e.code === "ATTENDEE_NOT_FOUND") {
+      Identity.clear();
+      showLogin("That registration is no longer available. Find your Phase 1 registration again.");
+      return;
+    }
     console.warn("Couldn't load check-in status", e);
+    toast("Couldn't load booth status — check the connection and try again.");
   }
 
   const wrap = document.getElementById("booth-list");
@@ -76,11 +123,65 @@ async function render() {
     wrap.appendChild(card);
   });
 }
-render();
 
-document.getElementById("btn-wrap-up").addEventListener("click", () => {
-  window.location.href = "../phase3-signup/index.html";
+document.getElementById("btn-phase2-login").addEventListener("click", async () => {
+  const name = document.getElementById("phase2-name").value.trim();
+  const raffleNumber = document.getElementById("phase2-raffle").value.trim();
+  if (!name || !raffleNumber) {
+    showLogin("Enter both your Phase 1 name and raffle number.");
+    return;
+  }
+  const button = document.getElementById("btn-phase2-login");
+  button.disabled = true;
+  button.textContent = "Finding registration…";
+  try {
+    const identity = await AttendeePortal.signIn("phase2", name, raffleNumber);
+    const nextPage = safeNextPage();
+    if (nextPage) window.location.href = nextPage;
+    else await showPortal(identity);
+  } catch (e) {
+    console.error(e);
+    if (["ATTENDEE_LOGIN_FAILED", "LOGIN_FIELDS_REQUIRED", "PHASE1_INCOMPLETE"].includes(e.code)) {
+      showLogin(e.message);
+    } else {
+      toast("Couldn't sign in — check the connection and try again.");
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = "Enter Phase 2 →";
+  }
 });
+
+document.getElementById("btn-phase2-signout").addEventListener("click", () => {
+  AttendeePortal.signOut("hub.html");
+});
+
+async function initPortal() {
+  const saved = AttendeePortal.prefill();
+  document.getElementById("phase2-name").value = saved.name;
+  document.getElementById("phase2-raffle").value = saved.raffleNumber;
+  if (!AttendeePortal.hasAccess("phase2")) {
+    showLogin();
+    return;
+  }
+  try {
+    const identity = await AttendeePortal.restore("phase2");
+    const nextPage = safeNextPage();
+    if (nextPage) window.location.href = nextPage;
+    else await showPortal(identity);
+  } catch (e) {
+    console.error(e);
+    if (["ATTENDEE_NOT_FOUND", "PHASE1_INCOMPLETE", "PORTAL_LOGIN_REQUIRED"].includes(e.code)) {
+      Identity.clear();
+      showLogin(e.code === "PHASE1_INCOMPLETE" ? e.message : "Find your Phase 1 registration to enter Phase 2.");
+    } else {
+      showLogin();
+      toast("Couldn't restore your Phase 2 session — try signing in again.");
+    }
+  }
+}
+
+initPortal();
 </script>
 </body>
 </html>

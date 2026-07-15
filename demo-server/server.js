@@ -22,6 +22,7 @@ const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json")
 const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
 const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
+const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -57,6 +58,10 @@ function digitsOnly(phone) {
 
 function normalizeRaffleNumber(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeAttendeeName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 }
 
 function organizerKeyMatches(value) {
@@ -166,10 +171,52 @@ function confirmWristband(body) {
   return { status: 200, body: { ok: true } };
 }
 
+function attendeePortalResult(attendee) {
+  return {
+    attendeeId: attendee.attendeeId,
+    name: attendee.name,
+    raffleNumber: attendee.raffleNumber,
+    wristbandConfirmed: !!attendee.wristbandConfirmedAt,
+    phoneLinked: !!attendee.phone,
+  };
+}
+
+function loginAttendee(body) {
+  const normalizedName = normalizeAttendeeName(body && body.name);
+  const raffleNumber = normalizeRaffleNumber(body && body.raffleNumber);
+  if (!normalizedName || !raffleNumber) {
+    return errorResult(400, "name and raffle number are required", "LOGIN_FIELDS_REQUIRED");
+  }
+
+  const db = readDb();
+  const attendee = findAttendeeByRaffle(db, raffleNumber);
+  if (!attendee || normalizeAttendeeName(attendee.name) !== normalizedName) {
+    return errorResult(401, "We couldn't match that name and raffle number.", "ATTENDEE_LOGIN_FAILED");
+  }
+  if (body.portal === "phase2" && !attendee.wristbandConfirmedAt) {
+    return errorResult(403, "Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");
+  }
+  return { status: 200, body: attendeePortalResult(attendee) };
+}
+
+function attendeePortalSession(body) {
+  const attendeeId = body && body.attendeeId;
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
+  const db = readDb();
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  if (body.portal === "phase2" && !attendee.wristbandConfirmedAt) {
+    return errorResult(403, "Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");
+  }
+  return { status: 200, body: attendeePortalResult(attendee) };
+}
+
 function findOrRegisterByPhone(body) {
   const { attendeeId, phone, name, raffleNumber, allowCreate, organizerKey, confirmPairing } = body;
   const dPhone = digitsOnly(phone);
-  if (dPhone.length < 10) return { status: 400, body: { error: "valid phone required" } };
+  if (dPhone.length !== 10) {
+    return errorResult(400, "phone must contain exactly 10 digits", "INVALID_PHONE");
+  }
   const normalizedRaffle = normalizeRaffleNumber(raffleNumber);
   const isOrganizer = organizerKeyMatches(organizerKey);
 
@@ -403,11 +450,39 @@ function dashboardData(body) {
     .slice()
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
     .map((s) => ({
-      id: s.id, name: s.name || "Guest", phone: s.phone, optionTitle: s.optionTitle,
+      id: s.id, name: s.name || "Guest", phone: s.phone, optionId: s.optionId, optionTitle: s.optionTitle,
       submittedAt: s.submittedAt, confirmedInPerson: s.confirmedInPerson, confirmedBy: s.confirmedBy,
     }));
 
   return { status: 200, body: { totals, boothCounts, triviaLeaderboard, songVotes, signups } };
+}
+
+function boothDashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const boothId = String((body && body.boothId) || "");
+  if (!BOOTH_IDS.has(boothId)) {
+    return errorResult(404, "booth not found", "BOOTH_NOT_FOUND");
+  }
+
+  const db = readDb();
+  const checkins = db.boothCheckins
+    .filter((checkin) => checkin.boothId === boothId)
+    .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
+  return {
+    status: 200,
+    body: {
+      boothId,
+      totalCheckins: checkins.length,
+      recentCheckins: checkins.slice(0, 50).map((checkin) => ({
+        id: checkin.id,
+        name: checkin.name || "Guest",
+        checkedInAt: checkin.checkedInAt,
+        checkedInBy: checkin.checkedInBy,
+        rating: checkin.rating || null,
+      })),
+    },
+  };
 }
 
 function resetDemo(body) {
@@ -424,9 +499,9 @@ function verifyOrganizer(body) {
 }
 
 const POST_ACTIONS = {
-  registerAttendee, confirmWristband, findOrRegisterByPhone,
+  registerAttendee, confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
   boothCheckin, submitSignup, confirmSignupInPerson, dashboardData,
-  resetDemo, verifyOrganizer, myCheckins,
+  boothDashboardData, resetDemo, verifyOrganizer, myCheckins,
 };
 const GET_ACTIONS = {};
 
@@ -489,9 +564,12 @@ function startServer(port = PORT) {
     const actualPort = server.address().port;
     console.log(`Event app demo server running: http://localhost:${actualPort}`);
     console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
+    console.log(`  Phase 2 attendee:     http://localhost:${actualPort}/phase2-booths/hub.html`);
+    console.log(`  Phase 3 attendee:     http://localhost:${actualPort}/phase3-signup/index.html`);
+    console.log(`  Phase 2 staff hub:    http://localhost:${actualPort}/phase2-staff/index.html`);
     console.log(`  Organizer dashboard:  http://localhost:${actualPort}/organizer/dashboard.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
-    console.log("  Local testing:        open Phase 1 directly; no QR scan required");
+    console.log("  Local testing:        each phase uses its own link; no QR scan required");
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {
       console.log("  Local organizer key:  demo");
     }

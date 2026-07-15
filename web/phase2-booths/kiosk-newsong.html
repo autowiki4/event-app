@@ -38,8 +38,8 @@
     <div id="step-lookup">
       <div class="field">
         <label for="phone-input">Visitor's phone number</label>
-        <input id="phone-input" type="tel" inputmode="tel" autocomplete="off" placeholder="(555) 555-5555">
-        <div class="err" id="err-phone">Enter their number to check in.</div>
+        <input id="phone-input" type="tel" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="(555) 555-5555">
+        <div class="err" id="err-phone">Enter a 10-digit phone number.</div>
       </div>
       <div class="field">
         <label for="raffle-input">Raffle number</label>
@@ -72,12 +72,14 @@
 <script src="../shared/organizer-auth.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
+<script src="../shared/phone.js"></script>
 <script>
 const BOOTH_ID = "newsong";
 const BOOTH_NAME = "The New Song in Nashville";
 let currentVisitor = null;
 let votedFor = null;
 let isSaving = false;
+Phone.bind(document.getElementById("phone-input"));
 
 function renderSongs() {
   const wrap = document.getElementById("song-list");
@@ -127,8 +129,8 @@ document.getElementById("btn-lookup").addEventListener("click", async () => {
   const skippedEntry = document.getElementById("skipped-entry").checked;
   const skippedName = document.getElementById("skipped-name").value.trim();
   const skippedNameErr = document.getElementById("err-skipped-name");
-  const digits = input.value.replace(/\D/g, "");
-  if (digits.length < 10) { err.style.display = "block"; return; }
+  const digits = Phone.digits(input);
+  if (!Phone.isValid(input)) { err.style.display = "block"; return; }
   if (skippedEntry && !skippedName) { skippedNameErr.style.display = "block"; return; }
   err.style.display = "none";
   raffleErr.style.display = "none";

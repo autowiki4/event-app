@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase 2 Staff Hub — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>:root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="device-tag organizer">Phase 2 staff</div>
+  <section class="screen">
+    <p class="eyebrow">Phase 2 · Staff portal</p>
+    <h1 class="display">Choose your <em>booth.</em></h1>
+    <p class="lede">Every booth has its own staff URL and sees only its own check-in data. More booth-specific controls can be added later.</p>
+
+    <div class="organizer-access" id="organizer-access">
+      <h2>Staff access</h2>
+      <p>Enter the event organizer key to open the booth directory.</p>
+      <div class="field">
+        <label for="organizer-key">Organizer access key</label>
+        <input id="organizer-key" type="password" autocomplete="off">
+        <div class="hint">Local demo default: <b>demo</b>.</div>
+        <div class="err" id="err-organizer-key"></div>
+      </div>
+      <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth directory →</button>
+    </div>
+
+    <div id="organizer-content" style="display:none;">
+      <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock staff hub</button></div>
+      <div class="booth-list" id="staff-booth-list"></div>
+      <a class="btn btn-ghost" href="../organizer/dashboard.html">Open overall organizer dashboard</a>
+      <p class="top-note">For safety, the organizer key is not passed between pages. Each booth device unlocks its own page once.</p>
+    </div>
+  </section>
+</div>
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/organizer-auth.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+const staffList = document.getElementById("staff-booth-list");
+staffList.innerHTML = CONNECTOR_BOOTHS.map((booth) => `
+  <div class="booth-card">
+    <div class="booth-icon">${booth.icon}</div>
+    <div class="booth-info">
+      <div class="name">${escapeHtml(booth.title)}</div>
+      <div class="hint">${booth.mode === "kiosk" ? "Staff-run kiosk" : "Self-service attendee booth"}</div>
+    </div>
+    <a class="stamp-btn" href="${escapeHtml(booth.staffPage)}">Open</a>
+  </div>
+`).join("");
+OrganizerAuth.init();
+</script>
+</body>
+</html>

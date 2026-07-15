@@ -19,6 +19,11 @@ Jump to **Steps** below if you just want to print codes right now; the
 - **Booth QRs** (self-service only) → one per booth: Can You Draw Heaven?, Bible Bowl, The Sower Live.
 - **No code needed** for Art Therapy Table or The New Song in Nashville — those are staff-run kiosks; there's nothing for an attendee to scan.
 
+Phase 2 and Phase 3 now also have independent attendee links
+(`phase2-booths/hub.html` and `phase3-signup/index.html`). For local testing,
+open those URLs directly. Their deployment QR cards are intentionally deferred
+until the app has a real public URL; the current generator remains unchanged.
+
 ## Steps
 
 1. Get the app running somewhere reachable — for the demo, that's `http://localhost:3000` (or your machine's LAN IP if scanning from a real phone on the same Wi-Fi, e.g. `http://192.168.1.42:3000`); for the real event, that's wherever you deploy it (see repo README for hosting options).

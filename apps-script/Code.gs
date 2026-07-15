@@ -19,6 +19,7 @@ const SHEET_NAMES = {
 };
 
 const ORGANIZER_KEY_PROPERTY = "ORGANIZER_KEY";
+const BOOTH_IDS = ["heaven", "trivia", "story", "art", "newsong"];
 
 const HEADERS = {
   [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt"],
@@ -95,6 +96,10 @@ function digitsOnly(phone) {
 
 function normalizeRaffleNumber(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function normalizeAttendeeName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function newId() {
@@ -259,10 +264,54 @@ function actionConfirmWristband(payload) {
   });
 }
 
+function attendeePortalResult(attendee) {
+  return {
+    attendeeId: attendee.attendeeId,
+    name: attendee.name,
+    raffleNumber: attendee.raffleNumber,
+    wristbandConfirmed: !!attendee.wristbandConfirmedAt,
+    phoneLinked: !!attendee.phone,
+  };
+}
+
+function actionLoginAttendee(payload) {
+  const normalizedName = normalizeAttendeeName(payload && payload.name);
+  const raffleNumber = normalizeRaffleNumber(payload && payload.raffleNumber);
+  if (!normalizedName || !raffleNumber) {
+    throw apiError("name and raffle number are required", "LOGIN_FIELDS_REQUIRED");
+  }
+  return withScriptLock(() => {
+    const attendees = readRows(SHEET_NAMES.ATTENDEES);
+    const attendee = findAttendeeByRaffleInRows(attendees, raffleNumber);
+    if (!attendee || normalizeAttendeeName(attendee.name) !== normalizedName) {
+      throw apiError("We couldn't match that name and raffle number.", "ATTENDEE_LOGIN_FAILED");
+    }
+    if (payload.portal === "phase2" && !attendee.wristbandConfirmedAt) {
+      throw apiError("Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");
+    }
+    return attendeePortalResult(attendee);
+  });
+}
+
+function actionAttendeePortalSession(payload) {
+  const attendeeId = payload && payload.attendeeId;
+  if (!attendeeId) throw apiError("attendeeId required", "ATTENDEE_ID_REQUIRED");
+  return withScriptLock(() => {
+    const attendee = findAttendee(attendeeId, null);
+    if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
+    if (payload.portal === "phase2" && !attendee.wristbandConfirmedAt) {
+      throw apiError("Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");
+    }
+    return attendeePortalResult(attendee);
+  });
+}
+
 function actionFindOrRegisterByPhone(payload) {
   const { attendeeId, phone, name, raffleNumber, allowCreate, organizerKey, confirmPairing } = payload;
   const dPhone = digitsOnly(phone);
-  if (dPhone.length < 10) throw new Error("valid phone required");
+  if (dPhone.length !== 10) {
+    throw apiError("phone must contain exactly 10 digits", "INVALID_PHONE");
+  }
   const normalizedRaffle = normalizeRaffleNumber(raffleNumber);
   if (!attendeeId || normalizedRaffle) requireOrganizer(payload);
 
@@ -508,6 +557,7 @@ function actionDashboardData(payload) {
         id: s.id,
         name: s.name || "Guest",
         phone: s.phone,
+        optionId: s.optionId,
         optionTitle: s.optionTitle,
         submittedAt: s.submittedAt,
         confirmedInPerson: !!s.confirmedInPerson,
@@ -515,6 +565,30 @@ function actionDashboardData(payload) {
       }));
 
     return { totals, boothCounts, triviaLeaderboard, songVotes, signups: signupsOut };
+  });
+}
+
+function actionBoothDashboardData(payload) {
+  requireOrganizer(payload);
+  const boothId = String((payload && payload.boothId) || "");
+  if (BOOTH_IDS.indexOf(boothId) === -1) {
+    throw apiError("booth not found", "BOOTH_NOT_FOUND");
+  }
+  return withScriptLock(() => {
+    const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS)
+      .filter((checkin) => String(checkin.boothId) === boothId)
+      .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
+    return {
+      boothId,
+      totalCheckins: checkins.length,
+      recentCheckins: checkins.slice(0, 50).map((checkin) => ({
+        id: checkin.id,
+        name: checkin.name || "Guest",
+        checkedInAt: checkin.checkedInAt,
+        checkedInBy: checkin.checkedInBy,
+        rating: checkin.rating || null,
+      })),
+    };
   });
 }
 
@@ -545,11 +619,14 @@ function doPost(e) {
     switch (action) {
       case "registerAttendee": result = actionRegisterAttendee(payload); break;
       case "confirmWristband": result = actionConfirmWristband(payload); break;
+      case "loginAttendee": result = actionLoginAttendee(payload); break;
+      case "attendeePortalSession": result = actionAttendeePortalSession(payload); break;
       case "findOrRegisterByPhone": result = actionFindOrRegisterByPhone(payload); break;
       case "boothCheckin": result = actionBoothCheckin(payload); break;
       case "submitSignup": result = actionSubmitSignup(payload); break;
       case "confirmSignupInPerson": result = actionConfirmSignupInPerson(payload); break;
       case "dashboardData": result = actionDashboardData(payload); break;
+      case "boothDashboardData": result = actionBoothDashboardData(payload); break;
       case "verifyOrganizer": result = actionVerifyOrganizer(payload); break;
       case "myCheckins": result = actionMyCheckins(payload); break;
       default: return jsonOutput({ error: "unknown action: " + action, code: "UNKNOWN_ACTION" });

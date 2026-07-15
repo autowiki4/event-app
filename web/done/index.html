@@ -20,13 +20,14 @@
     <ul class="summary-list" id="summary-list"></ul>
     <div id="booth-guides"></div>
     <div class="connect-card" id="connect-box"></div>
-    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Start over</button>
+    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Sign out of Phase 3</button>
   </section>
 </div>
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/attendee-portal.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script>
@@ -41,7 +42,7 @@ function renderProgress() {
 }
 renderProgress();
 
-const identity = Identity.get();
+let identity = Identity.peek();
 const chosenIds = JSON.parse(sessionStorage.getItem("eventapp.chosen") || "[]");
 const chosen = FINAL_OPTIONS.filter((o) => chosenIds.includes(o.id));
 
@@ -51,7 +52,7 @@ async function render() {
     const res = await EventAPI.myCheckins(identity.attendeeId);
     boothIds = res.boothIds || [];
   } catch (e) {
-    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+    if (Identity.restartIfMissing(e, "../phase3-signup/index.html")) return;
     console.warn(e);
   }
 
@@ -116,20 +117,33 @@ function renderConnectBox() {
       toast("Thanks — we'll be in touch!");
     } catch (e) {
       console.error(e);
-      if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+      if (Identity.restartIfMissing(e, "../phase3-signup/index.html")) return;
       toast("Couldn't save — check the connection and try again.");
       btn.disabled = false; btn.textContent = "Keep me connected →";
     }
   });
 }
 
-render();
-
 document.getElementById("btn-restart").addEventListener("click", () => {
-  Identity.clear();
-  sessionStorage.removeItem("eventapp.chosen");
-  window.location.href = "../phase1-entry/index.html";
+  AttendeePortal.signOut("../phase3-signup/index.html");
 });
+
+async function initCompletePage() {
+  if (!AttendeePortal.hasAccess("phase3")) {
+    window.location.replace("../phase3-signup/index.html");
+    return;
+  }
+  try {
+    identity = await AttendeePortal.restore("phase3");
+    render();
+  } catch (e) {
+    console.error(e);
+    Identity.clear();
+    window.location.replace("../phase3-signup/index.html");
+  }
+}
+
+initCompletePage();
 </script>
 </body>
 </html>

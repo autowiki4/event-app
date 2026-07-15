@@ -65,9 +65,10 @@ between them live:
 
 | Window | URL | Represents |
 |---|---|---|
-| A | `http://localhost:3000/phase1-entry/index.html` | The attendee's own phone |
+| A | `http://localhost:3000/phase1-entry/index.html` | The attendee, opening each phase's separate link |
 | B | `http://localhost:3000/phase2-booths/kiosk-art.html` | A staff-run kiosk device |
 | C | `http://localhost:3000/organizer/dashboard.html` | The organizer's live view |
+| D (optional) | `http://localhost:3000/phase2-staff/index.html` | The booth-specific staff directory |
 
 Use a **private/incognito window** for Window A specifically — regular
 windows share `localStorage`, and incognito guarantees Window A behaves
@@ -98,37 +99,51 @@ line or two of what to say.
 3. Point out the raffle ticket and number that appears. *"That number's
    assigned by the backend, not the phone — so two people scanning at the
    exact same second can never collide."*
-4. Check "I've handed over the wristband" and click **Enter the Gym**.
+4. Check "I've handed over the wristband" and click **Complete Phase 1**.
    *"In a real event, this checkbox is really your Guardian Angel
    confirming they physically handed over a wristband — not something the
    attendee can just tick themselves. That's a decision made for the demo;
-   flag it if you want it tightened up for the real thing."*
+   flag it if you want it tightened up for the real thing."* Point out that
+   Phase 1 now ends here and preserves the name + raffle details for later.
 
-**Phase 2 — self-service booth (Window A, still)**
+**Phase 2 — separate attendee portal and self-service booth (Window A)**
 
-5. From the booth hub, open a self-service booth (Bible Bowl is the most
-   fun to demo — it's scored).
-6. It asks for a phone number — *"first booth, first time, this is the
+5. Open the separate URL `phase2-booths/hub.html`. The Phase 1 page did not
+   send you here. Enter the same name and raffle number. *"Names can repeat,
+   so both details reopen the correct registration—even on another device."*
+6. From the booth hub, open a self-service booth (Bible Bowl is the most fun
+   to demo — it's scored).
+7. It welcomes the attendee and asks for a phone number — *"first booth,
+   first time, this is the
    only time today they'll type this in."* Enter any 10-digit number.
-7. Play a question or two, click **Done**.
-8. Go back to the hub — point out the booth now shows "Completed ✓".
+8. Play a question or two, click **Done**.
+9. Go back to the hub — point out the booth now shows "Completed ✓" and that
+   Phase 2 ends without automatically opening Phase 3.
 
 **Phase 2 — staff kiosk booth (Window B)**
 
-9. Switch to Window B (Art Therapy kiosk). *"This is a tablet sitting at
+10. Switch to Window B (Art Therapy kiosk). *"This is a tablet sitting at
    the art table all day — nobody's phone touches this, staff run it."*
-10. Type the **same phone number** you used in Window A. Because that phone
+11. Type the **same phone number** you used in Window A. Because that phone
     was already linked at the self-service booth, leave raffle number blank.
     If the kiosk had been the first booth, staff would also enter the raffle
     number shown in Window A; that securely attaches the phone without
     creating a second attendee or raffle entry.
-11. *"Watch — it already knows this is Jordan."* — the visitor's name
+12. *"Watch — it already knows this is Jordan."* — the visitor's name
     appears, pulled from the record Window A created a minute ago.
-12. Show a prompt, click **Done — next visitor**.
+13. Show a prompt, click **Done — next visitor**.
+
+**Phase 2 — booth staff portal (Window D, optional)**
+
+14. Unlock `phase2-staff/index.html`, choose Art Therapy, and unlock that
+    booth page. *"Each booth has its own organizer URL and receives only its
+    own check-ins—not the overall attendee or Phase 3 data."* Point out the
+    count, recent roster, and link to the live kiosk. The custom control area
+    is where each booth's later requirements will go.
 
 **Organizer dashboard (Window C)**
 
-13. Switch to Window C. It's already been polling — point out the Bible
+15. Switch to Window C. It's already been polling — point out the Bible
     Bowl leaderboard has Jordan's score, and the booth check-in table shows
     one visit each to Bible Bowl and Art Therapy. *"Same person, two
     completely different devices, one shared record — nothing gets lost
@@ -136,22 +151,24 @@ line or two of what to say.
 
 **Phase 3 — sign-up (Window A)**
 
-14. Back in Window A, click **Wrap up & head out**.
-15. Pick a couple of options (e.g. "Keep me posted" needs an email —
+16. Back in Window A, open the separate URL
+    `phase3-signup/index.html`. Sign in again with the Phase 1 name + raffle
+    number. *"Phase 3 does not require a booth visit or phone number."*
+17. Pick a couple of options (e.g. "Keep me posted" needs an email —
     good excuse to show that field), submit.
-16. Show the recap screen and raffle number one more time.
+18. Show the recap screen and raffle number one more time.
 
 **Organizer dashboard again (Window C)**
 
-17. Refresh (or just wait ~4s, it polls automatically) — the new sign-up
-    appears in the "confirm in person" table as **Pending**.
-18. Click **Confirm** — *"This is the actual moment a staff member at the
+19. Refresh (or just wait ~4s, it polls automatically) — the new sign-ups
+    appear under their option rosters as **Pending**.
+20. Click **Confirm** — *"This is the actual moment a staff member at the
     sign-up table talks to this person face to face. Until someone taps
     this, it's just an intention, not a commitment."*
 
 **QR codes (optional — skip for normal local testing)**
 
-19. Open `organizer/qr-codes.html` — show the live-generated codes for the
+21. Open `organizer/qr-codes.html` — show the current live-generated codes for the
     door and each self-service booth, and mention printing them before the
     real event. Nothing else in this walkthrough depends on this page; it is
     reasonable to leave it out until the app has a deployed public URL.

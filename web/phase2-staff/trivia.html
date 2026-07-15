@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bible Bowl — Staff</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    :root {
+      --phase-color: var(--teal);
+      --phase-color-deep: var(--teal-deep);
+    }
+  </style>
+</head>
+<body>
+  <div class="phone dash-wrap">
+    <div class="device-tag organizer">Booth staff</div>
+    <section class="screen">
+      <a class="btn-link" href="index.html">← Phase 2 staff hub</a>
+      <p class="eyebrow" id="staff-booth-mode">Booth</p>
+      <h1 class="display" id="staff-booth-name">Booth controls</h1>
+      <p class="lede" id="staff-booth-description"></p>
+
+      <div class="organizer-access" id="organizer-access">
+        <h2>Staff access</h2>
+        <p>Unlock this booth's staff page.</p>
+        <div class="field">
+          <label for="organizer-key">Organizer access key</label>
+          <input id="organizer-key" type="password" autocomplete="off">
+          <div class="hint">Local demo default: <b>demo</b>.</div>
+          <div class="err" id="err-organizer-key"></div>
+        </div>
+        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth →</button>
+      </div>
+
+      <div id="organizer-content" style="display:none;">
+        <div class="staff-toolbar">
+          <button class="btn-link" id="btn-organizer-lock">Lock booth</button>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-card">
+            <div class="num" id="staff-total">0</div>
+            <div class="lbl">Check-ins at this booth</div>
+          </div>
+        </div>
+        <div id="staff-kiosk-launch"></div>
+        <div class="section-title">Recent check-ins</div>
+        <div style="overflow-x:auto;">
+          <table class="dash-table" id="staff-roster">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Time</th>
+                <th>Method</th>
+                <th>Rating</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh</button>
+        <p class="top-note" id="staff-last-updated"></p>
+      </div>
+    </section>
+  </div>
+
+  <script src="../shared/config.js"></script>
+  <script src="../shared/api.js"></script>
+  <script src="../shared/organizer-auth.js"></script>
+  <script src="../shared/toast.js"></script>
+  <script src="../shared/booths-config.js"></script>
+  <script src="../shared/booth-staff-common.js"></script>
+  <script>initBoothStaff("trivia");</script>
+</body>
+</html>

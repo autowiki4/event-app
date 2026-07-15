@@ -15,18 +15,31 @@ Organizer: a live dashboard.
 
 ## The core problem this solves
 
-People move between devices during the event:
-- Phase 1 happens on the attendee's own phone (QR scan).
-- Phase 2 happens either on their own phone (booth's own QR) *or* on a staff tablet (kiosk booths), where the attendee never opens the app themselves.
-- Phase 3 can happen on either.
+People move between phases and devices during the event. Phase 1, Phase 2,
+and Phase 3 therefore have separate attendee URLs instead of one automatic
+consumer flow. Phase 2 can run on an attendee phone or staff tablet, and Phase
+3 remains available even when somebody skipped the booths.
 
-So there needs to be one durable identity that works regardless of which device the attendee is on. Two keys, one record:
+One attendee row is reopened in three ways:
 
-- **`attendeeId`** — a random ID generated in the browser at Phase 1, saved to that phone's `localStorage`. Lets an attendee's *own* phone stay logged in across booths without re-entering anything.
+- **Phase 1 name + raffle number** — the explicit registration lookup used
+  independently by the Phase 2 and Phase 3 portals. Name alone is not enough
+  because two attendees can share it. Matching ignores capitalization and
+  extra spaces, and a wrong pair returns one generic error without attendee
+  details.
+- **`attendeeId`** — a random canonical ID created in Phase 1 and saved after
+  a successful portal lookup. Phase 2 and Phase 3 use separate tab-level
+  access markers, so entering one portal does not silently unlock the other.
 - **phone number** — collected once, at the first booth check-in. On an
   attendee's own phone it is linked through their random `attendeeId`. At a
   staff kiosk, the first link is paired with the raffle number already shown
   at entry; returning phones can then be looked up directly.
+
+Name + raffle number is a lightweight event registration lookup, not strong
+authentication; both details can be shared or guessed. It solves duplicate
+names and cross-device continuity for the current event prototype. Add phone
+OTP or another verified credential before using it as a production security
+boundary.
 
 Both point at the same row in a Google Sheet. If staff pair a phone that was
 previously created as a "skipped entry" visitor with a later entry record, the
@@ -57,8 +70,9 @@ be interpreted as a spreadsheet formula.
 
 This Sheet *is* "the file with everyone's name and number" you asked for — Attendees tab, filterable/exportable to CSV anytime, no separate export step needed. `File > Download > CSV` in Google Sheets covers a one-click end-of-day export. Exact column layout for every tab is in `apps-script/SHEET_SCHEMA.md`.
 
-Apps Script exposes actions like `registerAttendee`, `confirmWristband`,
-`findOrRegisterByPhone`, `boothCheckin`, `submitSignup`,
+Apps Script exposes actions like `registerAttendee`, `loginAttendee`,
+`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
+`boothCheckin`, `submitSignup`, `boothDashboardData`,
 `confirmSignupInPerson`, and `dashboardData`. Sensitive staff actions are
 authenticated POST requests; the organizer key lives in Apps Script's Script
 Properties rather than the public static site. There is no separate server or
@@ -83,16 +97,25 @@ need to force every booth into the same interaction model.
 
 Single QR code, printed once, pointing to `phase1-entry/index.html`.
 
-1. Page loads → generates `attendeeId` if none saved locally.
-2. Name entered → `registerAttendee` → Sheet row created, raffle number assigned server-side.
-3. Wristband step: two options worth deciding between —
-   - *Self-attest* (matches the current prototype): attendee checks "I have my wristband." Simple, but nothing stops someone skipping the physical step.
-   - *Staff-confirmed* (more reliable): the attendee's ticket screen shows a small QR/code; the guardian angel scans or taps it on their own device to confirm, only then unlocking "Enter the Gym." Slightly more setup, closes the loophole.
-4. "Enter the Gym" → done with Phase 1.
+1. Page loads → generates `attendeeId` if none is saved locally.
+2. Name entered → `registerAttendee` → Sheet row created and a unique raffle
+   number assigned server-side.
+3. A Guardian Angel confirms the wristband handoff in the current prototype.
+4. The page ends on a Phase 1-complete screen showing the two details needed
+   later: registered name and raffle number. It does not navigate to Phase 2.
 
 ## Phase 2 — Booths (phone number becomes the shared key)
 
-`hub.html` lists all booths for attendees on their own phone. Self-service booths link straight to that booth's page (identity already cached locally). Kiosk booths just tell the attendee "see staff at this table" — no link needed, since staff run it.
+`phase2-booths/hub.html` is its own attendee portal. Even on the same phone
+used at entry, the attendee explicitly finds the Phase 1 record using name +
+raffle number. A completed wristband check is required. The hub then explains
+that the first self-service booth will ask for a phone once, lists all booths,
+and shows completed visits. It ends inside Phase 2 rather than linking directly
+to Phase 3.
+
+Direct self-service booth links preserve the intended booth while routing an
+unsigned attendee through the Phase 2 lookup. Kiosk booths still tell the
+attendee to see staff because staff run those experiences.
 
 First phone-number entry anywhere calls `findOrRegisterByPhone`. A
 self-service booth links it to the random attendee ID already on that phone.
@@ -102,7 +125,9 @@ created when the kiosk is their first booth. Before a new pairing is written,
 staff see the entry name and raffle number and explicitly confirm the ticket.
 Staff can mark someone as having skipped entry only after entering their name;
 the kiosk then displays the newly assigned raffle number. Returning kiosk
-phones need no raffle re-entry.
+phones need no raffle re-entry. The current event flow accepts exactly ten
+phone digits: inputs format them as `(555) 555-5555`, while the backends and
+stored rows keep the canonical digits-only value (`5555555555`).
 
 Phone knowledge alone is not treated as identity proof. If a self-service
 device enters a phone already attached to another record, it receives a
@@ -114,17 +139,37 @@ production security boundary.
 
 Each booth check-in writes its own `BoothCheckins` row with whatever that booth's `extraData` is (trivia score, story answers, chosen art prompt, song vote) — same shape as the prototype's per-booth state, just persisted server-side instead of in-page JS state.
 
+The separate staff side starts at `phase2-staff/index.html`. Every booth has
+its own URL under that folder. Those pages call authenticated
+`boothDashboardData`, which filters on the server and returns only that
+booth's count and recent check-ins—never the overall dashboard, Phase 3
+sign-ups, or phone numbers. All pages temporarily share the organizer key, so
+this is data/UI separation rather than per-booth authorization; dedicated
+booth keys can be introduced when the final controls are defined.
+
 ## Phase 3 — Sign-up (app UI + in-person confirmation)
 
-Attendee-facing UI stays close to the current sketch: cards for each option (future events, Bible study, 8-month course, art therapy, refer a friend), expanding relevant fields per selection. Submitting writes `SignUps` rows with `confirmedInPerson: false`.
+`phase3-signup/index.html` is a separate attendee portal with its own name +
+raffle lookup and its own phase session. It does not depend on a Phase 2 phone
+or booth visit. After lookup, the UI stays close to the current sketch: cards
+for each option (future events, Bible study, 8-month course, art therapy, refer
+a friend), expanding relevant fields per selection. Submitting writes
+`SignUps` rows with `confirmedInPerson: false`.
 
-Organizer-facing piece: the dashboard lists pending sign-ups (name, phone, option chosen) with a one-tap "Confirm in person" button for whichever staff member is standing with that attendee at the actual table — sets `confirmedInPerson: true, confirmedBy, confirmedAt`. This gives you a clean before/after: "said they're interested" vs. "we actually talked to them and signed them up."
+Organizer-facing piece: the dashboard groups sign-ups into one roster per
+option, with each person's name, formatted phone number, status, and a one-tap
+"Confirm in person" button for whichever staff member is standing with that
+attendee at the actual table. Confirmation sets `confirmedInPerson: true`,
+`confirmedBy`, and `confirmedAt`. A person who selected multiple options
+appears in each relevant roster, without repeating the option title on every
+row. This gives you a clean before/after: "said they're interested" vs. "we
+actually talked to them and signed them up."
 
 ## Organizer dashboard (`organizer/dashboard.html`)
 
 Polls `dashboardData` every 4 seconds. Shows: total registered / wristbands
 confirmed / raffle entries, live count per booth, the Bible Bowl
-leaderboard, song vote tally, and the Phase 3 sign-up confirm queue
+leaderboard, song vote tally, and the grouped Phase 3 sign-up rosters
 described above, plus a "Reset demo data" button (rehearsal use only — see
 `demo-server/README.md`). The dashboard and kiosk pages stay behind a runtime
 organizer-key gate, and the backend independently checks that key on every
@@ -134,20 +179,26 @@ each staff page. Drawing the actual raffle winner isn't automated — pick a
 number from the Attendees list/dashboard count and call it out live, or add a
 "pick random entry" button if you want that automated.
 
-## QR codes needed
+## QR codes and separate links
 
 1. **Entry QR** (Phase 1) — one, printed at the door.
-2. **Booth QRs** — one per self-service booth, printed at that booth's table.
-3. Kiosk booths need no attendee-facing QR — staff open `kiosk-*.html` once on their own device for the day.
+2. **Phase 2 attendee link** — opens the independent Gym login/hub.
+3. **Booth QRs** — one per self-service booth; a logged-out visitor is sent
+   through the Phase 2 lookup and returned to that booth.
+4. **Phase 3 attendee link** — opens the independent final signup login.
+5. Kiosk booths need no attendee-facing QR — staff use their booth staff page
+   and live kiosk.
 
 Full instructions for generating and printing these are in `qr/QR_PLAN.md`.
 For local testing, QR codes are optional: open the printed localhost URLs
-directly and exercise the entire flow without visiting the QR page.
+directly and exercise the entire flow without visiting the QR page. The QR
+generator itself remains deployment-time work for when a public URL exists.
 
 ## Two interchangeable backends
 
-Every action described above (`registerAttendee`, `confirmWristband`,
-`findOrRegisterByPhone`, `boothCheckin`, `submitSignup`,
+Every action described above (`registerAttendee`, `loginAttendee`,
+`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
+`boothCheckin`, `submitSignup`, `boothDashboardData`,
 `confirmSignupInPerson`, `dashboardData`, `myCheckins`) exists twice:
 
 - **`demo-server/`** — a small zero-dependency Node server, backed by a

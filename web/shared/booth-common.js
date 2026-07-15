@@ -6,10 +6,26 @@
 
 let _boothStars = 0;
 
+function phase2ReturnUrl() {
+  const page = window.location.pathname.split("/").pop() || "hub.html";
+  return `hub.html?next=${encodeURIComponent(page + window.location.search)}`;
+}
+
 function initBoothGate({ boothId, boothName, onReady }) {
-  let identity = Identity.get();
+  let identity = Identity.peek();
+  if (!identity.attendeeId || !AttendeePortal.hasAccess("phase2")) {
+    window.location.replace(phase2ReturnUrl());
+    return;
+  }
   const gateEl = document.getElementById("booth-gate");
   const ifaceEl = document.getElementById("booth-interface");
+  const phoneInput = document.getElementById("booth-phone-input");
+  Phone.bind(phoneInput);
+
+  const welcome = document.createElement("div");
+  welcome.className = "placeholder-note";
+  welcome.textContent = `Welcome, ${identity.name || "friend"}! Enter your phone number to check in. You'll only need to do this once.`;
+  gateEl.insertBefore(welcome, gateEl.firstChild);
 
   function showInterface() {
     gateEl.style.display = "none";
@@ -17,14 +33,14 @@ function initBoothGate({ boothId, boothName, onReady }) {
     onReady();
   }
 
-  if (identity.phone) {
+  if (identity.phone || identity.phoneLinked) {
     gateEl.style.display = "none";
     ifaceEl.style.display = "none";
     EventAPI.myCheckins(identity.attendeeId)
       .then(showInterface)
       .catch((error) => {
         console.error(error);
-        if (Identity.restartIfMissing(error, "../phase1-entry/index.html")) return;
+        if (Identity.restartIfMissing(error, phase2ReturnUrl())) return;
         toast("Couldn't verify your check-in — check the connection and reload.");
       });
     return;
@@ -33,11 +49,10 @@ function initBoothGate({ boothId, boothName, onReady }) {
   gateEl.style.display = "block";
   ifaceEl.style.display = "none";
   document.getElementById("btn-booth-checkin").addEventListener("click", async () => {
-    const input = document.getElementById("booth-phone-input");
     const err = document.getElementById("err-booth-phone");
-    const digits = input.value.replace(/\D/g, "");
-    err.textContent = "Enter your number to check in at this booth.";
-    if (digits.length < 10) { err.style.display = "block"; return; }
+    const digits = Phone.digits(phoneInput);
+    err.textContent = "Enter a 10-digit phone number.";
+    if (!Phone.isValid(phoneInput)) { err.style.display = "block"; return; }
     err.style.display = "none";
 
     const btn = document.getElementById("btn-booth-checkin");
@@ -47,6 +62,7 @@ function initBoothGate({ boothId, boothName, onReady }) {
       Identity.set({
         attendeeId: result.attendeeId || identity.attendeeId,
         phone: digits,
+        phoneLinked: true,
         name: result.name || identity.name,
         raffleNumber: result.raffleNumber,
       });
@@ -58,7 +74,7 @@ function initBoothGate({ boothId, boothName, onReady }) {
       if (e.code === "PHONE_ALREADY_LINKED") {
         err.textContent = "That phone is connected on another device. Restart at Entry on this device, then ask staff to pair the new raffle ticket.";
         err.style.display = "block";
-      } else if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) {
+      } else if (Identity.restartIfMissing(e, phase2ReturnUrl())) {
         return;
       } else {
         toast("Couldn't check in — check the connection and try again.");
@@ -81,7 +97,7 @@ function renderBoothFooter() {
 }
 
 async function finishBooth(boothId, boothName) {
-  const identity = Identity.get();
+  const identity = Identity.peek();
   const note = document.getElementById("booth-note") ? document.getElementById("booth-note").value : "";
   const extraData = typeof window.getBoothExtraData === "function" ? window.getBoothExtraData() : null;
 
@@ -102,7 +118,7 @@ async function finishBooth(boothId, boothName) {
     window.location.href = "hub.html";
   } catch (e) {
     console.error(e);
-    if (Identity.restartIfMissing(e, "../phase1-entry/index.html")) return;
+    if (Identity.restartIfMissing(e, phase2ReturnUrl())) return;
     toast("Couldn't save — check the connection and try again.");
     btn.disabled = false; btn.textContent = "Done — back to Gym →";
   }

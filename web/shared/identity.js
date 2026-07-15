@@ -32,6 +32,10 @@ const Identity = (function () {
     return data;
   }
 
+  function peek() {
+    return load();
+  }
+
   function set(patch) {
     const data = load();
     Object.assign(data, patch);
@@ -39,8 +43,18 @@ const Identity = (function () {
     return data;
   }
 
+  function replace(data) {
+    save(Object.assign({}, data));
+    return load();
+  }
+
   function clear() {
     localStorage.removeItem(KEY);
+    try {
+      sessionStorage.removeItem("eventapp.portal.phase2");
+      sessionStorage.removeItem("eventapp.portal.phase3");
+      sessionStorage.removeItem("eventapp.chosen");
+    } catch (e) { /* session storage is optional */ }
   }
 
   function restartIfMissing(error, entryUrl) {
@@ -51,5 +65,5 @@ const Identity = (function () {
     return true;
   }
 
-  return { get, set, clear, restartIfMissing };
+  return { get, peek, set, replace, clear, restartIfMissing };
 })();

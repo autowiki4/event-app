@@ -30,9 +30,12 @@ You should see:
 ```
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
+  Phase 2 attendee:     http://localhost:3000/phase2-booths/hub.html
+  Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
+  Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Local testing:        open Phase 1 directly; no QR scan required
+  Local testing:        each phase uses its own link; no QR scan required
   Local organizer key:  demo
 ```
 
@@ -47,8 +50,9 @@ default is `demo`. To rehearse with a different key, start the server with:
 EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
 ```
 
-You can skip the QR page during local development; open the Phase 1 and booth
-URLs directly. QR codes matter only after there is a public URL to encode.
+You can skip the QR page during local development; open the separate Phase 1,
+Phase 2, Phase 3, and staff URLs directly. QR codes matter only after there is
+a public URL to encode.
 
 **To stop it:** click into that terminal window and press `Ctrl+C`.
 
@@ -95,15 +99,17 @@ There are no packages to install. From this folder:
 npm test
 ```
 
-The suite starts an isolated temporary server/database and covers organizer
-authorization, secure phone linking, duplicate attendee merging, preserved
-raffle numbers and kiosk history, protected confirmation/reset actions, and
-Apps Script-style HTTP-200 error payloads.
+The suite starts an isolated temporary server/database and covers separate
+phase login lookup, organizer authorization, booth-scoped staff data, secure
+phone linking, duplicate attendee merging, preserved raffle numbers and kiosk
+history, protected confirmation/reset actions, and Apps Script-style HTTP-200
+error payloads.
 
 ## How this maps to production
 
-Every route here (`registerAttendee`, `confirmWristband`,
-`findOrRegisterByPhone`, `boothCheckin`, `submitSignup`,
+Every route here (`registerAttendee`, `loginAttendee`,
+`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
+`boothCheckin`, `submitSignup`, `boothDashboardData`,
 `confirmSignupInPerson`, `dashboardData`, `myCheckins`) has a matching
 function in `../apps-script/Code.gs`, doing the same thing against a real
 Google Sheet instead of `db.json`. Swapping from this demo server to the
@@ -111,7 +117,8 @@ real event backend is just changing `API_BASE_URL` in
 `../web/shared/config.js` — no frontend code changes, and nothing in
 `../web/` needs to know which backend it's talking to.
 
-Staff-only routes (`verifyOrganizer`, `dashboardData`, kiosk phone lookup,
-staff kiosk check-in, confirmation, and demo reset) require the organizer key
-in their POST JSON. Attendee booth history resolves only by the random
-attendee ID stored on that phone; a phone number alone cannot read a record.
+Staff-only routes (`verifyOrganizer`, `dashboardData`,
+`boothDashboardData`, kiosk phone lookup, staff kiosk check-in, confirmation,
+and demo reset) require the organizer key in their POST JSON. Attendee booth
+history resolves only by the canonical attendee ID saved after portal login;
+a phone number alone cannot read a record.

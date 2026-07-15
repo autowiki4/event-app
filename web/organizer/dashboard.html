@@ -28,7 +28,7 @@
     </div>
 
     <div id="organizer-content" style="display:none;">
-    <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
+    <div class="staff-toolbar" style="gap:18px;"><a class="btn-link" href="../phase2-staff/index.html">Phase 2 booth staff hub</a><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
     <div class="dash-grid" id="totals-grid"></div>
 
     <div class="section-title">Booth check-ins</div>
@@ -49,12 +49,9 @@
       <tbody></tbody>
     </table>
 
-    <div class="section-title">Phase 3 sign-ups — confirm in person</div>
-    <p class="lede" style="margin-top:-4px;">Tap Confirm once a staff member has actually talked to that person at the relevant table.</p>
-    <table class="dash-table" id="signup-table">
-      <thead><tr><th>Name</th><th>Phone</th><th>Interested in</th><th>Status</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="section-title">Phase 3 sign-ups by option</div>
+    <p class="lede" style="margin-top:-4px;">Each option has its own roster. Tap Confirm beside the person you spoke with at that table.</p>
+    <div class="signup-groups" id="signup-groups"></div>
 
     <button class="btn btn-ghost" id="btn-reset" style="margin-top:24px;">Reset demo data (rehearsal only)</button>
     </div>
@@ -65,16 +62,50 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/organizer-auth.js"></script>
 <script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script src="../shared/phone.js"></script>
 <script>
 function esc(s) { return escapeHtml(s); }
 let refreshTimer = null;
+
+function groupSignupsByOption(signups) {
+  const configuredById = new Map(FINAL_OPTIONS.map((option, index) => [option.id, { ...option, index }]));
+  const configuredByTitle = new Map(FINAL_OPTIONS.map((option, index) => [option.title, { ...option, index }]));
+  const groups = new Map();
+
+  (signups || []).forEach((signup) => {
+    const optionId = String(signup.optionId || "").trim();
+    const submittedTitle = String(signup.optionTitle || "").trim();
+    const configured = configuredById.get(optionId) || configuredByTitle.get(submittedTitle);
+    const key = configured
+      ? `configured:${configured.id}`
+      : optionId
+        ? `option:${optionId}`
+        : `title:${submittedTitle || "Other"}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        optionId: configured ? configured.id : optionId,
+        title: configured ? configured.title : submittedTitle || optionId || "Other",
+        order: configured ? configured.index : Number.POSITIVE_INFINITY,
+        signups: [],
+      });
+    }
+    groups.get(key).signups.push(signup);
+  });
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.title.localeCompare(b.title);
+  });
+}
 
 function clearDashboard() {
   document.getElementById("totals-grid").innerHTML = "";
   document.querySelector("#booth-table tbody").innerHTML = "";
   document.querySelector("#trivia-table tbody").innerHTML = "";
   document.querySelector("#song-table tbody").innerHTML = "";
-  document.querySelector("#signup-table tbody").innerHTML = "";
+  document.getElementById("signup-groups").innerHTML = "";
 }
 
 async function refresh() {
@@ -112,20 +143,37 @@ async function refresh() {
     ? data.songVotes.map((s) => `<tr><td>${esc(s.title)}</td><td>${s.votes}</td></tr>`).join("")
     : `<tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr>`;
 
-  const signupBody = document.querySelector("#signup-table tbody");
-  signupBody.innerHTML = data.signups.length
-    ? data.signups.map((s) => `
-        <tr>
-          <td>${esc(s.name)}</td>
-          <td>${esc(s.phone)}</td>
-          <td>${esc(s.optionTitle)}</td>
-          <td>${s.confirmedInPerson ? `<span class="pill confirmed">Confirmed</span>` : `<span class="pill pending">Pending</span>`}</td>
-          <td>${s.confirmedInPerson ? "" : `<button class="btn btn-primary btn-small confirm-btn" data-id="${s.id}">Confirm</button>`}</td>
-        </tr>
+  const signupGroups = document.getElementById("signup-groups");
+  const groupedSignups = groupSignupsByOption(data.signups);
+  signupGroups.innerHTML = groupedSignups.length
+    ? groupedSignups.map((group) => `
+        <section class="signup-group">
+          <div class="signup-group-head">
+            <div>
+              <div class="signup-group-kicker">Phase 3 option</div>
+              <h3>${esc(group.title)}</h3>
+            </div>
+            <span class="signup-count">${group.signups.length} ${group.signups.length === 1 ? "sign-up" : "sign-ups"}</span>
+          </div>
+          <div class="signup-roster">
+            ${group.signups.map((s) => `
+              <div class="signup-person">
+                <div class="signup-person-details">
+                  <strong>${esc(s.name)}</strong>
+                  <span>${esc(Phone.formatDisplay(s.phone) || "No phone")}</span>
+                </div>
+                <div class="signup-person-actions">
+                  ${s.confirmedInPerson ? `<span class="pill confirmed">Confirmed</span>` : `<span class="pill pending">Pending</span>`}
+                  ${s.confirmedInPerson ? "" : `<button class="btn btn-primary btn-small confirm-btn" data-id="${esc(s.id)}">Confirm</button>`}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        </section>
       `).join("")
-    : `<tr><td colspan="5" style="color:var(--ink-soft);">No sign-ups yet.</td></tr>`;
+    : `<div class="signup-empty">No Phase 3 sign-ups yet.</div>`;
 
-  signupBody.querySelectorAll(".confirm-btn").forEach((btn) => {
+  signupGroups.querySelectorAll(".confirm-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const requestGeneration = OrganizerAuth.generation();
       const requestKey = OrganizerAuth.key();
