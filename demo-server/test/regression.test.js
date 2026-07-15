@@ -597,8 +597,12 @@ async function runFrontendContractRegression() {
   assert.doesNotMatch(phase1Source, /window\.location\.href = "\.\.\/phase2-booths\/hub\.html"/);
   assert.match(phase1Source, /Phase 1 complete/);
   assert.match(phase2Source, /AttendeePortal\.signIn\("phase2"/);
+  assert.doesNotMatch(phase2Source, /AttendeePortal\.prefill/);
+  assert.match(phase2Source, /id="phase2-name"[^>]*autocomplete="off"/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
+  assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);
+  assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="off"/);
   assert.match(phase3Source, /you can continue even if you skipped the booths/i);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
 

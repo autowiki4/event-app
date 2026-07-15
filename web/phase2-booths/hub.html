@@ -19,7 +19,7 @@
     <p class="lede">Phase 2 has its own link. Use the name and raffle number from Phase 1 so we open the right booth experience.</p>
     <div class="field">
       <label for="phase2-name">Name used in Phase 1</label>
-      <input id="phase2-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
+      <input id="phase2-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
       <label for="phase2-raffle">Raffle number</label>
@@ -157,9 +157,8 @@ document.getElementById("btn-phase2-signout").addEventListener("click", () => {
 });
 
 async function initPortal() {
-  const saved = AttendeePortal.prefill();
-  document.getElementById("phase2-name").value = saved.name;
-  document.getElementById("phase2-raffle").value = saved.raffleNumber;
+  document.getElementById("phase2-name").value = "";
+  document.getElementById("phase2-raffle").value = "";
   if (!AttendeePortal.hasAccess("phase2")) {
     showLogin();
     return;

@@ -19,14 +19,6 @@ const AttendeePortal = (() => {
     sessionStorage.setItem(markerKey(portal), attendeeId);
   }
 
-  function prefill() {
-    const identity = Identity.peek();
-    return {
-      name: identity.name || "",
-      raffleNumber: identity.raffleNumber || "",
-    };
-  }
-
   function saveSession(result, previous) {
     const sameAttendee = previous.attendeeId === result.attendeeId;
     if (!sameAttendee) {
@@ -69,5 +61,5 @@ const AttendeePortal = (() => {
     window.location.href = loginUrl;
   }
 
-  return { hasAccess, prefill, signIn, restore, signOut };
+  return { hasAccess, signIn, restore, signOut };
 })();

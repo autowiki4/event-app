@@ -19,7 +19,7 @@
     <p class="lede">Phase 3 is a separate link. Use the name and raffle number you received in Phase 1 — you can continue even if you skipped the booths.</p>
     <div class="field">
       <label for="phase3-name">Name used in Phase 1</label>
-      <input id="phase3-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
+      <input id="phase3-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
       <label for="phase3-raffle">Raffle number</label>
@@ -240,9 +240,8 @@ document.getElementById("btn-submit").addEventListener("click", async () => {
 });
 
 async function initPortal() {
-  const saved = AttendeePortal.prefill();
-  document.getElementById("phase3-name").value = saved.name;
-  document.getElementById("phase3-raffle").value = saved.raffleNumber;
+  document.getElementById("phase3-name").value = "";
+  document.getElementById("phase3-raffle").value = "";
   if (!AttendeePortal.hasAccess("phase3")) {
     showLogin();
     return;
