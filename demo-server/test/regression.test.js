@@ -1191,6 +1191,10 @@ async function runFrontendContractRegression() {
       this.listeners = {};
     }
     addEventListener(type, listener) { this.listeners[type] = listener; }
+    click() {
+      if (this.disabled || !this.listeners.click) return;
+      return this.listeners.click({ type: "click" });
+    }
     focus() {}
   }
   const authElements = {};
@@ -1200,12 +1204,14 @@ async function runFrontendContractRegression() {
   ].forEach((id) => { authElements[id] = new FakeElement(); });
   let resolveVerification;
   let rejectVerification;
+  let verificationCalls = 0;
   let unlockedCount = 0;
   const authContext = {
     console: { error() {} },
     document: { getElementById: (id) => authElements[id] || null },
     EventAPI: {
       verifyOrganizer: () => new Promise((resolve, reject) => {
+        verificationCalls += 1;
         resolveVerification = resolve;
         rejectVerification = reject;
       }),
@@ -1243,6 +1249,46 @@ async function runFrontendContractRegression() {
   rejectVerification(notConfigured);
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(authElements["err-organizer-key"].textContent, /not been configured/);
+
+  // Enter/Return uses the exact same guarded button path as a tap. It must
+  // prevent native submission, ignore repeats while verification is pending,
+  // and leave IME composition Enter untouched.
+  auth.lock();
+  authElements["organizer-key"].value = "keyboard-key";
+  const callsBeforeKeyboardUnlock = verificationCalls;
+  let enterPrevented = false;
+  authElements["organizer-key"].listeners.keydown({
+    key: "Enter",
+    isComposing: false,
+    repeat: false,
+    preventDefault() { enterPrevented = true; },
+  });
+  assert.equal(enterPrevented, true);
+  assert.equal(verificationCalls, callsBeforeKeyboardUnlock + 1);
+  assert.equal(authElements["btn-organizer-unlock"].disabled, true);
+  authElements["organizer-key"].listeners.keydown({
+    key: "Return",
+    isComposing: false,
+    repeat: true,
+    preventDefault() { throw new Error("repeat Return should not be handled"); },
+  });
+  assert.equal(verificationCalls, callsBeforeKeyboardUnlock + 1);
+  resolveVerification({ ok: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(auth.key(), "keyboard-key");
+  assert.equal(unlockedCount, 2);
+
+  auth.lock();
+  let compositionPrevented = false;
+  const callsBeforeComposition = verificationCalls;
+  authElements["organizer-key"].listeners.keydown({
+    key: "Enter",
+    isComposing: true,
+    repeat: false,
+    preventDefault() { compositionPrevented = true; },
+  });
+  assert.equal(compositionPrevented, false);
+  assert.equal(verificationCalls, callsBeforeComposition);
   assert.doesNotMatch(authSource, /sessionStorage|localStorage/);
 
   const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "organizer", "dashboard.html"), "utf8");
@@ -1268,6 +1314,9 @@ async function runFrontendContractRegression() {
   assert.match(dashboardSource, /groupSignupsByOption\(data\.signups\)/);
   assert.match(dashboardSource, /Phone\.formatDisplay\(s\.phone\)/);
   assert.match(dashboardSource, /EventAPI\.dashboardData\(/);
+  assert.match(dashboardSource, /id="btn-apply-demo-time" aria-pressed="false"/);
+  assert.match(dashboardSource, /latestDemoClockMode === "custom"/);
+  assert.match(dashboardSource, /\.demo-timeline-actions \.btn\[aria-pressed="true"\]/);
   assert.doesNotMatch(dashboardSource, /id="signup-table"/);
   assert.match(artKioskSource, /OrganizerAuth\.isCurrent\(authGeneration\)/);
   assert.match(songKioskSource, /let isSaving = false/);
@@ -1282,6 +1331,7 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /AttendeePortal\.acceptDataReset\(result\.dataResetAt\)/);
   assert.match(phase1Source, /id="event-reset-note"/);
   assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
+  assert.match(phase1Source, /getElementById\("in-name"\)\.addEventListener\("keydown"/);
   assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
   assert.match(phase2Source, /shared\/event-schedule\.js/);
@@ -1305,6 +1355,8 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /data-open-current/);
   assert.match(phase2Source, /Ended · Not visited/);
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
+  assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
+  assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -1316,6 +1368,8 @@ async function runFrontendContractRegression() {
   assert.match(boothRoomSource, /id="booth-welcome-raffle"/);
   assert.match(boothRoomSource, /id="booth-login-name"[^>]*autocomplete="off"/);
   assert.match(boothRoomSource, /id="booth-login-raffle"[^>]*autocomplete="off"/);
+  assert.match(boothRoomSource, /\[nameInput, raffleInput\][\s\S]*addEventListener\("keydown"/);
+  assert.match(boothCommonSource, /phoneInput\.addEventListener\("keydown"/);
   assert.doesNotMatch(boothCommonSource, /hub\.html/);
   assert.match(boothCommonSource, /completeBoothRoom/);
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
@@ -1323,6 +1377,7 @@ async function runFrontendContractRegression() {
   assert.match(newSongSource, /EventAPI\.saveSongVote/);
   assert.match(newSongSource, /Vote counted for the booth leader/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
+  assert.match(phase3Source, /\["phase3-name", "phase3-raffle"\]/);
   assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
   assert.match(phase3Source, /shared\/event-schedule\.js/);
   assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);

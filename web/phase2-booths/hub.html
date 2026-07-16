@@ -565,6 +565,15 @@ document.getElementById("btn-link-first-booth-phone").addEventListener("click", 
   }
 });
 
+firstBoothPhoneInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== "Return") return;
+  if (event.isComposing || event.repeat) return;
+  const button = document.getElementById("btn-link-first-booth-phone");
+  event.preventDefault();
+  if (button.disabled) return;
+  button.click();
+});
+
 document.getElementById("btn-skip-first-booth-phone").addEventListener("click", () => {
   identity = Identity.set({ phoneSkipped: true });
   renderFirstBoothPhoneGate();
@@ -598,6 +607,17 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
     button.disabled = false;
     button.textContent = "Open my schedule →";
   }
+});
+
+["phase2-name", "phase2-raffle"].forEach((inputId) => {
+  document.getElementById(inputId).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Return") return;
+    if (event.isComposing || event.repeat) return;
+    const button = document.getElementById("btn-phase2-login");
+    event.preventDefault();
+    if (button.disabled) return;
+    button.click();
+  });
 });
 
 async function initPortal() {

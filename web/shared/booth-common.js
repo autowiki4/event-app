@@ -142,6 +142,13 @@ function initBoothGate({ boothId, boothName, onReady, identity: signedInIdentity
       btn.disabled = false; btn.textContent = "Check in to this room →";
     }
   });
+  phoneInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Return") return;
+    if (event.isComposing || event.repeat) return;
+    event.preventDefault();
+    if (checkinButton.disabled) return;
+    checkinButton.click();
+  });
 }
 
 function renderBoothFooter(boothId) {

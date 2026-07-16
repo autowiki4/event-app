@@ -281,7 +281,11 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   loginButton.addEventListener("click", submitLogin);
   [nameInput, raffleInput].forEach((input) => input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") submitLogin();
+    if (event.key !== "Enter" && event.key !== "Return") return;
+    if (event.isComposing || event.repeat) return;
+    event.preventDefault();
+    if (loginButton.disabled) return;
+    loginButton.click();
   }));
   document.getElementById("btn-booth-reopen").addEventListener("click", () => {
     roomCompleted = false;

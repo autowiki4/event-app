@@ -233,6 +233,17 @@ document.getElementById("btn-phase3-login").addEventListener("click", async () =
   }
 });
 
+["phase3-name", "phase3-raffle"].forEach((inputId) => {
+  document.getElementById(inputId).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== "Return") return;
+    if (event.isComposing || event.repeat) return;
+    const button = document.getElementById("btn-phase3-login");
+    event.preventDefault();
+    if (button.disabled) return;
+    button.click();
+  });
+});
+
 async function initPortal() {
   const cachedIdentity = Identity.peek();
   try {

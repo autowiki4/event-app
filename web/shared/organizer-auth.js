@@ -110,7 +110,13 @@ const OrganizerAuth = (function () {
     }
     el.button.addEventListener("click", () => verifyAndUnlock(el.input.value));
     el.input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") verifyAndUnlock(el.input.value);
+      if (event.key !== "Enter" && event.key !== "Return") return;
+      if (event.isComposing || event.repeat) return;
+      event.preventDefault();
+      if (el.button.disabled) return;
+      // Use the same action as a tap so keyboard and pointer submissions can
+      // never drift into separate unlock behavior.
+      el.button.click();
     });
     if (el.lockButton) el.lockButton.addEventListener("click", () => lock());
 

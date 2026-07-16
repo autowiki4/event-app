@@ -178,6 +178,15 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
   }
 });
 
+document.getElementById("in-name").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== "Return") return;
+  if (event.isComposing || event.repeat) return;
+  const button = document.getElementById("btn-welcome-next");
+  event.preventDefault();
+  if (button.disabled) return;
+  button.click();
+});
+
 document.getElementById("in-wristband").addEventListener("change", (e) => {
   updateWristbandConfirmation();
 });
