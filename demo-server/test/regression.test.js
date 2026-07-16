@@ -11,6 +11,7 @@ process.env.EVENT_APP_DB_PATH = testDb;
 process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
 
 const { server, startServer } = require("../server");
+const { TRIVIA_QUESTIONS } = require("../trivia-questions");
 
 function request(port, action, payload, method = "POST") {
   return new Promise((resolve, reject) => {
@@ -787,6 +788,323 @@ async function runApiRegression(port) {
   assert.equal(res.status, 404);
 }
 
+async function runTriviaApiRegression(port) {
+  const organizerKey = "test-organizer-key";
+  const sessionSummary = (dashboard, sessionNumber) => (
+    dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
+  );
+  const advance = (sessionNumber, action, version, key = organizerKey) => request(
+    port,
+    "advanceTriviaSession",
+    { sessionNumber, action, version, organizerKey: key }
+  );
+
+  let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+
+  async function registerTriviaAttendee(attendeeId, name, wristbandColor) {
+    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    assert.equal(registration.status, 200);
+    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    assert.equal(confirmation.status, 200);
+    return registration.body;
+  }
+
+  await registerTriviaAttendee("trivia-red-a", "Red Reader", "red");
+  await registerTriviaAttendee("trivia-red-b", "Red Scholar", "red");
+  await registerTriviaAttendee("trivia-blue-a", "Blue Scholar", "blue");
+
+  res = await request(port, "setDemoClock", {
+    mode: "session1",
+    targetIso: "2026-07-18T20:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+
+  // Staff controls and every session leaderboard are protected. All three
+  // rotations begin independently on the welcome screen.
+  res = await request(port, "triviaDashboardData", { organizerKey: "wrong" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(1, "start", 0, "wrong");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "resetTriviaSession", { sessionNumber: 1, organizerKey: "wrong" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessions.length, 3);
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.sessionNumber,
+      session.assignedColor.id,
+      session.state.phase,
+      session.state.version,
+      session.leaderboard.length,
+    ]),
+    [
+      [1, "red", "welcome", 0, 0],
+      [2, "blue", "welcome", 0, 0],
+      [3, "yellow", "welcome", 0, 0],
+    ]
+  );
+
+  // Only the wristband group assigned to Bible Bowl in the current timed
+  // session can read or answer its game.
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 1);
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.question, null);
+  assert.equal(res.body.answer, null);
+  assert.equal(res.body.correctAnswer, null);
+  assert.deepEqual(res.body.score, {
+    correctCount: 0,
+    answeredCount: 0,
+    totalQuestions: TRIVIA_QUESTIONS.length,
+  });
+  res = await request(port, "triviaState", { attendeeId: "trivia-blue-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "TRIVIA_NOT_ASSIGNED");
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_NOT_COMPLETE");
+
+  // Invalid transitions do not mutate the session. Optimistic versions stop
+  // two staff tabs or rapid taps from advancing the speaker twice.
+  res = await advance(1, "reveal", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "INVALID_TRIVIA_TRANSITION");
+  res = await advance(1, "start", 99);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_SESSION_CONFLICT");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "question");
+  assert.equal(res.body.state.questionIndex, 0);
+  assert.equal(res.body.state.version, 1);
+  assert.equal(res.body.question.correctIndex, TRIVIA_QUESTIONS[0].correctIndex);
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_SESSION_CONFLICT");
+
+  // The open-question attendee response deliberately withholds the answer
+  // key. Answer correctness also remains hidden until the leader reveals it.
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.phase, "question");
+  assert.equal(res.body.version, 1);
+  assert.equal(res.body.question.id, TRIVIA_QUESTIONS[0].id);
+  assert.equal("correctIndex" in res.body.question, false);
+  assert.equal("correctText" in res.body.question, false);
+  assert.equal(res.body.correctAnswer, null);
+
+  const correctAnswerIndex = TRIVIA_QUESTIONS[0].correctIndex;
+  const wrongAnswerIndex = correctAnswerIndex === 0 ? 1 : 0;
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-a",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: correctAnswerIndex,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.equal("isCorrect" in res.body, false);
+  const firstAnsweredAt = res.body.answeredAt;
+  assertIsoTimestamp(firstAnsweredAt, "first Bible Bowl answer timestamp");
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-a",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: correctAnswerIndex,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.answeredAt, firstAnsweredAt);
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-a",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: wrongAnswerIndex,
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_ANSWER_LOCKED");
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-b",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: wrongAnswerIndex,
+  });
+  assert.equal(res.status, 200);
+
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.deepEqual(res.body.answer, { answerIndex: correctAnswerIndex });
+  assert.equal(res.body.correctAnswer, null);
+  assert.equal(res.body.score.correctCount, 0, "an unrevealed answer must not affect the visible score");
+  assert.equal(res.body.score.answeredCount, 1);
+
+  res = await advance(1, "reveal", 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "reveal");
+  assert.equal(res.body.state.version, 2);
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-b",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: wrongAnswerIndex,
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_ANSWER_CLOSED");
+
+  const redAReveal = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  const redBReveal = await request(port, "triviaState", { attendeeId: "trivia-red-b" });
+  assert.equal(redAReveal.body.phase, "reveal");
+  assert.deepEqual(redAReveal.body.correctAnswer, {
+    answerIndex: correctAnswerIndex,
+    text: TRIVIA_QUESTIONS[0].choices[correctAnswerIndex],
+  });
+  assert.deepEqual(redAReveal.body.answer, { answerIndex: correctAnswerIndex, isCorrect: true });
+  assert.equal(redAReveal.body.score.correctCount, 1);
+  assert.deepEqual(redBReveal.body.answer, { answerIndex: wrongAnswerIndex, isCorrect: false });
+  assert.equal(redBReveal.body.score.correctCount, 0);
+
+  // Next opens exactly one new question. Finishing after its reveal is a
+  // supported early ending, and the denominator is the two revealed questions
+  // rather than the full question bank.
+  res = await advance(1, "next", 2);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "question");
+  assert.equal(res.body.state.questionIndex, 1);
+  assert.equal(res.body.state.version, 3);
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_NOT_COMPLETE");
+  res = await advance(1, "reveal", 3);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.version, 4);
+  res = await advance(1, "finish", 4);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "complete");
+  assert.equal(res.body.state.version, 5);
+
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.score, { correctCount: 1, answeredCount: 1, totalQuestions: 2 });
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-red-b" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.score, { correctCount: 0, answeredCount: 1, totalQuestions: 2 });
+
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  let session1 = sessionSummary(res.body, 1);
+  let session2 = sessionSummary(res.body, 2);
+  assert.equal(session1.state.phase, "complete");
+  assert.deepEqual(
+    session1.leaderboard.map((row) => [row.name, row.correctCount, row.answeredCount, row.totalQuestions]),
+    [
+      ["Red Reader", 1, 1, 2],
+      ["Red Scholar", 0, 1, 2],
+    ]
+  );
+  assert.equal(session2.state.phase, "welcome");
+  assert.deepEqual(session2.leaderboard, []);
+
+  // Session 2 has its own state and full-length score. Session 1 remains
+  // queryable and unchanged while the clock and attendee group move on.
+  res = await request(port, "setDemoClock", {
+    mode: "session2",
+    targetIso: "2026-07-18T20:35:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "triviaState", { attendeeId: "trivia-blue-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 2);
+  assert.equal(res.body.phase, "welcome");
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "TRIVIA_NOT_ASSIGNED");
+
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 200);
+  let session2Version = res.body.state.version;
+  for (let questionIndex = 0; questionIndex < TRIVIA_QUESTIONS.length; questionIndex += 1) {
+    const question = TRIVIA_QUESTIONS[questionIndex];
+    const openState = await request(port, "triviaState", { attendeeId: "trivia-blue-a" });
+    assert.equal(openState.status, 200);
+    assert.equal(openState.body.phase, "question");
+    assert.equal(openState.body.question.id, question.id);
+    assert.equal(openState.body.correctAnswer, null);
+    assert.equal("correctIndex" in openState.body.question, false);
+
+    const answer = await request(port, "submitTriviaAnswer", {
+      attendeeId: "trivia-blue-a",
+      questionId: question.id,
+      answerIndex: question.correctIndex,
+    });
+    assert.equal(answer.status, 200);
+
+    const reveal = await advance(2, "reveal", session2Version);
+    assert.equal(reveal.status, 200);
+    assert.equal(reveal.body.state.phase, "reveal");
+    session2Version = reveal.body.state.version;
+
+    const revealedState = await request(port, "triviaState", { attendeeId: "trivia-blue-a" });
+    assert.equal(revealedState.body.answer.isCorrect, true);
+    assert.equal(revealedState.body.correctAnswer.answerIndex, question.correctIndex);
+
+    if (questionIndex < TRIVIA_QUESTIONS.length - 1) {
+      const next = await advance(2, "next", session2Version);
+      assert.equal(next.status, 200);
+      assert.equal(next.body.state.questionIndex, questionIndex + 1);
+      session2Version = next.body.state.version;
+    }
+  }
+
+  res = await advance(2, "next", session2Version);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_LAST_QUESTION");
+  res = await advance(2, "finish", session2Version);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "complete");
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-blue-a" });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.score, {
+    correctCount: TRIVIA_QUESTIONS.length,
+    answeredCount: TRIVIA_QUESTIONS.length,
+    totalQuestions: TRIVIA_QUESTIONS.length,
+  });
+
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  session1 = sessionSummary(res.body, 1);
+  session2 = sessionSummary(res.body, 2);
+  assert.deepEqual(session1.leaderboard.map((row) => row.name), ["Red Reader", "Red Scholar"]);
+  assert.equal(session2.leaderboard.length, 1);
+  assert.deepEqual(
+    [session2.leaderboard[0].name, session2.leaderboard[0].correctCount, session2.leaderboard[0].totalQuestions],
+    ["Blue Scholar", TRIVIA_QUESTIONS.length, TRIVIA_QUESTIONS.length]
+  );
+
+  // Resetting one rotation erases only that session. The protected overall
+  // reset then removes every game, answer, leaderboard, and completion.
+  res = await request(port, "resetTriviaSession", { sessionNumber: 1, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.deepEqual(res.body.leaderboard, []);
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  assert.deepEqual(sessionSummary(res.body, 1).leaderboard, []);
+  assert.equal(sessionSummary(res.body, 2).state.phase, "complete");
+  assert.equal(sessionSummary(res.body, 2).leaderboard.length, 1);
+
+  res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  assert.deepEqual(
+    res.body.sessions.map((session) => [session.state.phase, session.state.version, session.leaderboard.length]),
+    [["welcome", 0, 0], ["welcome", 0, 0], ["welcome", 0, 0]]
+  );
+  const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.deepEqual(resetDb.triviaSessions, {});
+  assert.deepEqual(resetDb.triviaAnswers, []);
+  assert.equal(resetDb.boothCheckins.length, 0);
+}
+
 async function runCapacityRegression(port) {
   const organizerKey = "test-organizer-key";
   const colors = ["blue", "red", "orange", "green", "yellow"];
@@ -867,6 +1185,65 @@ async function runCapacityRegression(port) {
     organizerKey,
   });
   assert.equal(res.status, 200);
+
+  // The 150-person rehearsal sends 30 Blue wristbands through Bible Bowl in
+  // Session 2. Exercise one synchronized answer wave so JSON persistence and
+  // the session leaderboard cannot silently drop concurrent phone responses.
+  res = await request(port, "advanceTriviaSession", {
+    sessionNumber: 2,
+    action: "start",
+    version: 0,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "question");
+  const session2TriviaAttendees = assignments.filter((assignment) => assignment.colorId === "blue");
+  assert.equal(session2TriviaAttendees.length, 30);
+  const triviaAnswerBurst = await Promise.all(session2TriviaAttendees.map((assignment) => request(
+    port,
+    "submitTriviaAnswer",
+    {
+      attendeeId: assignment.attendeeId,
+      questionId: TRIVIA_QUESTIONS[0].id,
+      answerIndex: TRIVIA_QUESTIONS[0].correctIndex,
+    }
+  )));
+  assert.equal(triviaAnswerBurst.every((result) => result.status === 200), true);
+  assert.equal(triviaAnswerBurst.every((result) => result.body.idempotent === false), true);
+  res = await request(port, "advanceTriviaSession", {
+    sessionNumber: 2,
+    action: "reveal",
+    version: 1,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "advanceTriviaSession", {
+    sessionNumber: 2,
+    action: "finish",
+    version: 2,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  const triviaCompletions = await Promise.all(session2TriviaAttendees.map((assignment) => request(
+    port,
+    "completeTrivia",
+    { attendeeId: assignment.attendeeId }
+  )));
+  assert.equal(triviaCompletions.every((result) => result.status === 200), true);
+  assert.equal(triviaCompletions.every((result) => (
+    result.body.score.correctCount === 1
+      && result.body.score.answeredCount === 1
+      && result.body.score.totalQuestions === 1
+  )), true);
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  const capacitySession2 = res.body.sessions.find((session) => session.sessionNumber === 2);
+  assert.equal(capacitySession2.responseCount, 30);
+  assert.equal(capacitySession2.leaderboard.length, 30);
+  assert.equal(capacitySession2.leaderboard.every((row) => (
+    row.correctCount === 1 && row.answeredCount === 1 && row.totalQuestions === 1
+  )), true);
+  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 1).leaderboard.length, 0);
+  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 3).leaderboard.length, 0);
 
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.status, 200);
@@ -1154,6 +1531,12 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.boothDashboardData, "function");
   assert.equal(typeof apiContext.__eventApi.boothPresentation, "function");
   assert.equal(typeof apiContext.__eventApi.updateBoothPresentation, "function");
+  assert.equal(typeof apiContext.__eventApi.triviaState, "function");
+  assert.equal(typeof apiContext.__eventApi.submitTriviaAnswer, "function");
+  assert.equal(typeof apiContext.__eventApi.triviaDashboardData, "function");
+  assert.equal(typeof apiContext.__eventApi.advanceTriviaSession, "function");
+  assert.equal(typeof apiContext.__eventApi.resetTriviaSession, "function");
+  assert.equal(typeof apiContext.__eventApi.completeTrivia, "function");
   assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
   assert.equal(typeof apiContext.__eventApi.eventClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
@@ -1302,6 +1685,10 @@ async function runFrontendContractRegression() {
   const boothRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-room.js"), "utf8");
   const boothCommonSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"), "utf8");
   const newSongSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-newsong.html"), "utf8");
+  const triviaRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-trivia.html"), "utf8");
+  const triviaAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "trivia-attendee.js"), "utf8");
+  const triviaStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "trivia.html"), "utf8");
+  const triviaStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "trivia-staff.js"), "utf8");
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
   vm.createContext(boothsConfigContext);
@@ -1357,6 +1744,8 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
   assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
+  assert.match(phase2Source, /const completionLivesInActivity = currentBooth\.id === "trivia"/);
+  assert.match(phase2Source, /Finish Bible Bowl from its final results screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -1375,6 +1764,38 @@ async function runFrontendContractRegression() {
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
   assert.match(boothCommonSource, /phoneSkipped/);
   assert.match(newSongSource, /EventAPI\.saveSongVote/);
+
+  // Bible Bowl questions are now speaker-controlled and server-scored. The
+  // attendee bundle has no answer-key data or local Next-question mechanism;
+  // it can only render the four backend phases and submit one selected choice.
+  const attendeeTriviaBundle = [boothsConfigSource, triviaRoomSource, triviaAttendeeSource].join("\n");
+  assert.doesNotMatch(attendeeTriviaBundle, /\bTRIVIA_QUESTIONS\b/);
+  assert.doesNotMatch(attendeeTriviaBundle, /\bcorrectIndex\s*:/);
+  assert.doesNotMatch(attendeeTriviaBundle, /btn-trivia-next|triviaState\.index|score\s*\+=/);
+  assert.match(triviaRoomSource, /shared\/trivia-attendee\.js/);
+  assert.match(triviaRoomSource, /TriviaAttendee\.init\(/);
+  assert.match(triviaRoomSource, /onCompleted: \(\) => window\.completeBoothRoom\(BOOTH_NAME\)/);
+  assert.doesNotMatch(triviaRoomSource, /id="btn-booth-done"|id="booth-stars"|id="booth-note"/);
+  assert.match(triviaAttendeeSource, /new Set\(\["welcome", "question", "reveal", "complete"\]\)/);
+  assert.match(triviaAttendeeSource, /EventAPI\.triviaState\(identity\.attendeeId\)/);
+  assert.match(triviaAttendeeSource, /EventAPI\.submitTriviaAnswer\(identity\.attendeeId, previousState\.question\.id, answerIndex\)/);
+  assert.match(triviaAttendeeSource, /EventAPI\.completeTrivia\(identity\.attendeeId\)/);
+  assert.match(triviaAttendeeSource, /data-trivia-answer/);
+  assert.match(triviaAttendeeSource, /btn-trivia-done/);
+  assert.match(triviaAttendeeSource, /I wonder if it's correct/);
+  assert.match(triviaAttendeeSource, /next\.version < state\.version/);
+
+  // The booth leader gets a specialized three-session controller with
+  // versioned actions and an explicitly session-scoped leaderboard.
+  assert.match(triviaStaffPageSource, /shared\/trivia-staff\.js/);
+  assert.match(triviaStaffPageSource, /data-session-number="1"/);
+  assert.match(triviaStaffPageSource, /data-session-number="2"/);
+  assert.match(triviaStaffPageSource, /data-session-number="3"/);
+  assert.match(triviaStaffPageSource, /id="trivia-leaderboard"/);
+  assert.match(triviaStaffSource, /EventAPI\.triviaDashboardData\(organizerKey\)/);
+  assert.match(triviaStaffSource, /EventAPI\.advanceTriviaSession\(session\.sessionNumber, action, session\.state\.version, organizerKey\)/);
+  assert.match(triviaStaffSource, /EventAPI\.resetTriviaSession\(session\.sessionNumber, organizerKey\)/);
+  assert.match(triviaStaffSource, /Session \$\{session\.sessionNumber\} leaderboard/);
   assert.match(newSongSource, /Vote counted for the booth leader/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.match(phase3Source, /\["phase3-name", "phase3-raffle"\]/);
@@ -1659,7 +2080,7 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
-  ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
+  ["heaven", "story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
     assert.match(source, /id="staff-settings"/);
@@ -1717,7 +2138,7 @@ function runBoothDraftPersistenceRegression() {
   assert.match(boothCommonSource, /note\.addEventListener\("input"/);
   assert.match(boothCommonSource, /rating: _boothStars/);
 
-  ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
+  ["heaven", "story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(
       path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
       "utf8"
@@ -1733,6 +2154,16 @@ function runBoothDraftPersistenceRegression() {
     assert.match(source, /JourneyState\.save\(/);
     assert.match(source, /renderBoothFooter\(BOOTH_ID\)/);
   });
+
+  // Bible Bowl is the deliberate exception: answers and score restoration
+  // are authoritative on the server, so the attendee page must not revive a
+  // stale self-paced JourneyState draft or the generic rating/footer flow.
+  const triviaSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-trivia.html"),
+    "utf8"
+  );
+  assert.doesNotMatch(triviaSource, /_DRAFT_SCOPE|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
+  assert.match(triviaSource, /shared\/trivia-attendee\.js/);
 }
 
 function runAppsScriptRegression() {
@@ -2231,6 +2662,7 @@ async function main() {
     await once(server, "listening");
     const port = server.address().port;
     await runApiRegression(port);
+    await runTriviaApiRegression(port);
     await runCapacityRegression(port);
     await runFrontendContractRegression();
     runBoothDraftPersistenceRegression();

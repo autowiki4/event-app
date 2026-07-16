@@ -266,6 +266,9 @@ Script adapter does not implement it.
 - The shared clock controls are Node-service rehearsal helpers, available when
   the site and `/api` share the local or Render origin. The Apps Script path
   has no remote time override or matching full-data reset.
+- The leader-paced Bible Bowl, immediate answer saving, answer reveals, and
+  session-separated leaderboards also require that same Node/Render backend;
+  they are not implemented by the Apps Script sketch.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 

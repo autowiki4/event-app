@@ -62,6 +62,24 @@ const EventAPI = (function () {
     boothDashboardData: (boothId, organizerKey) => call("boothDashboardData", { boothId, organizerKey }),
     boothPresentation: (boothId) => call("boothPresentation", { boothId }),
     updateBoothPresentation: (data) => call("updateBoothPresentation", data),
+    triviaState: (attendeeId) => call("triviaState", { attendeeId }),
+    submitTriviaAnswer: (attendeeId, questionId, answerIndex) => call("submitTriviaAnswer", {
+      attendeeId,
+      questionId,
+      answerIndex,
+    }),
+    triviaDashboardData: (organizerKey) => call("triviaDashboardData", { organizerKey }),
+    advanceTriviaSession: (sessionNumber, action, version, organizerKey) => call("advanceTriviaSession", {
+      sessionNumber,
+      action,
+      version,
+      organizerKey,
+    }),
+    resetTriviaSession: (sessionNumber, organizerKey) => call("resetTriviaSession", {
+      sessionNumber,
+      organizerKey,
+    }),
+    completeTrivia: (attendeeId) => call("completeTrivia", { attendeeId }),
     eventClock: () => call("eventClock", {}),
     setDemoClock: (mode, targetIso, organizerKey) => call("setDemoClock", {
       mode,

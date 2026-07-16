@@ -285,7 +285,9 @@ function displayPresentation(booth) {
     : status === "paused"
       ? "Keep this page open. The leader will continue the activity shortly."
       : status === "complete"
-        ? "Mark your visit complete below, then check your route for what comes next."
+        ? booth.id === "trivia"
+          ? "Open Bible Bowl above to see your score and tap Done. Your next booth stays locked until its session begins."
+          : "Mark your visit complete below, then check your route for what comes next."
         : step.body;
   const message = document.getElementById("leader-message");
   message.textContent = state.message || "";
@@ -426,8 +428,14 @@ function renderSchedule() {
         ? `Reopen ${currentBooth.title} activity →`
         : `Open ${currentBooth.title} activity →`;
       const alreadyComplete = completedBooths.has(currentBooth.id);
-      completeButton.disabled = alreadyComplete;
-      completeButton.textContent = alreadyComplete ? "Completed ✓ · Open until session ends" : "Mark this booth complete ✓";
+      const completionLivesInActivity = currentBooth.id === "trivia";
+      completeButton.hidden = completionLivesInActivity;
+      completeButton.disabled = completionLivesInActivity || alreadyComplete;
+      completeButton.textContent = completionLivesInActivity
+        ? "Finish Bible Bowl from the final results screen"
+        : alreadyComplete
+          ? "Completed ✓ · Open until session ends"
+          : "Mark this booth complete ✓";
       if (activeBoothId !== currentBooth.id) {
         activeBoothId = currentBooth.id;
         presentation = null;
@@ -491,6 +499,11 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
   if (!booth || snapshot.phase !== "active" || activeBoothId !== booth.id) {
     renderSchedule();
     toast("The session just changed. Check your newly active booth before finishing.");
+    return;
+  }
+  if (booth.id === "trivia") {
+    toast("Finish Bible Bowl from its final results screen so your score is saved.");
+    window.location.href = EventSchedule.linkWithPreview(booth.page);
     return;
   }
   const button = document.getElementById("btn-complete-booth");

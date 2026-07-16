@@ -208,6 +208,21 @@ The main protected staff actions are:
 - `resetDemo` (Node service only)
 - `setDemoClock` (Node service only)
 
+Bible Bowl adds a Node-service-only, leader-paced API:
+
+- `triviaState` returns the current attendee-safe question state
+- `submitTriviaAnswer` locks one answer and scores it on the server
+- `completeTrivia` records the server-verified final result
+- `triviaDashboardData` returns protected Session 1–3 leaderboards
+- `advanceTriviaSession` starts, reveals, advances, or finishes one session
+- `resetTriviaSession` clears only the selected session for rehearsal
+
+The question answer key stays outside `web/`, and the public attendee state
+does not include the correct answer until the booth leader reveals it. Each
+session and leaderboard is persisted separately in `triviaSessions` and
+`triviaAnswers`. Run one Node instance with a persistent `EVENT_APP_DB_PATH`;
+the Apps Script adapter does not implement this synchronized trivia workflow.
+
 The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,
 `eventClock`, and `setDemoClock` deliberately have no Apps Script counterpart.

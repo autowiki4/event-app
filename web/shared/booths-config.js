@@ -145,22 +145,6 @@ const HEAVEN_DETAILS = [
   { id: "light", text: "No sun or moon needed — God's glory is the light" },
 ];
 
-/* ---- Bible Bowl trivia questions ---- */
-const TRIVIA_QUESTIONS = [
-  { id: "t1", category: "Genesis", points: 100, q: "Who built the ark?", choices: ["Moses", "Noah", "Abraham", "David"], correct: 1 },
-  { id: "t2", category: "Genesis", points: 100, q: "How many days and nights did it rain during the flood?", choices: ["7", "30", "40", "100"], correct: 2 },
-  { id: "t3", category: "Prophets", points: 100, q: "Who was swallowed by a great fish?", choices: ["Jonah", "Peter", "Elijah", "Samuel"], correct: 0 },
-  { id: "t4", category: "Exodus", points: 100, q: "Who led the Israelites out of Egypt?", choices: ["Joseph", "Joshua", "Moses", "Aaron"], correct: 2 },
-  { id: "t5", category: "Kings", points: 200, q: "What did David use to defeat Goliath?", choices: ["A spear", "A sword", "A slingshot and a stone", "A bow and arrow"], correct: 2 },
-  { id: "t6", category: "Gospels", points: 200, q: "In which city was Jesus born?", choices: ["Nazareth", "Jerusalem", "Bethlehem", "Jericho"], correct: 2 },
-  { id: "t7", category: "Gospels", points: 200, q: "Who baptized Jesus?", choices: ["Peter", "John the Baptist", "Andrew", "James"], correct: 1 },
-  { id: "t8", category: "Disciples", points: 200, q: "How many disciples did Jesus choose?", choices: ["10", "11", "12", "13"], correct: 2 },
-  { id: "t9", category: "Gospels", points: 300, q: "Who denied Jesus three times before the rooster crowed?", choices: ["Judas", "Thomas", "Peter", "John"], correct: 2 },
-  { id: "t10", category: "Genesis", points: 300, q: "Who interpreted Pharaoh's dreams in Egypt?", choices: ["Daniel", "Joseph", "Jacob", "Isaac"], correct: 1 },
-  { id: "t11", category: "Acts", points: 300, q: "Who was the first Christian martyr recorded in the Book of Acts?", choices: ["James", "Stephen", "Barnabas", "Philip"], correct: 1 },
-  { id: "t12", category: "Epistles", points: 400, q: "Which of these New Testament books was not written from prison?", choices: ["Philemon", "Philippians", "Ephesians", "Galatians"], correct: 3 },
-];
-
 /* ---- The Sower, Live (Matthew 13) ---- */
 const STORY_BEATS = [
   { id: "b1", text: "Jesus told the crowd a story about a farmer scattering seed — some fell on the path, some on rocky ground, some among thorns, and some on good soil." },

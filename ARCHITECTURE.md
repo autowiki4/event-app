@@ -259,7 +259,11 @@ The local JSON object and Google Sheet tabs represent the same concepts:
 
 The Node JSON object additionally stores the durable top-level `dataResetAt`
 marker used by `resetDemo`. The Apps Script Sheet has no equivalent because
-that adapter does not implement the full-data reset.
+that adapter does not implement the full-data reset. The Node object also has
+`triviaSessions` (one versioned welcome/question/reveal/complete controller for
+each of the three rotations) and `triviaAnswers` (one server-scored answer per
+attendee, session, and question). Those collections power the synchronized
+Bible Bowl and are not part of the Apps Script sketch.
 
 See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
@@ -277,7 +281,10 @@ The protected actions shared by both backends are `verifyOrganizer`,
 `updateBoothPresentation`, `boothDashboardData`, `dashboardData`, and
 `confirmSignupInPerson`. The Node service additionally has protected
 `resetDemo` and `setDemoClock` actions plus the public, PII-free `eventClock`
-read. Apps Script intentionally implements none of those three Node extensions.
+read. The leader-paced Bible Bowl adds attendee `triviaState`,
+`submitTriviaAnswer`, and `completeTrivia` actions plus protected
+`triviaDashboardData`, `advanceTriviaSession`, and `resetTriviaSession`
+actions. Apps Script intentionally implements none of these Node extensions.
 Legacy phone/kiosk actions remain for the optional fallback pages.
 
 `resetDemo` clears all attendees and wristband assignments, check-ins and

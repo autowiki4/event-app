@@ -7,50 +7,109 @@
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
   :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
-  .live-tag{ display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--coral); text-transform:uppercase; margin-bottom:10px; }
-  .live-dot{ width:7px; height:7px; border-radius:50%; background:var(--coral); animation:pulse 1.4s infinite; }
-  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  .trivia-content{ min-height:330px; }
+  .trivia-stage{
+    position:relative; overflow:hidden; padding:21px 18px; border:1.5px solid rgba(29,122,120,.24);
+    border-radius:18px; background:#fff; box-shadow:var(--card-shadow);
+  }
+  .trivia-stage::before{
+    content:""; position:absolute; width:160px; height:160px; right:-94px; top:-102px; border-radius:50%;
+    background:radial-gradient(circle,rgba(240,168,60,.36),rgba(240,168,60,0) 70%); pointer-events:none;
+  }
+  .trivia-stage-icon{
+    position:relative; display:grid; place-items:center; width:70px; height:70px; margin:2px auto 15px;
+    border-radius:50%; background:linear-gradient(145deg,#fff3c9,#ffd77a); font-size:34px;
+    box-shadow:0 16px 30px -22px rgba(122,78,15,.85);
+  }
+  .trivia-stage h2{
+    position:relative; margin:0 0 8px; color:var(--ink); font-family:'Fraunces',serif;
+    font-size:26px; line-height:1.15;
+  }
+  .trivia-stage-copy{ position:relative; margin:0; color:var(--ink-soft); font-size:14px; line-height:1.55; }
+  .trivia-welcome{ text-align:center; background:linear-gradient(145deg,#fffdf6,#f4fbfa); }
+  .trivia-welcome .status-pill{ margin-bottom:13px; }
+  .trivia-host-note{
+    position:relative; display:flex; align-items:center; gap:9px; margin-top:18px; padding:11px 12px;
+    border-radius:12px; background:var(--parchment-dim); color:var(--teal-deep); font-size:12px;
+    font-weight:700; line-height:1.4; text-align:left;
+  }
+  .trivia-question-meta{
+    position:relative; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-bottom:15px; color:var(--teal-deep); font-family:'JetBrains Mono',monospace;
+    font-size:9.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  }
+  .trivia-category{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trivia-question-count{ flex:none; color:var(--ink-soft); }
+  .trivia-question{ position:relative; margin:0 0 17px; color:var(--ink); font-family:'Fraunces',serif; font-size:24px; line-height:1.22; }
+  .trivia-choice{ position:relative; padding-right:42px; }
+  .trivia-choice:disabled{ cursor:default; }
+  .trivia-choice.is-selected-waiting{
+    border-color:var(--violet); background:#f1ebfa; color:var(--violet-deep); box-shadow:0 0 0 2px rgba(108,78,150,.1);
+  }
+  .trivia-choice.is-correct{
+    border-color:#2f8a57; background:#e5f6ea; color:#226a42; box-shadow:0 0 0 2px rgba(47,138,87,.1);
+  }
+  .trivia-choice.is-selected-wrong{ border-color:var(--coral); background:#fff0e9; color:#8b321f; }
+  .trivia-choice-marker{ position:absolute; right:14px; top:50%; transform:translateY(-50%); font-size:17px; }
+  .trivia-choice:not(.is-correct):not(.is-selected-wrong):disabled{ opacity:.58; }
+  .trivia-answer-state{
+    display:flex; align-items:flex-start; gap:11px; margin-top:15px; padding:13px 14px;
+    border-radius:13px; font-size:12.5px; line-height:1.48;
+  }
+  .trivia-answer-state strong{ display:block; margin-bottom:2px; color:inherit; font-size:13px; }
+  .trivia-answer-icon{ flex:none; font-size:22px; line-height:1; }
+  .trivia-answer-state.waiting{ background:#f1ebfa; color:var(--violet-deep); }
+  .trivia-answer-state.correct{ background:#e5f6ea; color:#226a42; }
+  .trivia-answer-state.incorrect{ background:#fff0e9; color:#8b321f; }
+  .trivia-prompt{ margin:12px 2px 0; color:var(--ink-soft); font-size:11.5px; line-height:1.45; }
+  .trivia-results{ text-align:center; background:linear-gradient(145deg,#fffaf0,#eff9f6); }
+  .trivia-score{
+    position:relative; display:flex; align-items:baseline; justify-content:center; gap:7px; margin:5px 0 10px;
+    color:var(--teal-deep); font-family:'JetBrains Mono',monospace;
+  }
+  .trivia-score strong{ font-size:42px; line-height:1; }
+  .trivia-score span{ font-size:15px; font-weight:800; }
+  .trivia-results .btn{ position:relative; margin-top:19px; }
+  .trivia-sync-note{ margin:12px 2px 0; color:var(--ink-soft); font-size:10.5px; line-height:1.4; text-align:center; }
+  .trivia-error{ text-align:center; }
+  .trivia-error .btn{ margin-top:16px; }
+  .trivia-loading-bars{ display:grid; gap:10px; margin-top:18px; }
+  .trivia-loading-bars span{ height:48px; border-radius:12px; background:linear-gradient(90deg,#eee8d8,#faf7ed,#eee8d8); background-size:200% 100%; animation:triviaShimmer 1.3s linear infinite; }
+  @keyframes triviaShimmer{ to{ background-position:-200% 0; } }
+  @media (prefers-reduced-motion:reduce){ .trivia-loading-bars span{ animation:none; } }
 </style>
 </head>
 <body>
 
 <div class="phone" id="phone">
   <div id="booth-room-content" style="display:none;">
-  <div class="progress" id="progress"></div>
-  <section class="screen">
-    <p class="eyebrow">Phase 2 · Bible Bowl room</p>
-    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🏆</span><em>Bible Bowl</em></h1>
-    <p class="lede">Jeopardy-style trivia — pick it up as you go, rack up points.</p>
-  </section>
-
-  <section id="booth-gate" class="screen">
-    <div class="field">
-      <label for="booth-phone-input">Your phone number to check in</label>
-      <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
-      <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
-      <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
-    </div>
-    <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
-  </section>
-
-  <div id="booth-interface" style="display:none;">
-    <section class="screen" style="padding-top:0;">
-      <div id="booth-content"></div>
+    <div class="progress" id="progress"></div>
+    <section class="screen">
+      <p class="eyebrow">Phase 2 · Bible Bowl room</p>
+      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🏆</span><em>Bible Bowl</em></h1>
+      <p class="lede">Your host sets the pace. Choose each answer, lock it in, and wait for the big reveal together.</p>
     </section>
-    <section class="screen" style="padding-top:0;">
+
+    <section id="booth-gate" class="screen">
       <div class="field">
-        <label for="booth-note">Anything you'd like to share?</label>
-        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+        <label for="booth-phone-input">Your phone number to check in</label>
+        <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
+        <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+        <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
       </div>
-      <div class="field">
-        <label>Rate this booth</label>
-        <div class="stars" id="booth-stars">
-          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+      <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
+    </section>
+
+    <div id="booth-interface" style="display:none;">
+      <section class="screen" style="padding-top:0;">
+        <div id="booth-content" class="trivia-content" role="region" aria-label="Bible Bowl question" aria-live="polite">
+          <div class="trivia-stage" aria-busy="true">
+            <p class="eyebrow">Joining Bible Bowl…</p>
+            <div class="trivia-loading-bars" aria-hidden="true"><span></span><span></span><span></span></div>
+          </div>
         </div>
-      </div>
-      <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
-    </section>
-  </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -67,110 +126,33 @@
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
 <script src="../shared/booth-room.js"></script>
+<script src="../shared/trivia-attendee.js"></script>
 <script>
 const BOOTH_ID = "trivia";
 const BOOTH_NAME = "Bible Bowl";
 const BOOTH_ROOM_NAME = "Bible Bowl";
-const TRIVIA_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
 
 function renderProgress() {
   const el = document.getElementById("progress");
   el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const d = document.createElement("div");
-    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(d);
+  for (let i = 0; i < 3; i += 1) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(dot);
   }
 }
 renderProgress();
 
-const triviaState = { index: 0, score: 0, selected: null };
-let triviaStateOwner = "";
-
-function restoreTriviaState() {
-  const owner = String((Identity.peek() || {}).attendeeId || "");
-  if (!owner || triviaStateOwner === owner) return;
-  const saved = JourneyState.load(TRIVIA_DRAFT_SCOPE, {}) || {};
-  const index = Number(saved.index);
-  const score = Number(saved.score);
-  triviaState.index = Number.isInteger(index) ? Math.min(TRIVIA_QUESTIONS.length, Math.max(0, index)) : 0;
-  const maximumScore = TRIVIA_QUESTIONS.reduce((total, question) => total + Number(question.points || 0), 0);
-  triviaState.score = Number.isFinite(score) ? Math.min(maximumScore, Math.max(0, score)) : 0;
-  const choiceCount = triviaState.index < TRIVIA_QUESTIONS.length
-    ? TRIVIA_QUESTIONS[triviaState.index].choices.length
-    : 0;
-  const selected = Number(saved.selected);
-  triviaState.selected = Number.isInteger(selected) && selected >= 0 && selected < choiceCount ? selected : null;
-  triviaStateOwner = owner;
-}
-
-function saveTriviaState() {
-  JourneyState.save(TRIVIA_DRAFT_SCOPE, {
-    index: triviaState.index,
-    score: triviaState.score,
-    selected: triviaState.selected,
-  });
-}
-
-function renderTrivia() {
-  restoreTriviaState();
-  const wrap = document.getElementById("booth-content");
-  if (triviaState.index >= TRIVIA_QUESTIONS.length) {
-    wrap.innerHTML = `
-      <div class="booth-guide" style="margin-bottom:16px;">
-        <div class="g-kicker">Bible Bowl</div>
-        <div class="g-loc">${triviaState.score} points</div>
-        <div class="g-detail">Nice work! Ask the booth leader if you want to go again.</div>
-      </div>
-      <button class="btn btn-ghost btn-small" id="btn-trivia-restart">Play again</button>
-    `;
-    document.getElementById("btn-trivia-restart").addEventListener("click", () => {
-      triviaState.index = 0; triviaState.score = 0; triviaState.selected = null;
-      saveTriviaState();
-      renderTrivia();
-    });
-    return;
-  }
-  const q = TRIVIA_QUESTIONS[triviaState.index];
-  wrap.innerHTML = `
-    <div class="live-tag"><span class="live-dot"></span>${q.category} · ${q.points} pts</div>
-    <div class="poll-q">${q.q}</div>
-    <div id="trivia-choices"></div>
-    ${triviaState.selected !== null ? `<button class="btn btn-primary" id="btn-trivia-next" style="margin-top:10px;">${triviaState.index === TRIVIA_QUESTIONS.length - 1 ? "See my score →" : "Next question →"}</button>` : ""}
-  `;
-  const cWrap = document.getElementById("trivia-choices");
-  q.choices.forEach((c, i) => {
-    const btn = document.createElement("button");
-    btn.className = "poll-opt";
-    btn.textContent = c;
-    if (triviaState.selected !== null) {
-      btn.disabled = true;
-      if (i === q.correct) { btn.style.background = "var(--teal)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--teal)"; }
-      else if (i === triviaState.selected) { btn.style.background = "var(--coral)"; btn.style.color = "#fff"; btn.style.borderColor = "var(--coral)"; }
-    }
-    btn.addEventListener("click", () => {
-      if (triviaState.selected !== null) return;
-      triviaState.selected = i;
-      if (i === q.correct) triviaState.score += q.points;
-      saveTriviaState();
-      renderTrivia();
-    });
-    cWrap.appendChild(btn);
-  });
-  const nextBtn = document.getElementById("btn-trivia-next");
-  if (nextBtn) nextBtn.addEventListener("click", () => {
-    triviaState.index++;
-    triviaState.selected = null;
-    saveTriviaState();
-    renderTrivia();
-  });
-}
-
-window.getBoothExtraData = () => ({ score: triviaState.score, questionsSeen: triviaState.index });
-
-initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderTrivia });
-renderBoothFooter(BOOTH_ID);
-document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+initBoothRoom({
+  boothId: BOOTH_ID,
+  boothName: BOOTH_NAME,
+  roomName: BOOTH_ROOM_NAME,
+  onReady: () => TriviaAttendee.init({
+    containerId: "booth-content",
+    boothName: BOOTH_NAME,
+    onCompleted: () => window.completeBoothRoom(BOOTH_NAME),
+  }),
+});
 </script>
 </body>
 </html>

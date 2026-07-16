@@ -178,7 +178,7 @@
 
     <div class="section-title">Bible Bowl leaderboard</div>
     <table class="dash-table" id="trivia-table">
-      <thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>
+      <thead><tr><th>#</th><th>Session</th><th>Name</th><th>Correct</th></tr></thead>
       <tbody></tbody>
     </table>
 
@@ -624,8 +624,8 @@ async function refresh() {
 
   const triviaBody = document.querySelector("#trivia-table tbody");
   triviaBody.innerHTML = data.triviaLeaderboard.length
-    ? data.triviaLeaderboard.map((t, i) => `<tr><td>${i + 1}</td><td>${esc(t.name)}</td><td>${t.score}</td></tr>`).join("")
-    : `<tr><td colspan="3" style="color:var(--ink-soft);">No Bible Bowl scores yet.</td></tr>`;
+    ? data.triviaLeaderboard.map((t, i) => `<tr><td>${i + 1}</td><td>${t.sessionNumber || "—"}</td><td>${esc(t.name)}</td><td>${t.score}/${t.totalQuestions || 15}</td></tr>`).join("")
+    : `<tr><td colspan="4" style="color:var(--ink-soft);">No Bible Bowl scores yet.</td></tr>`;
 
   const songBody = document.querySelector("#song-table tbody");
   songBody.innerHTML = data.songVotes.length

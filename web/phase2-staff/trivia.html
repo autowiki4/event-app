@@ -3,64 +3,418 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bible Bowl — Staff</title>
+  <title>Bible Bowl — Booth Leader</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <style>
     :root {
       --phase-color: var(--teal);
       --phase-color-deep: var(--teal-deep);
     }
+
+    .trivia-leader-intro {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 18px 0;
+      padding: 16px 18px;
+      border: 1.5px solid rgba(108, 78, 150, .28);
+      border-radius: 16px;
+      background: linear-gradient(145deg, #fff, #f5f0fb);
+    }
+    .trivia-leader-intro strong {
+      display: block;
+      color: var(--ink);
+      font-family: 'Fraunces', serif;
+      font-size: 18px;
+    }
+    .trivia-leader-intro span {
+      display: block;
+      max-width: 650px;
+      margin-top: 4px;
+      color: var(--ink-soft);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+    .trivia-leader-intro .btn { flex: none; }
+
+    .trivia-session-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin: 10px 0 16px;
+    }
+    .trivia-session-tab {
+      appearance: none;
+      min-width: 0;
+      padding: 12px 10px;
+      border: 1.5px solid var(--line);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, .76);
+      color: var(--ink-soft);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+      transition: border-color .15s, background .15s, box-shadow .15s, transform .12s;
+    }
+    .trivia-session-tab:hover { border-color: rgba(108, 78, 150, .55); }
+    .trivia-session-tab:active { transform: scale(.985); }
+    .trivia-session-tab:focus-visible {
+      outline: 3px solid rgba(240, 168, 60, .34);
+      outline-offset: 2px;
+    }
+    .trivia-session-tab[aria-selected="true"] {
+      border-color: var(--violet);
+      background: var(--violet);
+      color: #fff;
+      box-shadow: 0 10px 22px -14px rgba(82, 58, 115, .9);
+    }
+    .trivia-session-tab b,
+    .trivia-session-tab small { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .trivia-session-tab b { font-size: 13px; }
+    .trivia-session-tab small { margin-top: 3px; font-size: 10px; white-space: nowrap; opacity: .78; }
+
+    .trivia-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(300px, .85fr);
+      align-items: start;
+      gap: 16px;
+    }
+    .trivia-panel {
+      min-width: 0;
+      padding: 18px;
+      border: 1.5px solid var(--line);
+      border-radius: 17px;
+      background: #fff;
+    }
+    .trivia-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .trivia-panel-head h2 {
+      margin: 4px 0 0;
+      color: var(--ink);
+      font-family: 'Fraunces', serif;
+      font-size: 21px;
+      line-height: 1.2;
+    }
+    .trivia-panel-kicker {
+      color: var(--violet-deep);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .trivia-phase-pill {
+      flex: none;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #fdf3e4;
+      color: #7a4e0f;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .trivia-phase-pill.question { background: #ddf5e8; color: #1d6c42; }
+    .trivia-phase-pill.reveal { background: #eee8f7; color: var(--violet-deep); }
+    .trivia-phase-pill.complete { background: #e9edf4; color: var(--ink-soft); }
+
+    .trivia-schedule-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px 18px;
+      margin-bottom: 14px;
+      padding: 14px 15px;
+      border-radius: 14px;
+      background: var(--ink);
+      color: #fff;
+    }
+    .trivia-schedule-card strong { display: block; font-size: 14px; }
+    .trivia-schedule-card span { display: block; margin-top: 3px; color: #c7d0e6; font-size: 11px; }
+    .trivia-session-timer {
+      color: var(--sun);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 22px;
+      font-weight: 700;
+      text-align: right;
+    }
+    .trivia-session-timer small {
+      display: block;
+      margin-top: 3px;
+      color: #c7d0e6;
+      font-family: 'Inter', sans-serif;
+      font-size: 8px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .trivia-band-dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 5px;
+      border-radius: 50%;
+      background: var(--band-color, #8b97b8);
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+    }
+    .trivia-session-note {
+      margin: -4px 0 14px;
+      padding: 10px 12px;
+      border: 1px solid #e8c76f;
+      border-radius: 10px;
+      background: #fff4d7;
+      color: #7a4e0f;
+      font-size: 11.5px;
+      line-height: 1.42;
+    }
+
+    .trivia-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+    .trivia-stat {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--parchment-dim);
+    }
+    .trivia-stat b {
+      display: block;
+      color: var(--ink);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px;
+    }
+    .trivia-stat span {
+      display: block;
+      margin-top: 3px;
+      color: var(--ink-soft);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .trivia-stage {
+      min-height: 235px;
+      padding: 17px;
+      border-radius: 15px;
+      background: var(--parchment-dim);
+    }
+    .trivia-stage-icon { margin-bottom: 9px; font-size: 32px; }
+    .trivia-stage h3 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-family: 'Fraunces', serif;
+      font-size: 23px;
+      line-height: 1.2;
+    }
+    .trivia-stage p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+    .trivia-question-meta {
+      margin-bottom: 8px;
+      color: var(--violet-deep);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .trivia-choice-list { display: grid; gap: 8px; margin-top: 15px; }
+    .trivia-choice {
+      display: grid;
+      grid-template-columns: 25px 1fr;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 11px;
+      border: 1px solid rgba(21, 42, 78, .12);
+      border-radius: 11px;
+      background: #fff;
+      color: var(--ink);
+      font-size: 12.5px;
+      font-weight: 650;
+    }
+    .trivia-choice-key {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #e9edf4;
+      color: var(--ink-soft);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+    }
+    .trivia-choice.correct {
+      border-color: #55a879;
+      background: #eaf8ef;
+      color: #1d6c42;
+    }
+    .trivia-choice.correct .trivia-choice-key { background: #2f8a57; color: #fff; }
+    .trivia-answer-note {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--teal);
+      border-radius: 0 10px 10px 0;
+      background: #eaf8ef;
+      color: #1d6c42;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    .trivia-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+    .trivia-actions .btn { flex: 1 1 190px; }
+    .trivia-actions .trivia-secondary { flex: 0 1 auto; }
+    .trivia-danger {
+      color: var(--coral-deep);
+      border-color: rgba(225, 91, 61, .38);
+      background: rgba(225, 91, 61, .05);
+    }
+    .trivia-danger:hover { border-color: var(--coral); }
+
+    .trivia-leaderboard-wrap { overflow-x: auto; }
+    .trivia-leaderboard .rank { width: 42px; color: var(--violet-deep); font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+    .trivia-leaderboard .score { white-space: nowrap; color: var(--teal-deep); font-weight: 800; }
+    .trivia-leaderboard .raffle { white-space: nowrap; color: var(--ink-soft); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+    .trivia-empty {
+      padding: 25px 15px;
+      color: var(--ink-soft);
+      font-size: 12.5px;
+      line-height: 1.5;
+      text-align: center;
+    }
+    .trivia-loading { opacity: .58; pointer-events: none; }
+    .trivia-publish-state { min-height: 18px; margin: 11px 0 0; color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
+
+    @media (max-width: 780px) {
+      .trivia-layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .trivia-session-tabs { grid-template-columns: 1fr; }
+      .trivia-session-tab { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+      .trivia-session-tab small { margin-top: 0; }
+      .trivia-stats { grid-template-columns: 1fr 1fr; }
+      .trivia-stat:last-child { grid-column: 1 / -1; }
+      .trivia-panel { padding: 14px; }
+      .trivia-stage { min-height: 0; }
+    }
   </style>
 </head>
 <body>
   <div class="phone dash-wrap">
-    <div class="device-tag organizer">Booth leader</div>
+    <div class="device-tag organizer">Bible Bowl leader</div>
     <section class="screen">
       <a class="btn-link" href="../organizer/index.html">← All organizer portals</a>
-      <p class="eyebrow" id="staff-booth-mode">Booth</p>
-      <h1 class="display" id="staff-booth-name">Booth controls</h1>
-      <p class="lede" id="staff-booth-description"></p>
+      <p class="eyebrow">Booth leader portal</p>
+      <h1 class="display">🏆 <em>Bible Bowl</em></h1>
+      <p class="lede">You set the pace. Attendees can answer only the question you open, then their screens wait until you reveal the answer.</p>
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock this booth's presentation controls and check-ins.</p>
+        <p>Unlock the session controls and the three separate Bible Bowl leaderboards.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
           <div class="hint">Local demo default: <b>demo</b>.</div>
           <div class="err" id="err-organizer-key"></div>
         </div>
-        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth →</button>
+        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock Bible Bowl →</button>
       </div>
 
       <div id="organizer-content" style="display:none;">
         <div class="staff-toolbar">
           <button class="btn-link" id="btn-organizer-lock">Lock booth</button>
         </div>
-        <div class="dash-grid">
-          <div class="dash-card">
-            <div class="num" id="staff-total">0</div>
-            <div class="lbl">Check-ins at this booth</div>
+
+        <div class="trivia-leader-intro">
+          <div>
+            <strong>One speaker, one shared question</strong>
+            <span>Choose the session below. Start, reveal, and advance only when the room is ready; changing sessions never combines their scores.</span>
           </div>
+          <a class="btn btn-small btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee view ↗</a>
         </div>
-        <div id="staff-room-launch"></div>
-        <div id="staff-kiosk-launch"></div>
-        <div class="section-title">Attendee screen controls</div>
-        <div id="staff-settings"></div>
-        <div class="section-title">Recent check-ins</div>
-        <div style="overflow-x:auto;">
-          <table class="dash-table" id="staff-roster">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Time</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+
+        <div class="sync-note" id="trivia-sync-note" role="status" aria-live="polite" style="display:none;"></div>
+
+        <div class="section-title">Choose a session</div>
+        <div class="trivia-session-tabs" id="trivia-session-tabs" role="tablist" aria-label="Bible Bowl sessions">
+          <button type="button" class="trivia-session-tab" id="trivia-tab-1" role="tab" aria-controls="trivia-session-panel" aria-selected="true" data-session-number="1">
+            <b>Session 1</b><small>3:10–3:30 PM</small>
+          </button>
+          <button type="button" class="trivia-session-tab" id="trivia-tab-2" role="tab" aria-controls="trivia-session-panel" aria-selected="false" data-session-number="2">
+            <b>Session 2</b><small>3:30–3:50 PM</small>
+          </button>
+          <button type="button" class="trivia-session-tab" id="trivia-tab-3" role="tab" aria-controls="trivia-session-panel" aria-selected="false" data-session-number="3">
+            <b>Session 3</b><small>3:50–4:10 PM</small>
+          </button>
         </div>
-        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh check-ins and controls</button>
+
+        <div class="trivia-layout" id="trivia-session-panel" role="tabpanel" aria-labelledby="trivia-tab-1">
+          <section class="trivia-panel" id="staff-settings">
+            <div class="trivia-panel-head">
+              <div>
+                <div class="trivia-panel-kicker">Speaker controls</div>
+                <h2 id="trivia-control-title">Session 1</h2>
+              </div>
+              <span class="trivia-phase-pill" id="trivia-phase-pill">Welcome</span>
+            </div>
+
+            <div class="trivia-schedule-card">
+              <div>
+                <strong id="trivia-assigned-band">Red wristbands · Session 1</strong>
+                <span id="trivia-session-time">3:10–3:30 PM</span>
+              </div>
+              <div class="trivia-session-timer" id="trivia-session-timer">--:--<small>Checking event clock</small></div>
+            </div>
+            <div class="trivia-session-note" id="trivia-session-note" style="display:none;"></div>
+
+            <div class="trivia-stats">
+              <div class="trivia-stat"><b id="staff-total">0</b><span>Answers this question</span></div>
+              <div class="trivia-stat"><b id="trivia-assigned-count">0</b><span>Assigned attendees</span></div>
+              <div class="trivia-stat"><b id="trivia-revealed-count">0</b><span>Questions revealed</span></div>
+            </div>
+
+            <div class="trivia-stage" id="trivia-stage"></div>
+            <div class="trivia-actions" id="trivia-actions"></div>
+            <p class="trivia-publish-state" id="trivia-publish-state" role="status" aria-live="polite">Loading this session…</p>
+          </section>
+
+          <section class="trivia-panel">
+            <div class="trivia-panel-head">
+              <div>
+                <div class="trivia-panel-kicker">This session only</div>
+                <h2 id="trivia-leaderboard-title">Session 1 leaderboard</h2>
+              </div>
+            </div>
+            <div class="trivia-leaderboard-wrap">
+              <table class="dash-table trivia-leaderboard" id="trivia-leaderboard">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Attendee</th>
+                    <th>Raffle</th>
+                    <th>Correct</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="4" class="trivia-empty">No answers in this session yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div class="trivia-actions">
+          <button type="button" class="btn btn-small btn-ghost trivia-danger trivia-secondary" id="btn-trivia-reset">Reset selected session</button>
+          <button type="button" class="btn btn-small btn-ghost trivia-secondary" id="btn-trivia-refresh">Refresh now</button>
+        </div>
         <p class="top-note" id="staff-last-updated" aria-live="polite"></p>
       </div>
     </section>
@@ -72,7 +426,7 @@
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
   <script src="../shared/event-schedule.js"></script>
-  <script src="../shared/booth-staff-common.js"></script>
+  <script src="../shared/trivia-staff.js"></script>
   <script>initBoothStaff("trivia");</script>
 </body>
 </html>

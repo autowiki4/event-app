@@ -16,6 +16,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { TRIVIA_QUESTIONS } = require("./trivia-questions");
 
 const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json");
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
@@ -47,6 +48,8 @@ const BOOTH_SESSIONS = Object.freeze([
 const BOOTH_PRESENTATION_STATUSES = new Set(["waiting", "live", "paused", "wrap", "complete"]);
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
+const TRIVIA_SESSION_NUMBERS = new Set([1, 2, 3]);
+const TRIVIA_PHASES = new Set(["welcome", "question", "reveal", "complete"]);
 const DEMO_CLOCK_MODES = new Set([
   "live",
   "custom",
@@ -189,6 +192,8 @@ function emptyDb() {
     songVotes: [],
     signups: [],
     boothPresentations: {},
+    triviaSessions: {},
+    triviaAnswers: [],
     raffleCounter: 1000,
     dataResetAt: "initial",
   };
@@ -218,6 +223,19 @@ function normalizeDb(raw) {
     && !Array.isArray(source.boothPresentations)
     ? source.boothPresentations
     : {};
+  const sourceTriviaSessions = source.triviaSessions
+    && typeof source.triviaSessions === "object"
+    && !Array.isArray(source.triviaSessions)
+    ? source.triviaSessions
+    : {};
+  db.triviaSessions = {};
+  TRIVIA_SESSION_NUMBERS.forEach((sessionNumber) => {
+    const key = String(sessionNumber);
+    if (sourceTriviaSessions[key]) {
+      db.triviaSessions[key] = normalizeTriviaSessionRecord(sourceTriviaSessions[key], sessionNumber);
+    }
+  });
+  db.triviaAnswers = normalizeTriviaAnswers(source.triviaAnswers);
   db.attendees.forEach((attendee) => {
     if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
@@ -418,6 +436,192 @@ function boothPresentationFromDb(db, boothId) {
   };
 }
 
+function normalizeTriviaSessionNumber(value) {
+  const sessionNumber = Number(value);
+  return Number.isInteger(sessionNumber) && TRIVIA_SESSION_NUMBERS.has(sessionNumber)
+    ? sessionNumber
+    : null;
+}
+
+function defaultTriviaSession(sessionNumber) {
+  return {
+    sessionNumber,
+    phase: "welcome",
+    questionIndex: -1,
+    version: 0,
+    startedAt: null,
+    updatedAt: null,
+    completedAt: null,
+  };
+}
+
+function normalizeTriviaSessionRecord(value, sessionNumber) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const phase = TRIVIA_PHASES.has(raw.phase) ? raw.phase : "welcome";
+  const parsedQuestionIndex = Number(raw.questionIndex);
+  const hasQuestion = Number.isInteger(parsedQuestionIndex)
+    && parsedQuestionIndex >= 0
+    && parsedQuestionIndex < TRIVIA_QUESTIONS.length;
+  if (phase !== "welcome" && !hasQuestion) return defaultTriviaSession(sessionNumber);
+  const parsedVersion = Number(raw.version);
+  return {
+    sessionNumber,
+    phase,
+    questionIndex: phase === "welcome" ? -1 : parsedQuestionIndex,
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    startedAt: earliestTimestamp(raw.startedAt),
+    updatedAt: earliestTimestamp(raw.updatedAt),
+    completedAt: phase === "complete" ? earliestTimestamp(raw.completedAt) : null,
+  };
+}
+
+function normalizeTriviaAnswers(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const answers = [];
+  value.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const attendeeId = String(raw.attendeeId || "").trim();
+    const sessionNumber = normalizeTriviaSessionNumber(raw.sessionNumber);
+    const questionId = String(raw.questionId || "").trim();
+    const question = TRIVIA_QUESTIONS.find((item) => item.id === questionId);
+    const answerIndex = Number(raw.answerIndex);
+    if (!attendeeId || !sessionNumber || !question || !Number.isInteger(answerIndex)
+      || answerIndex < 0 || answerIndex >= question.choices.length) return;
+    const key = `${sessionNumber}:${attendeeId}:${questionId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    answers.push({
+      id: String(raw.id || `legacy-${sessionNumber}-${attendeeId}-${questionId}`),
+      attendeeId,
+      sessionNumber,
+      questionId,
+      questionNumber: TRIVIA_QUESTIONS.indexOf(question) + 1,
+      answerIndex,
+      isCorrect: answerIndex === question.correctIndex,
+      answeredAt: earliestTimestamp(raw.answeredAt) || null,
+    });
+  });
+  return answers;
+}
+
+function requireTriviaSessionNumber(value) {
+  const sessionNumber = normalizeTriviaSessionNumber(value);
+  return sessionNumber
+    ? { sessionNumber }
+    : { error: errorResult(400, "Choose Bible Bowl Session 1, 2, or 3.", "INVALID_TRIVIA_SESSION") };
+}
+
+function triviaSessionFromDb(db, sessionNumber) {
+  return normalizeTriviaSessionRecord(db.triviaSessions[String(sessionNumber)], sessionNumber);
+}
+
+function triviaQuestionAt(index, includeAnswer = false) {
+  const question = TRIVIA_QUESTIONS[index];
+  if (!question) return null;
+  const result = {
+    id: question.id,
+    number: index + 1,
+    category: question.category,
+    text: question.text,
+    choices: question.choices.slice(),
+  };
+  if (includeAnswer) {
+    result.correctIndex = question.correctIndex;
+    result.correctText = question.choices[question.correctIndex];
+  }
+  return result;
+}
+
+function triviaAssignedColorId(sessionNumber) {
+  const sessionIndex = sessionNumber - 1;
+  const entry = Object.entries(WRISTBAND_ROUTES)
+    .find(([, route]) => route[sessionIndex] === "trivia");
+  return entry ? entry[0] : null;
+}
+
+function triviaAssignedColor(sessionNumber) {
+  const id = triviaAssignedColorId(sessionNumber);
+  return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
+}
+
+function triviaSessionLabel(sessionNumber) {
+  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  return session ? session.label : `Session ${sessionNumber}`;
+}
+
+function triviaQuestionsRevealed(session) {
+  if (session.questionIndex < 0) return 0;
+  return session.phase === "question" ? session.questionIndex : session.questionIndex + 1;
+}
+
+function triviaAnswersFor(db, attendeeId, sessionNumber) {
+  return db.triviaAnswers.filter((answer) => (
+    answer.attendeeId === attendeeId && answer.sessionNumber === sessionNumber
+  ));
+}
+
+function triviaScore(db, attendeeId, sessionNumber, session) {
+  const answers = triviaAnswersFor(db, attendeeId, sessionNumber);
+  const revealedCount = triviaQuestionsRevealed(session);
+  const scoredAnswers = answers.filter((answer) => answer.questionNumber <= revealedCount);
+  return {
+    correctCount: scoredAnswers.filter((answer) => answer.isCorrect).length,
+    answeredCount: answers.length,
+    totalQuestions: session.phase === "complete"
+      ? revealedCount
+      : TRIVIA_QUESTIONS.length,
+  };
+}
+
+function attendeeTriviaContext(db, attendeeId) {
+  if (!attendeeId) return { error: errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED") };
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
+  const eventState = eventSessionState();
+  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+    return { error: errorResult(409, "Bible Bowl is not in an active booth session.", "TRIVIA_SESSION_CLOSED") };
+  }
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
+    : null;
+  if (!attendee.wristbandConfirmedAt || assignedBooth !== "trivia") {
+    return { error: errorResult(403, "Bible Bowl is not your assigned booth in this session.", "TRIVIA_NOT_ASSIGNED") };
+  }
+  return { attendee, eventState, sessionNumber: eventState.sessionNumber };
+}
+
+function triviaBoothPresentation(db, eventState = eventSessionState()) {
+  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+    ? eventState.sessionNumber
+    : 1;
+  const session = triviaSessionFromDb(db, sessionNumber);
+  let stepIndex = 0;
+  let status = "waiting";
+  let message = "The Bible Bowl leader will start the first question when the group is ready.";
+  if (session.phase === "question" || session.phase === "reveal") {
+    status = "live";
+    stepIndex = session.questionIndex < 5 ? 1 : session.questionIndex < 10 ? 2 : 3;
+    message = session.phase === "reveal"
+      ? `Question ${session.questionIndex + 1} answer revealed. Keep the activity open for what comes next.`
+      : `Question ${session.questionIndex + 1} of ${TRIVIA_QUESTIONS.length} is open in the Bible Bowl activity.`;
+  } else if (session.phase === "complete") {
+    status = "complete";
+    stepIndex = 4;
+    message = "Final Bible Bowl results are ready. Open the activity to finish this visit.";
+  }
+  return {
+    boothId: "trivia",
+    stepIndex,
+    status,
+    message,
+    createdAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    version: session.version,
+  };
+}
+
 function organizerKeyMatches(value) {
   const supplied = Buffer.from(String(value || ""));
   const expected = Buffer.from(ORGANIZER_KEY);
@@ -504,6 +708,10 @@ function mergeAttendees(db, canonical, duplicate, phone) {
       row.name = canonical.name;
     });
   });
+  db.triviaAnswers.forEach((answer) => {
+    if (duplicateIds.has(answer.attendeeId)) answer.attendeeId = canonical.attendeeId;
+  });
+  db.triviaAnswers = normalizeTriviaAnswers(db.triviaAnswers);
   db.attendees = db.attendees.filter((attendee) => attendee !== duplicate);
   return canonical;
 }
@@ -984,6 +1192,297 @@ function mySignupSelections(body) {
   return { status: 200, body: { optionIds, completedAt: attendee.phase3CompletedAt || null } };
 }
 
+function triviaLeaderboardForSession(db, sessionNumber, session) {
+  const rowsByAttendee = new Map();
+  db.triviaAnswers
+    .filter((answer) => answer.sessionNumber === sessionNumber)
+    .forEach((answer) => {
+      if (!rowsByAttendee.has(answer.attendeeId)) rowsByAttendee.set(answer.attendeeId, []);
+      rowsByAttendee.get(answer.attendeeId).push(answer);
+    });
+  const totalQuestions = session.phase === "welcome" ? 0 : session.questionIndex + 1;
+  const rows = Array.from(rowsByAttendee.entries()).map(([attendeeId, answers]) => {
+    const attendee = findAttendeeById(db, attendeeId);
+    return {
+      name: attendee ? attendee.name || "Guest" : "Guest",
+      raffleNumber: attendee ? attendee.raffleNumber || "" : "",
+      correctCount: answers.filter((answer) => answer.isCorrect).length,
+      answeredCount: answers.length,
+      totalQuestions,
+    };
+  });
+  rows.sort((a, b) => (
+    b.correctCount - a.correctCount
+      || b.answeredCount - a.answeredCount
+      || String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+      || a.name.localeCompare(b.name)
+  ));
+  return rows.map((row, index) => ({ rank: index + 1, ...row }));
+}
+
+function triviaSessionStaffSummary(db, sessionNumber) {
+  const session = triviaSessionFromDb(db, sessionNumber);
+  const question = session.questionIndex >= 0 && session.phase !== "complete"
+    ? triviaQuestionAt(session.questionIndex, true)
+    : null;
+  const currentQuestionId = session.questionIndex >= 0
+    ? TRIVIA_QUESTIONS[session.questionIndex].id
+    : null;
+  const responseCount = currentQuestionId
+    ? db.triviaAnswers.filter((answer) => (
+      answer.sessionNumber === sessionNumber && answer.questionId === currentQuestionId
+    )).length
+    : 0;
+  const assignedColor = triviaAssignedColor(sessionNumber);
+  const assignedCount = assignedColor
+    ? db.attendees.filter((attendee) => (
+      attendee.wristbandConfirmedAt
+        && normalizeWristbandColor(attendee.wristbandColor) === assignedColor.id
+    )).length
+    : 0;
+  return {
+    sessionNumber,
+    sessionLabel: triviaSessionLabel(sessionNumber),
+    assignedColor,
+    assignedCount,
+    state: session,
+    question,
+    responseCount,
+    questionsRevealed: triviaQuestionsRevealed(session),
+    leaderboard: triviaLeaderboardForSession(db, sessionNumber, session),
+  };
+}
+
+function triviaDashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const db = readDb();
+  return {
+    status: 200,
+    body: {
+      serverNow: eventNowIso(),
+      eventState: eventSessionState(),
+      sessions: Array.from(TRIVIA_SESSION_NUMBERS, (sessionNumber) => (
+        triviaSessionStaffSummary(db, sessionNumber)
+      )),
+    },
+  };
+}
+
+function triviaState(body) {
+  const db = readDb();
+  const context = attendeeTriviaContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = triviaSessionFromDb(db, context.sessionNumber);
+  const question = session.questionIndex >= 0 && session.phase !== "complete"
+    ? triviaQuestionAt(session.questionIndex)
+    : null;
+  const savedAnswer = question
+    ? db.triviaAnswers.find((answer) => (
+      answer.attendeeId === context.attendee.attendeeId
+        && answer.sessionNumber === context.sessionNumber
+        && answer.questionId === question.id
+    ))
+    : null;
+  let answer = null;
+  if (savedAnswer) {
+    answer = { answerIndex: savedAnswer.answerIndex };
+    if (session.phase === "reveal") answer.isCorrect = savedAnswer.isCorrect;
+  }
+  const correctQuestion = session.phase === "reveal"
+    ? TRIVIA_QUESTIONS[session.questionIndex]
+    : null;
+  return {
+    status: 200,
+    body: {
+      sessionNumber: context.sessionNumber,
+      sessionLabel: triviaSessionLabel(context.sessionNumber),
+      assignedColor: triviaAssignedColor(context.sessionNumber),
+      phase: session.phase,
+      version: session.version,
+      questionCount: TRIVIA_QUESTIONS.length,
+      question,
+      answer,
+      correctAnswer: correctQuestion
+        ? {
+          answerIndex: correctQuestion.correctIndex,
+          text: correctQuestion.choices[correctQuestion.correctIndex],
+        }
+        : null,
+      score: triviaScore(db, context.attendee.attendeeId, context.sessionNumber, session),
+      updatedAt: session.updatedAt,
+      serverNow: eventNowIso(),
+    },
+  };
+}
+
+function submitTriviaAnswer(body) {
+  const db = readDb();
+  const context = attendeeTriviaContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = triviaSessionFromDb(db, context.sessionNumber);
+  if (session.phase !== "question" || session.questionIndex < 0) {
+    return errorResult(409, "The Bible Bowl leader is not accepting answers right now.", "TRIVIA_ANSWER_CLOSED");
+  }
+  const question = TRIVIA_QUESTIONS[session.questionIndex];
+  const questionId = String((body && body.questionId) || "").trim();
+  if (questionId !== question.id) {
+    return errorResult(409, "That question is no longer open. Refresh for the current question.", "TRIVIA_QUESTION_CHANGED");
+  }
+  const answerIndex = Number(body && body.answerIndex);
+  if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= question.choices.length) {
+    return errorResult(400, "Choose one of the displayed answers.", "INVALID_TRIVIA_ANSWER");
+  }
+  const existing = db.triviaAnswers.find((answer) => (
+    answer.attendeeId === context.attendee.attendeeId
+      && answer.sessionNumber === context.sessionNumber
+      && answer.questionId === question.id
+  ));
+  if (existing) {
+    if (existing.answerIndex !== answerIndex) {
+      return errorResult(409, "Your first answer is already locked in.", "TRIVIA_ANSWER_LOCKED");
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        idempotent: true,
+        sessionNumber: context.sessionNumber,
+        questionId: question.id,
+        answerIndex: existing.answerIndex,
+        answeredAt: existing.answeredAt,
+      },
+    };
+  }
+  const answeredAt = eventNowIso();
+  db.triviaAnswers.push({
+    id: id(),
+    attendeeId: context.attendee.attendeeId,
+    sessionNumber: context.sessionNumber,
+    questionId: question.id,
+    questionNumber: session.questionIndex + 1,
+    answerIndex,
+    isCorrect: answerIndex === question.correctIndex,
+    answeredAt,
+  });
+  writeDb(db);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      idempotent: false,
+      sessionNumber: context.sessionNumber,
+      questionId: question.id,
+      answerIndex,
+      answeredAt,
+    },
+  };
+}
+
+function advanceTriviaSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireTriviaSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const action = String((body && body.action) || "").trim().toLowerCase();
+  if (!["start", "reveal", "next", "finish"].includes(action)) {
+    return errorResult(400, "Choose a valid Bible Bowl control action.", "INVALID_TRIVIA_ACTION");
+  }
+  const db = readDb();
+  const previous = triviaSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This Bible Bowl session changed in another tab. Refresh and try again.", "TRIVIA_SESSION_CONFLICT");
+  }
+  const now = eventNowIso();
+  const next = { ...previous, updatedAt: now, version: previous.version + 1 };
+  if (action === "start") {
+    if (previous.phase !== "welcome") {
+      return errorResult(409, "This Bible Bowl session has already started.", "INVALID_TRIVIA_TRANSITION");
+    }
+    next.phase = "question";
+    next.questionIndex = 0;
+    next.startedAt = previous.startedAt || now;
+    next.completedAt = null;
+  } else if (action === "reveal") {
+    if (previous.phase !== "question") {
+      return errorResult(409, "Only an open question can reveal its answer.", "INVALID_TRIVIA_TRANSITION");
+    }
+    next.phase = "reveal";
+  } else if (action === "next") {
+    if (previous.phase !== "reveal") {
+      return errorResult(409, "Reveal the current answer before showing the next question.", "INVALID_TRIVIA_TRANSITION");
+    }
+    if (previous.questionIndex >= TRIVIA_QUESTIONS.length - 1) {
+      return errorResult(409, "The final answer is revealed. Show the final results now.", "TRIVIA_LAST_QUESTION");
+    }
+    next.phase = "question";
+    next.questionIndex = previous.questionIndex + 1;
+  } else if (action === "finish") {
+    if (previous.phase !== "reveal") {
+      return errorResult(409, "Reveal the current answer before showing final results.", "INVALID_TRIVIA_TRANSITION");
+    }
+    next.phase = "complete";
+    next.completedAt = now;
+  }
+  db.triviaSessions[String(sessionResult.sessionNumber)] = next;
+  writeDb(db);
+  return { status: 200, body: triviaSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function resetTriviaSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireTriviaSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const db = readDb();
+  const previous = triviaSessionFromDb(db, sessionResult.sessionNumber);
+  const reset = defaultTriviaSession(sessionResult.sessionNumber);
+  reset.version = previous.version + 1;
+  reset.updatedAt = eventNowIso();
+  db.triviaSessions[String(sessionResult.sessionNumber)] = reset;
+  db.triviaAnswers = db.triviaAnswers.filter((answer) => answer.sessionNumber !== sessionResult.sessionNumber);
+  writeDb(db);
+  return { status: 200, body: triviaSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function completeTrivia(body) {
+  const db = readDb();
+  const context = attendeeTriviaContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = triviaSessionFromDb(db, context.sessionNumber);
+  if (session.phase !== "complete") {
+    return errorResult(409, "Wait for the Bible Bowl leader to show the final results.", "TRIVIA_NOT_COMPLETE");
+  }
+  const score = triviaScore(db, context.attendee.attendeeId, context.sessionNumber, session);
+  const checkin = boothCheckin({
+    attendeeId: context.attendee.attendeeId,
+    phone: context.attendee.phone || "",
+    boothId: "trivia",
+    boothName: BOOTH_NAMES.trivia,
+    checkedInBy: "bible-bowl-results",
+    extraData: {
+      sessionNumber: context.sessionNumber,
+      sessionId: `session-${context.sessionNumber}`,
+      wristbandColor: normalizeWristbandColor(context.attendee.wristbandColor),
+      score: score.correctCount,
+      correctCount: score.correctCount,
+      answeredCount: score.answeredCount,
+      totalQuestions: score.totalQuestions,
+    },
+  });
+  if (checkin.status !== 200) return checkin;
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      checkinId: checkin.body.checkinId,
+      sessionNumber: context.sessionNumber,
+      score,
+    },
+  };
+}
+
 function wristbandGroupsForDashboard(db, eventState) {
   return Array.from(WRISTBAND_COLORS).map((colorId) => {
     const route = WRISTBAND_ROUTES[colorId] || [];
@@ -1049,11 +1548,21 @@ function dashboardData(body) {
   });
   const boothCounts = Object.values(boothCountsMap).sort((a, b) => b.count - a.count);
 
-  const triviaLeaderboard = db.boothCheckins
-    .filter((c) => c.boothId === "trivia" && c.extraData && typeof c.extraData.score === "number")
-    .map((c) => ({ name: c.name || "Guest", score: c.extraData.score }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10);
+  const triviaLeaderboard = Array.from(TRIVIA_SESSION_NUMBERS).flatMap((sessionNumber) => {
+    const session = triviaSessionFromDb(db, sessionNumber);
+    return triviaLeaderboardForSession(db, sessionNumber, session).map((row) => ({
+      sessionNumber,
+      name: row.name,
+      score: row.correctCount,
+      answeredCount: row.answeredCount,
+      totalQuestions: row.totalQuestions,
+    }));
+  }).sort((a, b) => (
+    b.score - a.score
+      || b.answeredCount - a.answeredCount
+      || a.sessionNumber - b.sessionNumber
+      || a.name.localeCompare(b.name)
+  )).slice(0, 10);
 
   const songVotes = songVoteCounts(db);
 
@@ -1089,10 +1598,13 @@ function boothPresentation(body) {
   const boothResult = requireBoothId(body && body.boothId);
   if (boothResult.error) return boothResult.error;
   const db = readDb();
+  const presentation = boothResult.boothId === "trivia"
+    ? triviaBoothPresentation(db)
+    : boothPresentationFromDb(db, boothResult.boothId);
   return {
     status: 200,
     body: Object.assign(
-      boothPresentationFromDb(db, boothResult.boothId),
+      presentation,
       { serverNow: eventNowIso() }
     ),
   };
@@ -1166,7 +1678,9 @@ function boothDashboardData(body) {
     status: 200,
     body: {
       boothId,
-      presentation: boothPresentationFromDb(db, boothId),
+      presentation: boothId === "trivia"
+        ? triviaBoothPresentation(db)
+        : boothPresentationFromDb(db, boothId),
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
@@ -1279,7 +1793,8 @@ const POST_ACTIONS = {
   registerAttendee, confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
   boothCheckin, saveSongVote, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
-  myCheckins, mySignupSelections, eventClock, setDemoClock,
+  triviaState, submitTriviaAnswer, triviaDashboardData, advanceTriviaSession, resetTriviaSession,
+  completeTrivia, myCheckins, mySignupSelections, eventClock, setDemoClock,
 };
 const GET_ACTIONS = { eventClock, health };
 
