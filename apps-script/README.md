@@ -12,8 +12,9 @@ event.
 ## What you'll end up with
 
 - A Google Sheet that fills itself in as people use the app (attendees,
-  booth check-ins, sign-ups, and booth-leader screen controls) — see
-  `SHEET_SCHEMA.md` for exactly what columns show up.
+  tap-backed booth check-ins, persisted Phase 3 completion, sign-ups, and
+  booth-leader screen controls) — see `SHEET_SCHEMA.md` for exactly what
+  columns show up.
 - A URL (looks like `https://script.google.com/macros/s/AKfycb.../exec`)
   that the app's pages call instead of `localhost`.
 
@@ -97,6 +98,15 @@ confirm that the dashboard total changes. The dashboard is intentionally not
 testable through a public `/dashboardData` browser URL anymore; that endpoint
 contains names and phone numbers and now requires an authenticated POST body.
 
+For a full parity check, complete the attendee journey as well. Phase 1 should
+continue directly into Phase 2 with the same identity. Booth visits should be
+stored only after the attendee taps to mark them complete. After all three
+taps—or after the 4:10 PM cutoff—finish Phase 3 using either **Save & finish**
+or **No thanks, finish**. Both paths persist Phase 3 completion; the empty
+**No thanks** path intentionally may create no `SignUps` rows. An early finish
+should open the **DON'T GO YET** countdown before the 4:10 PM main-message
+state.
+
 ## Redeploying after you edit `Code.gs` again
 
 Editing and saving the file in the Apps Script editor does **not**
@@ -111,6 +121,11 @@ versioned. To push a change live:
 The `/exec` URL stays the same — you don't need to update `config.js`
 again after the first time, only redeploy a new version whenever you
 change `Code.gs`.
+
+Redeploying the current `Code.gs` also upgrades an existing `Attendees` tab by
+appending newly introduced fields without shifting older columns. This is what
+allows Phase 3 completion to remain saved even when the attendee chose **No
+thanks** and therefore has no option row.
 
 ## Troubleshooting
 
@@ -134,6 +149,9 @@ change `Code.gs`.
   automatically the first time each one is used, not when you first
   deploy. If you unlocked the dashboard before anyone registered, you may
   only see some tabs at first — that's expected.
+- **A Phase 3 finisher has no `SignUps` row** — this is expected for **No
+  thanks, finish**. Completion is persisted on the attendee record separately
+  from optional selections.
 - **Want to see the raw data as it comes in?** Just open the Google Sheet
   itself in a browser tab and leave it there — new rows appear as
   attendees interact with the app, no refresh needed (Sheets auto-updates

@@ -10,13 +10,19 @@ review.
 The attendee journey is now one continuous flow:
 
 1. **Phase 1 — entry:** enter a name, receive a raffle number, and have a
-   Guardian Angel assign and confirm the physical wristband color.
+   Guardian Angel assign and confirm the physical wristband color. Confirmation
+   continues directly into Phase 2 with the same attendee identity.
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
    the booth leader's live instructions. Each wristband visits three of the
-   five booths.
+   five booths. A visit counts as complete only after the attendee taps to mark
+   it; the current route row can be reopened until that session ends.
 3. **Phase 3 — tick and go:** select any next-step options and finish. There
-   are no ratings, comments, or extra attendee questions.
+   are no ratings, comments, or extra attendee questions. Phase 3 becomes
+   available after all three completion taps are saved, or at 4:10 PM even if
+   some visits remain unmarked. Save and **No thanks, finish** both persist
+   Phase 3 completion. Anyone who finishes early sees the original-style
+   **DON'T GO YET** countdown until the 4:10 PM main message.
 
 The older direct booth-room pages remain available as optional fallbacks, but
 they are no longer the primary attendee experience.
@@ -71,18 +77,38 @@ Event app demo server running: http://localhost:3000
   Local organizer key:  demo
 ```
 
-Start at Phase 1. On the same device, the hub and Phase 3 reuse the saved
-attendee identity. On another device, the attendee enters their Phase 1 name
-and raffle number once to recover the same route. The name and raffle number
-stay visible at the top of the hub and Phase 3 as a reminder.
+Start at Phase 1. Confirming the wristband continues directly into the hub,
+and Phase 3 reuses that same saved attendee identity. On another device, the
+attendee enters their Phase 1 name and raffle number once to recover the same
+route. The name and raffle number stay visible at the top of the hub and Phase
+3 as a reminder.
 
 Press `Ctrl+C` in the terminal to stop the server.
 
-### Preview a session without changing the clock
+### Rehearse with the shared demo clock
 
-The real event time is not convenient for rehearsals. On localhost only,
-append one of these query values to the attendee hub or an individual booth
-leader page:
+Open the organizer dashboard, unlock it with the local key (`demo` by
+default), and use the **Demo only · Shared event time** panel. It can place all
+attendee, booth-leader, Phase 3, and final-message screens connected to that
+Node demo server at:
+
+- live time or before the event;
+- the midpoint or final 15 seconds of Sessions 1, 2, and 3; or
+- after the booths.
+
+Screens poll the same public, PII-free demo clock every second, so a change in
+the organizer window also reaches a separate incognito attendee window. The
+setting is an in-memory rehearsal override: it is local to the running demo
+server and is not a production show-control feature.
+
+The panel appears only when `API_BASE_URL` is the local `/api` backend. It is
+not available in the Apps Script adapter, and it does not change live event
+time. Apps Script pages continue to use the real synchronized clock.
+
+### Per-page preview fallback
+
+For isolated page checks on localhost, you can still append one of these query
+values to Phase 1, the attendee hub, or a booth-leader page:
 
 ```text
 ?preview=before
@@ -99,9 +125,10 @@ http://localhost:3000/phase2-booths/hub.html?preview=1
 http://localhost:3000/phase2-staff/heaven.html?preview=1
 ```
 
-Preview mode holds the page at a deterministic point in that state, so its
-countdown is intentionally frozen. Without `?preview=...`, the synchronized
-clock counts down normally. The override is ignored on non-local hosts.
+Query preview holds only that browser journey at a deterministic point and is
+intentionally frozen. Use the organizer control for multi-window rehearsals;
+once the organizer selects a shared preset, that server-controlled state wins
+over a query preview. The query override is ignored on non-local hosts.
 
 ## Booth-leader portals
 
@@ -130,8 +157,8 @@ event-app/
 │   ├── phase1-entry/       registration + raffle + wristband assignment
 │   ├── phase2-booths/      unified hub + optional legacy booth/kiosk pages
 │   ├── phase2-staff/       booth-leader directory and five scoped portals
-│   ├── phase3-signup/      checkbox-only next steps
-│   ├── done/               final recap
+│   ├── phase3-signup/      checkbox-only next steps + saved completion
+│   ├── done/               early-finish countdown + 4:10 message state
 │   ├── organizer/          event-wide dashboard and unified-flow QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            local Node backend using a throwaway JSON file
@@ -141,9 +168,10 @@ event-app/
 └── qr/QR_PLAN.md           recommended placement and print checklist
 ```
 
-Both backends implement the same browser-facing API. The Node version writes
-to `demo-server/db.json`; the Apps Script version writes to Google Sheets.
-Switching backends is controlled by `API_BASE_URL` in
+Both backends implement the same attendee and staff data API. The Node version
+writes to `demo-server/db.json` and adds the demo-only shared clock; the Apps
+Script version writes to Google Sheets and deliberately omits that clock
+override. Switching backends is controlled by `API_BASE_URL` in
 `web/shared/config.js`.
 
 The Apps Script implementation is deployment-shaped, not proof that the whole
@@ -161,9 +189,10 @@ npm test
 
 The zero-dependency regression suite exercises the API and static-page
 contracts, including attendee identity lookup, wristband-color persistence,
-Phase 2 eligibility, booth presentation reads and protected updates,
-booth-scoped staff data, duplicate check-in protection, Phase 3 sign-ups,
-organizer authorization, reset behavior, and inline JavaScript syntax.
+Phase 2 eligibility, tap-backed booth completion, booth presentation reads and
+protected updates, booth-scoped staff data, duplicate check-in protection,
+persisted Phase 3 completion and sign-ups, organizer authorization, reset
+behavior, and inline JavaScript syntax.
 
 To clear rehearsal data, use the organizer dashboard or run:
 
@@ -179,10 +208,12 @@ curl -X POST -H "Content-Type: application/json" \
   verification.
 - The synchronized experience needs working network access; there is no
   offline queue.
-- Phase 3 is revealed by the hub after 4:10 PM, but the standalone Phase 3 URL
-  is not a security-enforced time gate.
+- Phase 3 eligibility is enforced by the browser from saved check-ins and the
+  shared clock, not as an authentication or authorization boundary at the API.
 - Booth leaders share one organizer key, and their controls are one current
   state per booth rather than a historical show-control system.
+- The shared clock controls are Node-demo-only rehearsal helpers. The Apps
+  Script/live path has no remote time override.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 

@@ -10,24 +10,28 @@ The browser UI is a collection of static HTML, CSS, and JavaScript files under
 `web/`. It can use either of two API implementations:
 
 - `demo-server/server.js`: a zero-dependency local Node server backed by
-  `demo-server/db.json`;
+  `demo-server/db.json`, with an additional in-memory rehearsal clock;
 - `apps-script/Code.gs`: an API-compatible Google Apps Script implementation
   backed by a Google Sheet.
 
-`web/shared/config.js` selects the backend. The frontend should not need to
-change when that URL changes.
+`web/shared/config.js` selects the backend. The attendee/staff data flow does
+not change with that URL; demo-clock UI and polling are enabled only for the
+local `/api` backend.
 
 The primary attendee path is:
 
 ```text
 Phase 1 entry
-  name → raffle number → staff selects and confirms wristband color
+  name → raffle number → staff confirms wristband → direct continuation
         ↓
 One Phase 2 hub
-  sticky name/raffle → shared timer → color route → leader-controlled screen
+  sticky identity → shared timer → color route → attendee completion taps
         ↓
 Phase 3
-  sticky name/raffle → tick next-step options → finish
+  after 3 saved taps, or at 4:10 → tick next steps → persist completion
+        ↓
+Waiting/message screen
+  early finish → DON'T GO YET countdown → 4:10 PM main message
 ```
 
 ## Identity and continuity
@@ -36,15 +40,18 @@ Phase 1 creates a random canonical `attendeeId`. The backend assigns the
 raffle number and stores the name, wristband confirmation, and wristband
 color against that record.
 
-The attendee's own browser stores the current identity in `localStorage`, so
-moving from Phase 1 to the hub and then Phase 3 on the same device is
-automatic. A tab-level `sessionStorage` marker records access to the unified
-Phase 2 portal or Phase 3. On a different device, name plus raffle number
-reopens the same backend record and stores it locally on that device.
+The attendee's own browser stores the current identity in `localStorage`.
+After wristband confirmation, Phase 1 navigates directly to the hub; Phase 2,
+Phase 3, and the final screen continue with that same identity. A tab-level
+`sessionStorage` marker records access to the unified Phase 2 portal or Phase
+3. On a different device, name plus raffle number reopens the same backend
+record and stores it locally on that device.
 
-Phase 2 requires a confirmed wristband. Phase 3 does not require a booth
-check-in, which lets staff still record next-step interest for someone who
-missed a session.
+Phase 2 requires a confirmed wristband. Before 4:10 PM, Phase 3 requires all
+three route check-ins. At 4:10 PM it becomes available even when one or more
+visits remain unmarked, so a missed stop does not block the attendee after
+booth time has ended. Time ending does not create a check-in or mark Phase 2
+complete.
 
 Once a wristband color is confirmed, repeating the same color is idempotent
 but an unauthenticated call cannot switch the attendee to another group. A
@@ -104,7 +111,22 @@ queue. The hub shows an offline note and continues from its last clock sync.
 For deterministic local rehearsals, `event-schedule.js` recognizes
 `?preview=before|1|2|3|ended` only on `localhost`, `127.0.0.1`, or `::1`.
 Preview mode freezes the selected state; it does not simulate a ticking
-20-minute session.
+20-minute session. Attendee navigation preserves the preview value from Phase
+1 through the hub, Phase 3, and the final waiting/message screen.
+
+The Node demo adds a second, shared rehearsal layer. After organizer
+authentication, the dashboard can select live time, before-event, each
+session midpoint, each session's final 15 seconds, or the post-booth state.
+The protected `setDemoClock` action changes an in-memory override, while the
+public `eventClock` action returns only the current clock state and no attendee
+data. Attendee, completion, and booth-staff pages poll that state every second,
+so separate browsers connected to the same process stay in sync. An active
+organizer-controlled mode takes precedence over a page's query preview.
+
+This shared override deliberately exists only in `demo-server`. The Apps
+Script adapter exposes neither action, the organizer controls are hidden for
+that backend, and live pages continue to use synchronized real time. The
+demo-clock presets are a rehearsal convenience, not resilient show control.
 
 ## Unified Phase 2 attendee hub
 
@@ -116,12 +138,17 @@ Preview mode freezes the selected state; it does not simulate a ticking
 3. shows the shared session label and countdown;
 4. resolves the correct booth for the current color and session;
 5. polls that booth's public presentation state;
-6. lets the attendee mark the current booth complete; and
-7. reveals the Phase 3 action after Session 3 ends.
+6. records completion only when the attendee taps **Mark this booth complete**;
+7. keeps the active route row reopenable, even after that tap, until the
+   session ends; and
+8. reveals Phase 3 when all three taps are saved, or at 4:10 PM with any
+   untapped visits still visibly unmarked.
 
 A scheduled check-in includes the booth, attendee, session number/ID, and
 wristband color. Repeating the same attendee/booth combination updates the
-existing check-in instead of inflating the booth count.
+existing check-in instead of inflating the booth count or changing the
+original completion time. The clock changes the active booth and eventually
+closes booth access; it never manufactures completion.
 
 The five `booth-*.html` pages and the Art Therapy/New Song kiosk pages remain
 as optional compatibility or staff-assistance fallbacks. They are not part of
@@ -163,23 +190,29 @@ name-plus-raffle lookup on a new device. It renders the name and raffle number
 at the top, then presents each next-step option as a checkbox-style card.
 
 The page first loads `mySignupSelections`, so reopening it preserves earlier
-ticks. One `saveSignupSelections` request reconciles the complete set and writes one
-`SignUps` row per selected option. There are no email,
-rating, stars, comments, or social-sharing questions in the attendee form.
-Selecting nothing is allowed through **No thanks, finish**. Existing Sheet
-columns for older optional details remain for backend compatibility but the
-new Phase 3 UI does not collect them.
+ticks. One `saveSignupSelections` request reconciles the complete set, writes
+one `SignUps` row per selected option, and persists Phase 3 completion on the
+attendee record. **No thanks, finish** persists the same completion state even
+though it creates no option rows. There are no email, rating, stars, comments,
+or social-sharing questions in the attendee form. Existing Sheet columns for
+older optional details remain for backend compatibility but the new Phase 3
+UI does not collect them.
 
 The organizer dashboard may still confirm an expressed interest in person.
-The hub reveals Phase 3 after the third session, but a direct Phase 3 URL is
-not server-enforced as a time gate.
+After a successful Phase 3 save, the final page verifies the persisted
+completion. Before 4:10 PM it shows the original-style **DON'T GO YET** card
+and countdown, with a return-to-booth action while a session remains active.
+At 4:10 PM the card switches to the main-message state. A direct Phase 3 URL
+uses the same client-side eligibility rules and returns an early attendee to
+the hub.
 
 ## Data model
 
 The local JSON object and Google Sheet tabs represent the same concepts:
 
 - **Attendees:** canonical ID, aliases, name, optional legacy phone, raffle
-  number, registration time, wristband confirmation time, and color.
+  number, registration time, wristband confirmation time, color, and Phase 3
+  completion time.
 - **BoothCheckins:** attendee, booth, time, method, and optional booth/session
   metadata.
 - **SignUps:** one row per selected next-step option plus staff confirmation
@@ -195,12 +228,17 @@ See `apps-script/SHEET_SCHEMA.md` for exact columns.
 The main attendee actions are `registerAttendee`, `confirmWristband`,
 `loginAttendee`, `attendeePortalSession`, `myCheckins`, `mySignupSelections`,
 `boothPresentation`, `boothCheckin`, `saveSignupSelections`, and the legacy
-`submitSignup` action.
+`submitSignup` action. `saveSignupSelections` records Phase 3 completion for
+both selected options and the empty **No thanks** path; reads return that
+completion state so the final page cannot be reached by merely opening Phase
+3.
 
 The protected staff actions are `verifyOrganizer`,
 `updateBoothPresentation`, `boothDashboardData`, `dashboardData`,
-`confirmSignupInPerson`, and the demo reset. Legacy phone/kiosk actions remain
-for the optional fallback pages.
+`confirmSignupInPerson`, and the demo reset. The Node demo additionally has
+the protected `setDemoClock` action and a public, PII-free `eventClock` read;
+these two demo-clock actions intentionally have no Apps Script parity. Legacy
+phone/kiosk actions remain for the optional fallback pages.
 
 Public presentation reads return only the booth's display state and server
 time. They do not return the organizer key, attendee roster, or event-wide

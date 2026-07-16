@@ -58,23 +58,8 @@
       <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
       <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
     </div>
-    <button class="btn btn-primary" id="btn-enter-gym" disabled>Complete Phase 1 →</button>
+    <button class="btn btn-primary" id="btn-enter-gym" disabled>Complete Phase 1 &amp; continue →</button>
     <p class="top-note">Barefoot Republic Community Center · 15354 Old Hickory Blvd, Nashville, TN</p>
-  </section>
-
-  <section class="screen" id="s-complete" style="display:none;">
-    <div class="done-badge">✓</div>
-    <p class="eyebrow" style="text-align:center;">Phase 1 complete</p>
-    <h1 class="display" style="text-align:center;">Thank you, <em id="complete-name">friend</em>.</h1>
-    <p class="lede" style="text-align:center;">You're registered and your three-booth route is ready.</p>
-    <div class="ticket-hero">
-      <div class="kicker">Your sign-in details</div>
-      <h2 id="complete-raffle">Raffle #----</h2>
-      <div class="sub"><span id="complete-color">Your wristband</span> determines which booth you visit during each 20-minute session.</div>
-    </div>
-    <div class="route-list" id="complete-route" style="margin-top:18px;"></div>
-    <a class="btn btn-primary" href="../phase2-booths/hub.html" style="display:block; text-decoration:none; margin-top:16px;">Open my booth schedule →</a>
-    <p class="top-note">Keep this link open. It will move you to the right booth as each shared session begins.</p>
   </section>
 </div>
 
@@ -83,6 +68,7 @@
 <script src="../shared/identity.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
+<script src="../shared/event-schedule.js"></script>
 <script>
 function renderProgress(phaseIndex) {
   const el = document.getElementById("progress");
@@ -166,23 +152,12 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
     const confirmation = await EventAPI.confirmWristband(identity.attendeeId, selectedWristbandColor);
     const colorId = confirmation.wristbandColor || selectedWristbandColor;
     Identity.set({ wristbandColor: colorId });
-    const color = wristbandColorById(colorId);
-    const route = routeForWristband(colorId);
-    document.getElementById("complete-name").textContent = identity.name || "friend";
-    document.getElementById("complete-raffle").textContent = "Raffle #" + (identity.raffleNumber || "----");
-    document.getElementById("complete-color").textContent = `${color ? color.label : "Your"} wristband`;
-    document.getElementById("complete-route").innerHTML = route.map((boothId, index) => {
-      const booth = boothById(boothId);
-      const session = BOOTH_SESSIONS[index];
-      return `<div class="route-stop"><span class="route-number">${index + 1}</span><div class="route-stop-copy"><strong>${booth ? booth.title : boothId}</strong><small>Session ${index + 1} · ${session.label}</small></div></div>`;
-    }).join("");
-    document.getElementById("s-pass").style.display = "none";
-    document.getElementById("s-complete").style.display = "block";
+    window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
   } catch (e) {
     console.error(e);
     if (Identity.restartIfMissing(e, "index.html")) return;
     toast("Couldn't confirm — check the connection and try again.");
-    btn.disabled = false; btn.textContent = "Complete Phase 1 →";
+    btn.disabled = false; btn.textContent = "Complete Phase 1 & continue →";
   }
 });
 </script>

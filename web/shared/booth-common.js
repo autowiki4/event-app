@@ -93,6 +93,13 @@ async function finishBooth(boothId, boothName) {
   // Keep this room tied to the attendee who signed into it. Another booth
   // may be open in a different tab and replace the shared local identity.
   const identity = _boothIdentity || Identity.peek();
+  // The timer can cross a session boundary while an attendee is completing
+  // the activity, so check access again at the exact moment they tap Finish.
+  if (typeof window.isCurrentBoothRoomOpen === "function" && !window.isCurrentBoothRoomOpen()) {
+    toast("This booth session has ended. Return to your schedule for the current stop.");
+    if (typeof window.refreshBoothRoomAccess === "function") window.refreshBoothRoomAccess();
+    return;
+  }
   const note = document.getElementById("booth-note") ? document.getElementById("booth-note").value : "";
   const extraData = typeof window.getBoothExtraData === "function" ? window.getBoothExtraData() : null;
 

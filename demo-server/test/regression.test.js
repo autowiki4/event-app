@@ -89,6 +89,65 @@ async function runApiRegression(port) {
   res = await request(port, "verifyOrganizer", { organizerKey });
   assert.deepEqual(res.body, { ok: true });
 
+  // The local rehearsal clock is public but contains no attendee or organizer
+  // data. Only the organizer can move it, and an anchored preset keeps ticking
+  // for every browser instead of freezing at a screenshot-like instant.
+  res = await request(port, "eventClock", {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(Object.keys(res.body).sort(), [
+    "controlled", "mode", "serverNow", "targetIso", "updatedAt",
+  ]);
+  assert.equal(res.body.mode, "live");
+  assert.equal(res.body.controlled, false);
+  assert.equal(res.body.targetIso, null);
+  assertIsoTimestamp(res.body.updatedAt, "initial demo clock updatedAt");
+  assertIsoTimestamp(res.body.serverNow, "initial demo clock serverNow");
+
+  res = await request(port, "setDemoClock", {
+    mode: "session1", targetIso: "2026-07-18T20:15:00.000Z", organizerKey: "wrong",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "setDemoClock", { mode: "not-a-mode", organizerKey });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_DEMO_CLOCK_MODE");
+  res = await request(port, "setDemoClock", { mode: "session1", targetIso: "not-a-date", organizerKey });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
+
+  const anchoredTarget = "2026-07-18T20:15:00.000Z";
+  res = await request(port, "setDemoClock", { mode: "session1", targetIso: anchoredTarget, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.mode, "session1");
+  assert.equal(res.body.controlled, true);
+  assert.equal(res.body.targetIso, anchoredTarget);
+  assertIsoTimestamp(res.body.updatedAt, "demo clock updatedAt");
+  const firstAnchoredMs = Date.parse(res.body.serverNow);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  res = await request(port, "eventClock", undefined, "GET");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.mode, "session1");
+  assert.ok(Date.parse(res.body.serverNow) > firstAnchoredMs, "anchored demo clock should tick forward");
+
+  for (const mode of [
+    "before",
+    "session1-final15",
+    "session2",
+    "session2-final15",
+    "session3",
+    "session3-final15",
+    "ended",
+  ]) {
+    res = await request(port, "setDemoClock", { mode, targetIso: anchoredTarget, organizerKey });
+    assert.equal(res.status, 200, mode);
+    assert.equal(res.body.mode, mode);
+  }
+  res = await request(port, "setDemoClock", { mode: "live", targetIso: null, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.mode, "live");
+  assert.equal(res.body.controlled, true);
+  assert.equal(res.body.targetIso, null);
+
   // Booth presentation state is public and PII-free. Each booth starts with
   // an independent waiting state; only an authenticated organizer can change
   // the state for the booth they name.
@@ -195,6 +254,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.wristbandConfirmed, false);
   assert.equal(res.body.wristbandColor, null);
   assert.equal(res.body.phoneLinked, false);
+  assert.equal(res.body.phase3CompletedAt, null);
   assertIsoTimestamp(res.body.serverNow, "attendee login serverNow");
   assert.equal("phone" in res.body, false);
 
@@ -239,6 +299,7 @@ async function runApiRegression(port) {
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
   assert.equal(res.body.wristbandColor, "blue");
+  assert.equal(res.body.phase3CompletedAt, null);
   assertIsoTimestamp(res.body.serverNow, "restored session serverNow");
 
   res = await request(port, "findOrRegisterByPhone", {
@@ -293,6 +354,10 @@ async function runApiRegression(port) {
   });
   assert.equal(res.status, 200);
   const artCheckinId = res.body.checkinId;
+  const originalArtCheckedInAt = "2026-07-18T20:10:00.000Z";
+  const dbWithArtCheckin = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  dbWithArtCheckin.boothCheckins.find((checkin) => checkin.id === artCheckinId).checkedInAt = originalArtCheckedInAt;
+  fs.writeFileSync(testDb, JSON.stringify(dbWithArtCheckin, null, 2));
 
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
@@ -309,6 +374,7 @@ async function runApiRegression(port) {
     .filter((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
   assert.equal(artRows.length, 1);
   assert.equal(artRows[0].rating, 4);
+  assert.equal(artRows[0].checkedInAt, originalArtCheckedInAt);
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
     boothId: "art",
@@ -321,6 +387,7 @@ async function runApiRegression(port) {
     .find((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
   assert.equal(mergedArtRow.rating, 4);
   assert.equal(mergedArtRow.extraData.sessionNumber, 2);
+  assert.equal(mergedArtRow.checkedInAt, originalArtCheckedInAt);
 
   res = await request(port, "myCheckins", { phone: "6155550101" });
   assert.equal(res.status, 400);
@@ -350,6 +417,13 @@ async function runApiRegression(port) {
     checkedInBy: "staff-kiosk",
     organizerKey,
   });
+  res = await request(port, "mySignupSelections", { attendeeId: kioskOnlyId });
+  assert.deepEqual(res.body.optionIds, []);
+  assert.equal(res.body.completedAt, null);
+  res = await request(port, "saveSignupSelections", { attendeeId: kioskOnlyId, optionIds: [] });
+  assert.deepEqual(res.body.optionIds, []);
+  assertIsoTimestamp(res.body.completedAt, "merged attendee Phase 3 completedAt");
+  const kioskPhase3CompletedAt = res.body.completedAt;
 
   // If that visitor later registers at entry, staff pair their shown raffle
   // with the phone. The entry record wins and prior kiosk activity migrates.
@@ -380,9 +454,13 @@ async function runApiRegression(port) {
   assert.equal(dbAfterMerge.attendees.length, 2);
   const casey = dbAfterMerge.attendees.find((a) => a.attendeeId === "entry-c");
   assert.ok(casey.aliasIds.includes(kioskOnlyId));
+  assert.equal(casey.phase3CompletedAt, kioskPhase3CompletedAt);
   assert.equal(dbAfterMerge.boothCheckins.find((c) => c.boothId === "newsong").attendeeId, "entry-c");
   res = await request(port, "myCheckins", { attendeeId: kioskOnlyId });
   assert.deepEqual(res.body.boothIds, ["newsong"]);
+  res = await request(port, "mySignupSelections", { attendeeId: kioskOnlyId });
+  assert.deepEqual(res.body.optionIds, []);
+  assert.equal(res.body.completedAt, kioskPhase3CompletedAt);
 
   res = await request(port, "boothDashboardData", { boothId: "art", organizerKey: "wrong" });
   assert.equal(res.status, 401);
@@ -422,26 +500,57 @@ async function runApiRegression(port) {
   assert.equal("name" in res.body, false);
   assert.equal("raffleNumber" in res.body, false);
 
+  res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
+  assert.deepEqual(res.body.optionIds, []);
+  assert.equal(res.body.completedAt, null);
+  res = await request(port, "attendeePortalSession", { attendeeId: "entry-d", portal: "phase3" });
+  assert.equal(res.body.phase3CompletedAt, null);
+
+  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: ["invalid"] });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_SIGNUP_OPTIONS");
+  res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
+  assert.equal(res.body.completedAt, null);
+
+  // Clicking the no-thanks finish action is completion even though it creates
+  // no SignUps row. Later selection edits retain this first completion time.
+  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: [] });
+  assert.deepEqual(res.body.optionIds, []);
+  assertIsoTimestamp(res.body.completedAt, "Phase 3 completedAt after empty save");
+  const drewPhase3CompletedAt = res.body.completedAt;
+  assert.equal(
+    JSON.parse(fs.readFileSync(testDb, "utf8")).signups.some((signup) => signup.attendeeId === "entry-d"),
+    false
+  );
+  res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
+  assert.deepEqual(res.body.optionIds, []);
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
+  res = await request(port, "attendeePortalSession", { attendeeId: "entry-d", portal: "phase3" });
+  assert.equal(res.body.phase3CompletedAt, drewPhase3CompletedAt);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
   res = await request(port, "saveSignupSelections", {
     attendeeId: "entry-d",
     optionIds: ["future", "art", "future"],
   });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.optionIds, ["future", "art"]);
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
   const drewArtSignupId = res.body.signupIds[1];
   res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
   assert.deepEqual(res.body.optionIds, ["future", "art"]);
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
   res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: ["art"] });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.optionIds, ["art"]);
   assert.equal(res.body.signupIds[0], drewArtSignupId);
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
   res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: [] });
   assert.deepEqual(res.body.optionIds, []);
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
   res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
   assert.deepEqual(res.body.optionIds, []);
-  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: ["invalid"] });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.code, "INVALID_SIGNUP_OPTIONS");
+  assert.equal(res.body.completedAt, drewPhase3CompletedAt);
 
   // A self-service page opened without completing Entry cannot create a
   // hidden raffle record (including after a rehearsal reset).
@@ -505,6 +614,10 @@ async function runApiRegression(port) {
   assert.equal(res.body.totals.registered, 3);
   res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
+  res = await request(port, "eventClock", {});
+  assert.equal(res.body.mode, "live");
+  assert.equal(res.body.controlled, true);
+  assertIsoTimestamp(res.body.updatedAt, "demo clock updatedAt after data reset");
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.body.totals.registered, 0);
   res = await request(port, "boothPresentation", { boothId: "art" });
@@ -638,6 +751,12 @@ async function runFrontendContractRegression() {
         };
       },
     },
+    EventSchedule: {
+      syncSamples: [],
+      sync(serverNow, requestStartedMs, responseReceivedMs) {
+        this.syncSamples.push({ serverNow, requestStartedMs, responseReceivedMs });
+      },
+    },
   };
   vm.createContext(identityContext);
   const identitySource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "identity.js"), "utf8");
@@ -657,6 +776,14 @@ async function runFrontendContractRegression() {
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), false);
   assert.equal(attendeePortal.hasAccess("phase3"), false);
   assert.deepEqual(backendPortalCalls[0], ["login", "phase2"]);
+  assert.equal(identityContext.EventSchedule.syncSamples.length, 1);
+  assert.equal(identityContext.EventSchedule.syncSamples[0].serverNow, "2026-07-18T20:10:00.000Z");
+  assert.equal(Number.isFinite(identityContext.EventSchedule.syncSamples[0].requestStartedMs), true);
+  assert.equal(Number.isFinite(identityContext.EventSchedule.syncSamples[0].responseReceivedMs), true);
+  assert.ok(
+    identityContext.EventSchedule.syncSamples[0].responseReceivedMs
+      >= identityContext.EventSchedule.syncSamples[0].requestStartedMs
+  );
   portalIdentity = await attendeePortal.restore("phase2.heaven");
   assert.equal(portalIdentity.phoneLinked, true);
   assert.equal(portalIdentity.wristbandColor, "blue");
@@ -692,6 +819,8 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.boothDashboardData, "function");
   assert.equal(typeof apiContext.__eventApi.boothPresentation, "function");
   assert.equal(typeof apiContext.__eventApi.updateBoothPresentation, "function");
+  assert.equal(typeof apiContext.__eventApi.eventClock, "function");
+  assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
   assert.equal(typeof apiContext.__eventApi.saveSignupSelections, "function");
   assert.equal(typeof apiContext.__eventApi.mySignupSelections, "function");
   await assert.rejects(
@@ -804,12 +933,12 @@ async function runFrontendContractRegression() {
   assert.match(artKioskSource, /OrganizerAuth\.isCurrent\(authGeneration\)/);
   assert.match(songKioskSource, /let isSaving = false/);
   assert.match(songKioskSource, /if \(isSaving \|\| !currentVisitor\) return/);
-  assert.match(phase1Source, /Phase 1 complete/);
-  assert.match(phase1Source, /Thank you/);
   assert.match(phase1Source, /name="wristband-color"/);
   assert.match(phase1Source, /EventAPI\.confirmWristband\(identity\.attendeeId, selectedWristbandColor\)/);
-  assert.match(phase1Source, /href="\.\.\/phase2-booths\/hub\.html"/);
-  assert.match(phase1Source, /Open my booth schedule/i);
+  assert.match(phase1Source, /shared\/event-schedule\.js/);
+  assert.match(phase1Source, /Complete Phase 1 &amp; continue/);
+  assert.match(phase1Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/phase2-booths\/hub\.html"\)/);
+  assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
   assert.match(phase2Source, /shared\/event-schedule\.js/);
   assert.match(phase2Source, /AttendeePortal\.signIn\(PORTAL/);
@@ -819,6 +948,11 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /id="attendee-name"/);
   assert.match(phase2Source, /id="attendee-raffle"/);
   assert.match(phase2Source, /id="session-countdown"/);
+  assert.match(phase2Source, /id="phase3-ready"/);
+  assert.match(phase2Source, /function routeIsComplete\(\)/);
+  assert.match(phase2Source, /data-open-current/);
+  assert.match(phase2Source, /Ended · Not visited/);
+  assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -829,14 +963,27 @@ async function runFrontendContractRegression() {
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
+  assert.match(phase3Source, /shared\/event-schedule\.js/);
   assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);
   assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="name"/);
+  assert.match(phase3Source, /id="btn-return-phase2"/);
   assert.match(phase3Source, /role="checkbox"/);
   assert.match(phase3Source, /Tick and go/i);
   assert.match(phase3Source, /EventAPI\.saveSignupSelections/);
   assert.match(phase3Source, /EventAPI\.mySignupSelections/);
+  assert.match(phase3Source, /const phase2Complete = route\.length === BOOTH_SESSIONS\.length/);
+  assert.match(phase3Source, /!phase2Complete && schedule\.phase !== "ended"/);
+  assert.match(phase3Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/done\/index\.html"\)/);
   assert.doesNotMatch(phase3Source, /id="detail-email"|id="detail-comment"|class="star-row"/);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
+  assert.match(doneSource, /id="done-loading"/);
+  assert.match(doneSource, /id="done-content" style="display:none;"/);
+  assert.match(doneSource, /EventAPI\.mySignupSelections\(identity\.attendeeId\)/);
+  assert.match(doneSource, /!signupState \|\| !signupState\.completedAt/);
+  assert.match(doneSource, /id="next-up-timer"/);
+  assert.match(doneSource, /Don't go yet/);
+  assert.match(doneSource, /4:10 PM/);
+  assert.match(doneSource, /EventSchedule\.remainingUntilEventEnd\(\)/);
 
   assert.equal(boothConfigs.length, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.page)).size, 5);
@@ -880,11 +1027,138 @@ async function runFrontendContractRegression() {
   assert.equal(atExperienceEnd.phase, "ended");
   assert.equal(atExperienceEnd.sessionIndex, null);
   assert.equal(atExperienceEnd.remainingMs, 0);
+  assert.equal(eventSchedule.eventEndsAtMs(), Date.parse("2026-07-18T16:10:00-05:00"));
+  assert.equal(eventSchedule.linkWithPreview("../done/index.html"), "../done/index.html");
   assert.equal(eventSchedule.currentBooth("blue", atSession1).id, "heaven");
   assert.equal(eventSchedule.currentBooth("blue", atSession2).id, "trivia");
   assert.equal(eventSchedule.currentBooth("blue", atSession3).id, "story");
   assert.equal(eventSchedule.currentBooth("blue", atExperienceEnd), null);
   assert.equal(eventSchedule.formatCountdown(20 * 60 * 1000), "20:00");
+  assert.equal(eventSchedule.demoTargetIso("before"), "2026-07-18T20:05:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session1"), "2026-07-18T20:15:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session1-final15"), "2026-07-18T20:29:45.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session2"), "2026-07-18T20:35:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session2-final15"), "2026-07-18T20:49:45.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session3"), "2026-07-18T20:55:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session3-final15"), "2026-07-18T21:09:45.000Z");
+  assert.equal(eventSchedule.demoTargetIso("ended"), "2026-07-18T21:11:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("live"), null);
+  assert.equal(eventSchedule.demoTargetIso("unknown"), null);
+
+  const session2Stops = [0, 1, 2].map((sessionIndex) => (
+    eventSchedule.deriveBoothStop(sessionIndex, false, atSession2)
+  ));
+  assert.deepEqual({ ...session2Stops[0] }, {
+    kind: "expired", canOpen: false, faded: true, checked: false,
+  });
+  assert.deepEqual({ ...session2Stops[1] }, {
+    kind: "active", canOpen: true, faded: false, checked: false,
+  });
+  assert.deepEqual({ ...session2Stops[2] }, {
+    kind: "locked", canOpen: false, faded: true, checked: false,
+  });
+  assert.deepEqual({ ...eventSchedule.deriveBoothStop(0, true, atSession2) }, {
+    kind: "visited", canOpen: false, faded: true, checked: true,
+  });
+  assert.deepEqual({ ...eventSchedule.deriveBoothStop(1, true, atSession2) }, {
+    kind: "visited", canOpen: true, faded: true, checked: true,
+  });
+  assert.equal(eventSchedule.canOpenBooth("blue", "trivia", atSession2), true);
+  assert.equal(eventSchedule.canOpenBooth("blue", "heaven", atSession2), false);
+  assert.equal(eventSchedule.canOpenBooth("blue", "trivia", eventSchedule.stateAt(atSession2.nowMs - 1)), false);
+  assert.equal(eventSchedule.canOpenBooth("blue", "trivia", atExperienceEnd), false);
+  assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 15001)), false);
+  assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 15000)), true);
+  assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 1)), true);
+  assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs)), false);
+
+  const pendingClockResponses = [];
+  let eventClockCalls = 0;
+  let pollerCount = 0;
+  let clearedPollerCount = 0;
+  const demoScheduleContext = {
+    window: {
+      EVENT_APP_CONFIG: { API_BASE_URL: "/api" },
+      location: {
+        hostname: "localhost",
+        search: "?preview=1",
+        href: "http://localhost/phase2-booths/hub.html?preview=1",
+      },
+    },
+    EventAPI: {
+      eventClock: () => {
+        eventClockCalls += 1;
+        return new Promise((resolve) => pendingClockResponses.push(resolve));
+      },
+    },
+    URL,
+    URLSearchParams,
+    setInterval: () => {
+      pollerCount += 1;
+      return pollerCount;
+    },
+    clearInterval: () => { clearedPollerCount += 1; },
+  };
+  vm.createContext(demoScheduleContext);
+  vm.runInContext(boothsConfigSource, demoScheduleContext);
+  vm.runInContext(`${eventScheduleSource}\nthis.__eventSchedule = EventSchedule;`, demoScheduleContext);
+  const demoSchedule = demoScheduleContext.__eventSchedule;
+  assert.equal(eventClockCalls, 1, "loading a local page should immediately fetch the shared clock");
+  assert.equal(pollerCount, 1, "loading a local page should install one clock poller");
+  const firstClockSync = demoSchedule.startDemoClockSync(2500);
+  assert.equal(eventClockCalls, 1, "starting clock sync twice should reuse the first request");
+  assert.equal(pollerCount, 1, "starting clock sync twice should not install another poller");
+  pendingClockResponses.shift()({
+    serverNow: "2026-07-18T20:10:00.000Z",
+    mode: "live",
+    controlled: false,
+    targetIso: null,
+    updatedAt: "2026-07-15T10:00:00.000Z",
+  });
+  await firstClockSync;
+  assert.equal(demoSchedule.current().sessionIndex, 0, "uncontrolled clock should preserve a URL preview");
+
+  const synchronizedAt = Date.now();
+  assert.equal(demoSchedule.applyDemoClock({
+    serverNow: "2026-07-18T20:35:00.000Z",
+    mode: "session2",
+    controlled: true,
+    targetIso: "2026-07-18T20:35:00.000Z",
+    updatedAt: "2026-07-15T11:00:00.000Z",
+  }, synchronizedAt, synchronizedAt), true);
+  assert.equal(demoSchedule.current().sessionIndex, 1);
+  assert.equal(demoSchedule.isPreviewing(), true);
+  assert.equal(demoSchedule.linkWithPreview("../done/index.html"), "../done/index.html");
+  assert.equal(
+    demoSchedule.sync("2026-07-18T20:15:00.000Z", synchronizedAt, synchronizedAt),
+    false,
+    "generic API clock samples must not override organizer-controlled demo time"
+  );
+  assert.equal(demoSchedule.current().sessionIndex, 1);
+  assert.equal(demoSchedule.applyDemoClock({
+    serverNow: "2026-07-18T20:15:00.000Z",
+    mode: "session1",
+    controlled: true,
+    targetIso: "2026-07-18T20:15:00.000Z",
+    updatedAt: "2026-07-15T10:30:00.000Z",
+  }, synchronizedAt, synchronizedAt), false, "an older in-flight clock response should not undo organizer control");
+  assert.equal(demoSchedule.demoClockState().mode, "session2");
+
+  const pollingRequestA = demoSchedule.refreshDemoClock();
+  const pollingRequestB = demoSchedule.refreshDemoClock();
+  assert.equal(eventClockCalls, 2, "concurrent refreshes should share one backend request");
+  assert.strictEqual(pollingRequestA, pollingRequestB);
+  pendingClockResponses.shift()({
+    serverNow: "2026-07-18T20:55:00.000Z",
+    mode: "session3",
+    controlled: true,
+    targetIso: "2026-07-18T20:55:00.000Z",
+    updatedAt: "2026-07-15T12:00:00.000Z",
+  });
+  await pollingRequestA;
+  assert.equal(demoSchedule.current().sessionIndex, 2);
+  demoSchedule.stopDemoClockSync();
+  assert.equal(clearedPollerCount, 1);
 
   [dashboardSource, artKioskSource, songKioskSource].forEach((source) => {
     assert.match(source, /shared\/phone\.js/);
@@ -1034,6 +1308,7 @@ function runAppsScriptRegression() {
   assert.equal(result.attendeeId, "gas-entry-a");
   assert.equal(result.wristbandColor, null);
   assert.equal(result.phoneLinked, false);
+  assert.equal(result.phase3CompletedAt, null);
   assertIsoTimestamp(result.serverNow, "Apps Script attendee serverNow");
   assert.equal("phone" in result, false);
   assert.throws(
@@ -1069,7 +1344,10 @@ function runAppsScriptRegression() {
   assert.equal(result.requiresPairingConfirmation, true);
   const gasAttendeeSheet = spreadsheet.getSheetByName("Attendees");
   const gasPhoneColumn = gasAttendeeSheet.rows[0].indexOf("phone");
+  const gasPhase3CompletedAtColumn = gasAttendeeSheet.rows[0].indexOf("phase3CompletedAt");
+  assert.notEqual(gasPhase3CompletedAtColumn, -1);
   assert.equal(gasAttendeeSheet.rows[1][gasPhoneColumn], "");
+  assert.equal(gasAttendeeSheet.rows[1][gasPhase3CompletedAtColumn], "");
   result = gas.actionFindOrRegisterByPhone({
     phone: "6155550101",
     raffleNumber: "1001",
@@ -1110,6 +1388,7 @@ function runAppsScriptRegression() {
   result = gas.actionAttendeePortalSession({ attendeeId: "gas-entry-a", portal: "phase2" });
   assert.equal(result.attendeeId, "gas-entry-a");
   assert.equal(result.wristbandColor, "blue");
+  assert.equal(result.phase3CompletedAt, null);
   assertIsoTimestamp(result.serverNow, "Apps Script restored session serverNow");
 
   const duplicateGasSignup = gas.actionSubmitSignup({
@@ -1120,20 +1399,38 @@ function runAppsScriptRegression() {
   });
   assert.equal(duplicateGasSignup.signupId, gasSignup.signupId);
   assert.equal(duplicateGasSignup.updated, true);
+  result = gas.actionMySignupSelections({ attendeeId: "gas-entry-a" });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.equal(result.completedAt, null);
+  result = gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: [] });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assertIsoTimestamp(result.completedAt, "Apps Script Phase 3 empty-save completedAt");
+  const gasPhase3CompletedAt = result.completedAt;
+  result = gas.actionMySignupSelections({ attendeeId: "gas-entry-a" });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
+  result = gas.actionAttendeePortalSession({ attendeeId: "gas-entry-a", portal: "phase3" });
+  assert.equal(result.phase3CompletedAt, gasPhase3CompletedAt);
   result = gas.actionSaveSignupSelections({
     attendeeId: "gas-entry-a",
     optionIds: ["future", "art", "future"],
   });
   assert.deepEqual(Array.from(result.optionIds), ["future", "art"]);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
   const gasArtSignupId = result.signupIds[1];
   result = gas.actionMySignupSelections({ attendeeId: "gas-entry-a" });
   assert.deepEqual(Array.from(result.optionIds), ["future", "art"]);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
   result = gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: ["art"] });
   assert.deepEqual(Array.from(result.optionIds), ["art"]);
   assert.equal(result.signupIds[0], gasArtSignupId);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
   result = gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: [] });
   assert.deepEqual(Array.from(result.optionIds), []);
-  assert.deepEqual(Array.from(gas.actionMySignupSelections({ attendeeId: "gas-entry-a" }).optionIds), []);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
+  result = gas.actionMySignupSelections({ attendeeId: "gas-entry-a" });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.equal(result.completedAt, gasPhase3CompletedAt);
   assert.throws(
     () => gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: ["invalid"] }),
     (error) => error.code === "INVALID_SIGNUP_OPTIONS"
@@ -1160,6 +1457,12 @@ function runAppsScriptRegression() {
     checkedInBy: "staff-kiosk",
     organizerKey: "gas-organizer-key",
   });
+  result = gas.actionMySignupSelections({ attendeeId: kioskId });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.equal(result.completedAt, null);
+  result = gas.actionSaveSignupSelections({ attendeeId: kioskId, optionIds: [] });
+  assertIsoTimestamp(result.completedAt, "Apps Script merged attendee Phase 3 completedAt");
+  const gasKioskPhase3CompletedAt = result.completedAt;
 
   result = gas.actionRegisterAttendee({ attendeeId: "gas-entry-c", name: "Casey" });
   assert.equal(result.raffleNumber, "1003");
@@ -1181,11 +1484,17 @@ function runAppsScriptRegression() {
 
   const attendeeSheet = spreadsheet.getSheetByName("Attendees");
   assert.equal(attendeeSheet.rows.length, 3); // header + Avery + Casey
+  const gasAttendeeIdColumn = attendeeSheet.rows[0].indexOf("attendeeId");
+  const caseyRow = attendeeSheet.rows.find((row) => row[gasAttendeeIdColumn] === "gas-entry-c");
+  assert.equal(caseyRow[gasPhase3CompletedAtColumn], gasKioskPhase3CompletedAt);
   const checkinSheet = spreadsheet.getSheetByName("BoothCheckins");
   const checkinHeaders = checkinSheet.rows[0];
   const attendeeIdColumn = checkinHeaders.indexOf("attendeeId");
   assert.equal(checkinSheet.rows[1][attendeeIdColumn], "gas-entry-c");
   const originalNewsongCheckinId = checkinSheet.rows[1][checkinHeaders.indexOf("id")];
+  const checkedInAtColumn = checkinHeaders.indexOf("checkedInAt");
+  const originalNewsongCheckedInAt = "2026-07-18T20:10:00.000Z";
+  checkinSheet.rows[1][checkedInAtColumn] = originalNewsongCheckedInAt;
   result = gas.actionBoothCheckin({
     attendeeId: "gas-entry-c",
     phone: "6155550202",
@@ -1198,8 +1507,12 @@ function runAppsScriptRegression() {
   assert.equal(result.updated, true);
   assert.equal(checkinSheet.rows.length, 2);
   assert.equal(checkinSheet.rows[1][checkinHeaders.indexOf("rating")], 5);
+  assert.equal(checkinSheet.rows[1][checkedInAtColumn], originalNewsongCheckedInAt);
   result = gas.actionMyCheckins({ attendeeId: kioskId });
   assert.deepEqual(Array.from(result.boothIds), ["newsong"]);
+  result = gas.actionMySignupSelections({ attendeeId: kioskId });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.equal(result.completedAt, gasKioskPhase3CompletedAt);
 
   result = gas.actionBoothPresentation({ boothId: "art" });
   assert.equal(result.boothId, "art");
@@ -1320,6 +1633,17 @@ function runAppsScriptRegression() {
   }
   assert.equal(post("registerAttendee", { attendeeId: "gas-http-entry", name: "HTTP" }).raffleNumber, "1004");
   assert.equal(post("loginAttendee", { name: "HTTP", raffleNumber: "1004", portal: "phase3" }).attendeeId, "gas-http-entry");
+  assert.equal(post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt, null);
+  const httpPhase3Finish = post("saveSignupSelections", { attendeeId: "gas-http-entry", optionIds: [] });
+  assertIsoTimestamp(httpPhase3Finish.completedAt, "Apps Script HTTP Phase 3 completedAt");
+  assert.equal(
+    post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt,
+    httpPhase3Finish.completedAt
+  );
+  assert.equal(
+    post("attendeePortalSession", { attendeeId: "gas-http-entry", portal: "phase3" }).phase3CompletedAt,
+    httpPhase3Finish.completedAt
+  );
   assert.equal(post("dashboardData", { organizerKey: "wrong" }).code, "AUTH_REQUIRED");
   assert.equal(post("myCheckins", {}).code, "ATTENDEE_ID_REQUIRED");
   assert.equal(post("mySignupSelections", {}).code, "ATTENDEE_ID_REQUIRED");

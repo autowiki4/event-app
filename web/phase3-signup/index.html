@@ -47,6 +47,7 @@
     <div class="opt-grid" id="opt-grid"></div>
     <button class="btn btn-primary" id="btn-submit" style="margin-top:16px;">Save &amp; finish →</button>
     <button class="btn btn-ghost" id="btn-skip" style="margin-top:10px;">No thanks, finish</button>
+    <a class="btn btn-ghost" id="btn-return-phase2" href="../phase2-booths/hub.html" style="display:none; margin-top:10px; text-decoration:none;">Return to my booth before 4:10 →</a>
     <p class="top-note">You can select more than one.</p>
   </section>
 </div>
@@ -54,23 +55,50 @@
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
-<script src="../shared/attendee-portal.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
+<script src="../shared/event-schedule.js"></script>
+<script src="../shared/attendee-portal.js"></script>
 <script>
-function renderProgress() {
+function renderProgress(phase2Complete) {
   const el = document.getElementById("progress");
   el.innerHTML = "";
   for (let i = 0; i < 3; i += 1) {
     const dot = document.createElement("div");
-    dot.className = "dot" + (i < 2 ? " done" : i === 2 ? " current" : "");
+    dot.className = "dot" + (i === 0 || (i === 1 && phase2Complete)
+      ? " done"
+      : i === 1
+        ? " incomplete"
+        : " current");
     el.appendChild(dot);
   }
 }
-renderProgress();
+renderProgress(false);
 
 const selected = new Set();
 let identity = null;
+let completedBooths = new Set();
+let phase2RouteComplete = false;
+let scheduleRedirecting = false;
+let portalReady = false;
+
+const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
+  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  : Promise.resolve();
+
+function reevaluateScheduleAccess() {
+  if (!identity || !portalReady || scheduleRedirecting) return;
+  const schedule = EventSchedule.current();
+  if (!phase2RouteComplete && schedule.phase !== "ended") {
+    scheduleRedirecting = true;
+    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    return;
+  }
+  const returnButton = document.getElementById("btn-return-phase2");
+  returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+  returnButton.style.display = schedule.phase === "active" ? "block" : "none";
+}
 
 function showLogin(message) {
   document.getElementById("phase3-content").style.display = "none";
@@ -108,13 +136,31 @@ function renderOptions() {
 
 async function showPortal(attendeeIdentity) {
   identity = attendeeIdentity;
+  await demoClockReady;
+  let signupState = { optionIds: [] };
   try {
-    const saved = await EventAPI.mySignupSelections(identity.attendeeId);
-    selected.clear();
-    (saved.optionIds || []).forEach((optionId) => selected.add(optionId));
+    const [saved, checkins] = await Promise.all([
+      EventAPI.mySignupSelections(identity.attendeeId),
+      EventAPI.myCheckins(identity.attendeeId),
+    ]);
+    signupState = saved;
+    completedBooths = new Set(checkins.boothIds || []);
   } catch (error) {
-    console.warn("Couldn't preload prior Phase 3 selections", error);
+    console.warn("Couldn't preload attendee progress", error);
   }
+  const route = EventSchedule.route(identity.wristbandColor);
+  const phase2Complete = route.length === BOOTH_SESSIONS.length
+    && route.every((boothId) => completedBooths.has(boothId));
+  phase2RouteComplete = phase2Complete;
+  const schedule = EventSchedule.current();
+  if (!identity.wristbandColor || (!phase2Complete && schedule.phase !== "ended")) {
+    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    return;
+  }
+  portalReady = true;
+  selected.clear();
+  (signupState.optionIds || []).forEach((optionId) => selected.add(optionId));
+  renderProgress(phase2Complete);
   document.getElementById("phase3-login").style.display = "none";
   document.getElementById("phase3-content").style.display = "block";
   document.getElementById("phase3-attendee-name").textContent = identity.name || "Guest";
@@ -123,6 +169,9 @@ async function showPortal(attendeeIdentity) {
   const chip = document.getElementById("phase3-wristband");
   chip.textContent = color ? `${color.label} wristband` : "Registered";
   chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+  const returnButton = document.getElementById("btn-return-phase2");
+  returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+  returnButton.style.display = schedule.phase === "active" ? "block" : "none";
   renderOptions();
 }
 
@@ -135,7 +184,7 @@ async function finish(chosen) {
   try {
     const saved = await EventAPI.saveSignupSelections(identity.attendeeId, chosen.map((option) => option.id));
     sessionStorage.setItem("eventapp.chosen", JSON.stringify(saved.optionIds || chosen.map((option) => option.id)));
-    window.location.href = "../done/index.html";
+    window.location.href = EventSchedule.linkWithPreview("../done/index.html");
   } catch (error) {
     console.error(error);
     if (Identity.restartIfMissing(error, "index.html")) return;
@@ -188,6 +237,7 @@ async function initPortal() {
   }
 }
 
+setInterval(reevaluateScheduleAccess, 1000);
 initPortal();
 </script>
 </body>

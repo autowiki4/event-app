@@ -61,6 +61,12 @@ const EventAPI = (function () {
     boothDashboardData: (boothId, organizerKey) => call("boothDashboardData", { boothId, organizerKey }),
     boothPresentation: (boothId) => call("boothPresentation", { boothId }),
     updateBoothPresentation: (data) => call("updateBoothPresentation", data),
+    eventClock: () => call("eventClock", {}),
+    setDemoClock: (mode, targetIso, organizerKey) => call("setDemoClock", {
+      mode,
+      targetIso: targetIso || null,
+      organizerKey,
+    }),
     verifyOrganizer: (organizerKey) => call("verifyOrganizer", { organizerKey }),
     resetDemo: (organizerKey) => call("resetDemo", { organizerKey }),
     myCheckins: (attendeeId) => call("myCheckins", { attendeeId: attendeeId || "" }),

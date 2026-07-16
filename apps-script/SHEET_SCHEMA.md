@@ -5,8 +5,8 @@ need to make any of these by hand. For how to actually deploy `Code.gs`
 and get this Sheet up and running, see `README.md` in this same folder.
 
 ## Attendees
-| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor |
-|---|---|---|---|---|---|---|---|
+| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor | phase3CompletedAt |
+|---|---|---|---|---|---|---|---|---|
 
 - `attendeeId`: UUID generated in the browser at Phase 1 (or by a kiosk if someone skips Phase 1).
 - `aliasIds`: JSON array of older device/attendee IDs retained when staff
@@ -21,6 +21,9 @@ and get this Sheet up and running, see `README.md` in this same folder.
   It is written at the same time staff confirm the wristband and determines
   the attendee's three-booth route. Older rows are left intact and receive an
   empty value until staff reconfirm a color.
+- `phase3CompletedAt`: the first time the attendee clicks either Phase 3 finish
+  action. It is recorded even when they choose no options and is not changed by
+  later edits to their selections.
 
 ## BoothCheckins
 | id | attendeeId | phone | name | boothId | boothName | checkedInBy | checkedInAt | rating | note | extraData |

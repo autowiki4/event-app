@@ -34,9 +34,9 @@ const FINAL_SIGNUP_OPTIONS = {
 };
 
 const HEADERS = {
-  // wristbandColor is intentionally appended so an existing Attendees tab can
-  // be upgraded in place without shifting any of its older columns.
-  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor"],
+  // New attendee fields are appended so an existing Attendees tab can be
+  // upgraded in place without shifting any of its older columns.
+  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor", "phase3CompletedAt"],
   [SHEET_NAMES.BOOTH_CHECKINS]: ["id", "attendeeId", "phone", "name", "boothId", "boothName", "checkedInBy", "checkedInAt", "rating", "note", "extraData"],
   [SHEET_NAMES.SIGNUPS]: ["id", "attendeeId", "phone", "name", "optionId", "optionTitle", "email", "stars", "comment", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt"],
   [SHEET_NAMES.BOOTH_CONTROLS]: ["boothId", "stepIndex", "status", "message", "createdAt", "updatedAt", "version"],
@@ -264,6 +264,16 @@ function meaningfulName(primary, fallback) {
   return primary || "Guest";
 }
 
+function earliestTimestamp() {
+  return Array.from(arguments).filter(Boolean).reduce((earliest, value) => {
+    const candidate = String(value);
+    const candidateMs = new Date(candidate).getTime();
+    if (!Number.isFinite(candidateMs)) return earliest;
+    if (!earliest || candidateMs < new Date(earliest).getTime()) return candidate;
+    return earliest;
+  }, "");
+}
+
 function reassignAttendeeReferences(duplicate, canonical) {
   const duplicateIds = [duplicate.attendeeId].concat(toJsonSafe(duplicate.aliasIds, []));
   [SHEET_NAMES.BOOTH_CHECKINS, SHEET_NAMES.SIGNUPS].forEach((sheetName) => {
@@ -293,6 +303,7 @@ function mergeAttendees(canonical, duplicate, phone) {
     phone: digitsOnly(phone) || canonical.phone || duplicate.phone || "",
     raffleNumber: canonical.raffleNumber,
     wristbandConfirmedAt: canonical.wristbandConfirmedAt || duplicate.wristbandConfirmedAt || "",
+    phase3CompletedAt: earliestTimestamp(canonical.phase3CompletedAt, duplicate.phase3CompletedAt),
     registeredAt: !canonical.registeredAt || (duplicate.registeredAt && duplicate.registeredAt < canonical.registeredAt)
       ? duplicate.registeredAt
       : canonical.registeredAt,
@@ -328,6 +339,7 @@ function actionRegisterAttendee(payload) {
         wristbandConfirmedAt: "",
         registeredAt: nowIso(),
         wristbandColor: "",
+        phase3CompletedAt: "",
       });
       attendee = { attendeeId, raffleNumber, name, wristbandColor: "" };
     } else {
@@ -378,6 +390,7 @@ function attendeePortalResult(attendee) {
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
     wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
     phoneLinked: !!attendee.phone,
+    phase3CompletedAt: attendee.phase3CompletedAt || null,
     serverNow: nowIso(),
   };
 }
@@ -556,7 +569,7 @@ function actionBoothCheckin(payload) {
       boothId,
       boothName: boothName || boothId,
       checkedInBy: checkedInBy || "self",
-      checkedInAt: nowIso(),
+      checkedInAt: existing && existing.checkedInAt ? existing.checkedInAt : nowIso(),
       rating: rating || "",
       note: note || "",
       extraData: Object.keys(mergedExtra).length ? JSON.stringify(mergedExtra) : "",
@@ -633,6 +646,11 @@ function actionSaveSignupSelections(payload) {
   return withScriptLock(() => {
     const attendee = findAttendee(attendeeId, null);
     if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
+    const completedAt = attendee.phase3CompletedAt || nowIso();
+    if (!attendee.phase3CompletedAt) {
+      updateRow(SHEET_NAMES.ATTENDEES, attendee._row, { phase3CompletedAt: completedAt });
+      attendee.phase3CompletedAt = completedAt;
+    }
     const selected = new Set(optionIds);
     const staleRows = readRows(SHEET_NAMES.SIGNUPS)
       .filter((signup) => (
@@ -683,7 +701,7 @@ function actionSaveSignupSelections(payload) {
           && String(signup.optionId) === optionId
       ))
     ));
-    return { ok: true, optionIds: savedOptionIds, signupIds };
+    return { ok: true, optionIds: savedOptionIds, signupIds, completedAt };
   });
 }
 
@@ -732,7 +750,7 @@ function actionMySignupSelections(payload) {
           && String(signup.optionId) === optionId
       ))
     ));
-    return { optionIds };
+    return { optionIds, completedAt: attendee.phase3CompletedAt || null };
   });
 }
 

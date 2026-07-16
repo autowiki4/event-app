@@ -10,7 +10,12 @@
 <body>
 <div class="phone">
   <div class="progress" id="progress"></div>
-  <section class="screen">
+  <section class="screen" id="done-loading">
+    <p class="eyebrow">Checking your journey</p>
+    <h1 class="display">Loading your <em>saved progress…</em></h1>
+    <p class="lede">This page only opens after you finish Phase 3.</p>
+  </section>
+  <section class="screen" id="done-content" style="display:none;">
     <div class="attendee-banner">
       <div>
         <span class="attendee-label">Attendee</span>
@@ -20,15 +25,25 @@
       <div class="attendee-banner-actions"><span class="wristband-chip" id="done-wristband">Registered</span></div>
     </div>
     <div class="done-badge">✓</div>
-    <p class="eyebrow" style="text-align:center;">Saved</p>
-    <h1 class="display" style="text-align:center;">You're all set.</h1>
-    <p class="lede" style="text-align:center;">Your selections are connected to your registration. No more questions—enjoy the rest of the event.</p>
+    <p class="eyebrow" id="done-eyebrow" style="text-align:center;">Phase 3 saved</p>
+    <h1 class="display" style="text-align:center;">Thank you for joining us, <em id="done-first-name">friend</em>.</h1>
+    <p class="lede" id="done-lede" style="text-align:center;">Your choices are saved. Stay with us for the main message.</p>
+
+    <div class="next-up-card" id="next-up-card" aria-live="polite">
+      <div class="next-up-live"><span class="next-up-live-dot"></span><span id="next-up-kicker">Don't go yet</span></div>
+      <h2 id="next-up-title">You don't want to miss what's next…</h2>
+      <div class="next-up-timer" id="next-up-timer">--:--</div>
+      <div class="next-up-label" id="next-up-label">Until the main message · 4:10 PM</div>
+      <p id="next-up-copy">Your Phase 3 choices are saved. Keep this screen open and stay nearby while the final booth session wraps up.</p>
+    </div>
+
+    <a class="btn btn-ghost" id="btn-return-booth" href="../phase2-booths/hub.html" style="display:none; margin-top:12px; text-decoration:none;">Return to my booth before 4:10 →</a>
     <ul class="summary-list" id="summary-list"></ul>
     <div id="booth-guides"></div>
     <div class="connect-card">
-      <div class="kicker">Phase 3 complete</div>
-      <h2>Thanks for being here.</h2>
-      <p style="margin-bottom:0;">Keep your raffle number handy for the live drawing.</p>
+      <div class="kicker">Keep this page open</div>
+      <h2>Your raffle number stays with you.</h2>
+      <p style="margin-bottom:0;">Keep it handy for the live drawing and watch the countdown above for the main message.</p>
     </div>
     <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Switch attendee</button>
   </section>
@@ -37,27 +52,60 @@
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
-<script src="../shared/attendee-portal.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
+<script src="../shared/event-schedule.js"></script>
+<script src="../shared/attendee-portal.js"></script>
 <script>
-function renderProgress() {
+function renderProgress(phase2Complete) {
   const el = document.getElementById("progress");
   el.innerHTML = "";
   for (let i = 0; i < 3; i += 1) {
     const dot = document.createElement("div");
-    dot.className = "dot done";
+    dot.className = "dot" + (i === 1 && !phase2Complete ? " incomplete" : " done");
     el.appendChild(dot);
   }
 }
-renderProgress();
+renderProgress(false);
 
 let identity = Identity.peek();
-const chosenIds = JSON.parse(sessionStorage.getItem("eventapp.chosen") || "[]");
-const chosen = FINAL_OPTIONS.filter((option) => chosenIds.includes(option.id));
+let chosen = [];
+
+const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
+  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  : Promise.resolve();
+
+function renderMessageState() {
+  const snapshot = EventSchedule.current();
+  const waiting = snapshot.phase !== "ended";
+  const card = document.getElementById("next-up-card");
+  const returnButton = document.getElementById("btn-return-booth");
+  if (waiting) {
+    card.classList.remove("message-live");
+    document.getElementById("next-up-kicker").textContent = "Don't go yet";
+    document.getElementById("next-up-title").textContent = "You don't want to miss what's next…";
+    document.getElementById("next-up-timer").textContent = EventSchedule.formatCountdown(EventSchedule.remainingUntilEventEnd());
+    document.getElementById("next-up-label").textContent = "Until the main message · 4:10 PM";
+    document.getElementById("next-up-copy").textContent = "Your Phase 3 choices are saved. Keep this screen open and stay nearby while the final booth session wraps up.";
+    document.getElementById("done-lede").textContent = "Your choices are saved. Stay with us for the main message at 4:10 PM.";
+    returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+    returnButton.style.display = snapshot.phase === "active" ? "block" : "none";
+  } else {
+    card.classList.add("message-live");
+    document.getElementById("next-up-kicker").textContent = "Message time";
+    document.getElementById("next-up-title").textContent = "Please get seated!";
+    document.getElementById("next-up-timer").textContent = "NOW";
+    document.getElementById("next-up-label").textContent = "The main message is starting";
+    document.getElementById("next-up-copy").textContent = "The booths have ended. Find a seat and turn your attention to the main message.";
+    document.getElementById("done-lede").textContent = "Your choices are saved, and the main message is beginning now.";
+    returnButton.style.display = "none";
+  }
+}
 
 async function render() {
   document.getElementById("done-attendee-name").textContent = identity.name || "Guest";
+  document.getElementById("done-first-name").textContent = identity.name || "friend";
   document.getElementById("done-attendee-raffle").textContent = `Raffle #${identity.raffleNumber || "----"}`;
   const color = wristbandColorById(identity.wristbandColor);
   const chip = document.getElementById("done-wristband");
@@ -65,15 +113,34 @@ async function render() {
   chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
 
   let boothIds = [];
+  let signupState = null;
   try {
-    const response = await EventAPI.myCheckins(identity.attendeeId);
-    boothIds = response.boothIds || [];
+    const [checkins, selections] = await Promise.all([
+      EventAPI.myCheckins(identity.attendeeId),
+      EventAPI.mySignupSelections(identity.attendeeId),
+    ]);
+    boothIds = checkins.boothIds || [];
+    signupState = selections;
   } catch (error) {
     if (Identity.restartIfMissing(error, "../phase3-signup/index.html")) return;
     console.warn(error);
+    toast("Couldn't confirm your saved progress yet — trying again.");
+    window.setTimeout(render, 3000);
+    return;
   }
+  if (!signupState || !signupState.completedAt) {
+    window.location.replace(EventSchedule.linkWithPreview("../phase3-signup/index.html"));
+    return;
+  }
+  document.getElementById("done-loading").style.display = "none";
+  document.getElementById("done-content").style.display = "block";
+  chosen = FINAL_OPTIONS.filter((option) => (signupState.optionIds || []).includes(option.id));
 
-  const routeLength = routeForWristband(identity.wristbandColor).length || 3;
+  const route = routeForWristband(identity.wristbandColor);
+  const routeLength = route.length || 3;
+  const phase2Complete = route.length === BOOTH_SESSIONS.length
+    && route.every((boothId) => boothIds.includes(boothId));
+  renderProgress(phase2Complete);
   const list = document.getElementById("summary-list");
   list.innerHTML = `
     <li>🎟️ Raffle entry <b>#${escapeHtml(identity.raffleNumber || "----")}</b> — keep it ready for the live drawing.</li>
@@ -96,13 +163,15 @@ async function render() {
     guide.innerHTML = `<div class="g-kicker">${escapeHtml(option.guide.kicker)}</div><div class="g-loc">${escapeHtml(option.guide.loc)}</div><div class="g-detail">${escapeHtml(option.guide.detail)}</div>`;
     guides.appendChild(guide);
   });
+  renderMessageState();
 }
 
 document.getElementById("btn-restart").addEventListener("click", () => {
-  AttendeePortal.signOut("../phase3-signup/index.html");
+  AttendeePortal.signOut("../phase1-entry/index.html");
 });
 
 async function initCompletePage() {
+  await demoClockReady;
   if (!AttendeePortal.hasAccess("phase3")) {
     window.location.replace("../phase3-signup/index.html");
     return;
@@ -117,6 +186,7 @@ async function initCompletePage() {
   }
 }
 
+setInterval(renderMessageState, 1000);
 initCompletePage();
 </script>
 </body>

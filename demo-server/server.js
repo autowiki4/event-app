@@ -27,6 +27,17 @@ const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
 const BOOTH_PRESENTATION_STATUSES = new Set(["waiting", "live", "paused", "wrap", "complete"]);
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
+const DEMO_CLOCK_MODES = new Set([
+  "live",
+  "before",
+  "session1",
+  "session2",
+  "session3",
+  "session1-final15",
+  "session2-final15",
+  "session3-final15",
+  "ended",
+]);
 const FINAL_SIGNUP_OPTIONS = new Map([
   ["future", "Keep me posted on future events"],
   ["bible", "One-on-one Bible study"],
@@ -44,6 +55,48 @@ const MIME = {
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
+
+// The rehearsal clock is intentionally process-local: it is shared by every
+// browser connected to this demo server, but disappears when the demo server
+// restarts and can never affect the Apps Script deployment.
+function defaultDemoClock() {
+  return {
+    mode: "live",
+    controlled: false,
+    targetMs: null,
+    anchoredAtMs: null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+let demoClock = defaultDemoClock();
+
+function effectiveNowMs(realNowMs = Date.now()) {
+  if (!demoClock.controlled || demoClock.mode === "live") return realNowMs;
+  return demoClock.targetMs + (realNowMs - demoClock.anchoredAtMs);
+}
+
+function eventNowIso() {
+  return new Date(effectiveNowMs()).toISOString();
+}
+
+function nextDemoClockUpdatedAt(realNowMs) {
+  const previousMs = Date.parse(demoClock.updatedAt);
+  const nextMs = Number.isFinite(previousMs) ? Math.max(realNowMs, previousMs + 1) : realNowMs;
+  return new Date(nextMs).toISOString();
+}
+
+function demoClockResult() {
+  return {
+    serverNow: eventNowIso(),
+    mode: demoClock.mode,
+    controlled: demoClock.controlled,
+    targetIso: Number.isFinite(demoClock.targetMs)
+      ? new Date(demoClock.targetMs).toISOString()
+      : null,
+    updatedAt: demoClock.updatedAt,
+  };
+}
 
 // ---------- tiny JSON-file "database" ----------
 function emptyDb() {
@@ -75,6 +128,7 @@ function normalizeDb(raw) {
   db.attendees.forEach((attendee) => {
     if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
+    attendee.phase3CompletedAt = earliestTimestamp(attendee.phase3CompletedAt);
   });
   const highestAssignedRaffle = db.attendees.reduce((highest, attendee) => {
     const raffleNumber = Number(normalizeRaffleNumber(attendee.raffleNumber));
@@ -213,6 +267,16 @@ function meaningfulName(primary, fallback) {
   return primary || "Guest";
 }
 
+function earliestTimestamp(...values) {
+  return values.filter(Boolean).reduce((earliest, value) => {
+    const candidate = String(value);
+    const candidateMs = Date.parse(candidate);
+    if (Number.isNaN(candidateMs)) return earliest;
+    if (!earliest || candidateMs < Date.parse(earliest)) return candidate;
+    return earliest;
+  }, null);
+}
+
 function mergeAttendees(db, canonical, duplicate, phone) {
   if (!canonical || !duplicate || canonical === duplicate) return canonical;
 
@@ -224,6 +288,10 @@ function mergeAttendees(db, canonical, duplicate, phone) {
   canonical.phone = digitsOnly(phone) || canonical.phone || duplicate.phone || null;
   canonical.name = meaningfulName(canonical.name, duplicate.name);
   canonical.wristbandConfirmedAt = canonical.wristbandConfirmedAt || duplicate.wristbandConfirmedAt || null;
+  canonical.phase3CompletedAt = earliestTimestamp(
+    canonical.phase3CompletedAt,
+    duplicate.phase3CompletedAt
+  );
   canonical.wristbandColor = normalizeWristbandColor(canonical.wristbandColor)
     || normalizeWristbandColor(duplicate.wristbandColor)
     || null;
@@ -257,7 +325,8 @@ function registerAttendee(body) {
     attendee = {
       attendeeId, aliasIds: [], name, phone: null,
       raffleNumber: String(db.raffleCounter),
-      wristbandConfirmedAt: null, registeredAt: new Date().toISOString(), wristbandColor: null,
+      wristbandConfirmedAt: null, registeredAt: eventNowIso(), wristbandColor: null,
+      phase3CompletedAt: null,
     };
     db.attendees.push(attendee);
   } else {
@@ -293,7 +362,7 @@ function confirmWristband(body) {
   if (attendee.wristbandConfirmedAt && existingColor === colorResult.color) {
     return { status: 200, body: { ok: true, wristbandColor: existingColor } };
   }
-  attendee.wristbandConfirmedAt = new Date().toISOString();
+  attendee.wristbandConfirmedAt = eventNowIso();
   attendee.wristbandColor = colorResult.color;
   writeDb(db);
   return { status: 200, body: { ok: true, wristbandColor: attendee.wristbandColor } };
@@ -307,7 +376,8 @@ function attendeePortalResult(attendee) {
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
     wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
     phoneLinked: !!attendee.phone,
-    serverNow: new Date().toISOString(),
+    phase3CompletedAt: attendee.phase3CompletedAt || null,
+    serverNow: eventNowIso(),
   };
 }
 
@@ -451,7 +521,7 @@ function findOrRegisterByPhone(body) {
   db.raffleCounter += 1;
   const attendee = {
     attendeeId: attendeeId || id(), aliasIds: [], name: name || "Guest", phone: dPhone,
-    raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: new Date().toISOString(),
+    raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: eventNowIso(),
     wristbandColor: null,
   };
   db.attendees.push(attendee);
@@ -488,13 +558,14 @@ function boothCheckin(body) {
     name: attendee.name,
     boothId, boothName: boothName || boothId,
     checkedInBy: checkedInBy || "self",
-    checkedInAt: new Date().toISOString(),
+    checkedInAt: eventNowIso(),
     rating: rating || null, note: note || "", extraData: extraData || null,
   };
   const existing = db.boothCheckins.find((checkin) => (
     checkin.attendeeId === attendee.attendeeId && checkin.boothId === boothId
   ));
   if (existing) {
+    row.checkedInAt = existing.checkedInAt || row.checkedInAt;
     if (!Object.prototype.hasOwnProperty.call(body, "rating")) row.rating = existing.rating || null;
     if (!Object.prototype.hasOwnProperty.call(body, "note")) row.note = existing.note || "";
     const existingExtra = existing.extraData && typeof existing.extraData === "object" ? existing.extraData : {};
@@ -541,7 +612,7 @@ function submitSignup(body) {
     name: attendee.name,
     optionId, optionTitle: optionTitle || optionId,
     email: email || "", stars: stars || null, comment: comment || "",
-    submittedAt: new Date().toISOString(),
+    submittedAt: eventNowIso(),
     confirmedInPerson: false, confirmedBy: null, confirmedAt: null,
   };
   db.signups.push(row);
@@ -564,6 +635,8 @@ function saveSignupSelections(body) {
   const db = readDb();
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  const completedAt = attendee.phase3CompletedAt || eventNowIso();
+  attendee.phase3CompletedAt = completedAt;
   const selected = new Set(optionIds);
   db.signups = db.signups.filter((signup) => !(
     signup.attendeeId === attendee.attendeeId
@@ -592,7 +665,7 @@ function saveSignupSelections(body) {
       email: "",
       stars: null,
       comment: "",
-      submittedAt: new Date().toISOString(),
+      submittedAt: eventNowIso(),
       confirmedInPerson: false,
       confirmedBy: null,
       confirmedAt: null,
@@ -604,7 +677,7 @@ function saveSignupSelections(body) {
     db.signups.some((signup) => signup.attendeeId === attendee.attendeeId && String(signup.optionId) === optionId)
   ));
   writeDb(db);
-  return { status: 200, body: { ok: true, optionIds: savedOptionIds, signupIds } };
+  return { status: 200, body: { ok: true, optionIds: savedOptionIds, signupIds, completedAt } };
 }
 
 function confirmSignupInPerson(body) {
@@ -616,7 +689,7 @@ function confirmSignupInPerson(body) {
   if (!row) return { status: 404, body: { error: "signup not found" } };
   row.confirmedInPerson = true;
   row.confirmedBy = confirmedBy || "staff";
-  row.confirmedAt = new Date().toISOString();
+  row.confirmedAt = eventNowIso();
   writeDb(db);
   return { status: 200, body: { ok: true } };
 }
@@ -646,7 +719,7 @@ function mySignupSelections(body) {
   const optionIds = Array.from(FINAL_SIGNUP_OPTIONS.keys()).filter((optionId) => (
     db.signups.some((signup) => signup.attendeeId === attendee.attendeeId && String(signup.optionId) === optionId)
   ));
-  return { status: 200, body: { optionIds } };
+  return { status: 200, body: { optionIds, completedAt: attendee.phase3CompletedAt || null } };
 }
 
 function dashboardData(body) {
@@ -704,7 +777,7 @@ function boothPresentation(body) {
     status: 200,
     body: Object.assign(
       boothPresentationFromDb(db, boothResult.boothId),
-      { serverNow: new Date().toISOString() }
+      { serverNow: eventNowIso() }
     ),
   };
 }
@@ -747,7 +820,7 @@ function updateBoothPresentation(body) {
       return errorResult(409, "This booth screen was updated in another tab. Refresh and try again.", "PRESENTATION_CONFLICT");
     }
   }
-  const now = new Date().toISOString();
+  const now = eventNowIso();
   const presentation = {
     boothId: boothResult.boothId,
     stepIndex,
@@ -778,7 +851,7 @@ function boothDashboardData(body) {
     body: {
       boothId,
       presentation: boothPresentationFromDb(db, boothId),
-      serverNow: new Date().toISOString(),
+      serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       recentCheckins: checkins.slice(0, 50).map((checkin) => ({
         id: checkin.id,
@@ -789,6 +862,49 @@ function boothDashboardData(body) {
       })),
     },
   };
+}
+
+function eventClock() {
+  return { status: 200, body: demoClockResult() };
+}
+
+function setDemoClock(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+
+  const mode = String((body && body.mode) || "").trim().toLowerCase();
+  if (!DEMO_CLOCK_MODES.has(mode)) {
+    return errorResult(400, "Choose a valid demo clock mode.", "INVALID_DEMO_CLOCK_MODE");
+  }
+
+  const realNowMs = Date.now();
+  if (mode === "live") {
+    demoClock = {
+      mode,
+      controlled: true,
+      targetMs: null,
+      anchoredAtMs: realNowMs,
+      updatedAt: nextDemoClockUpdatedAt(realNowMs),
+    };
+    return { status: 200, body: demoClockResult() };
+  }
+
+  const targetMs = Date.parse(body && body.targetIso);
+  if (!Number.isFinite(targetMs)) {
+    return errorResult(
+      400,
+      "targetIso must be a valid event timestamp for this demo clock mode.",
+      "INVALID_DEMO_CLOCK_TARGET"
+    );
+  }
+  demoClock = {
+    mode,
+    controlled: true,
+    targetMs,
+    anchoredAtMs: realNowMs,
+    updatedAt: nextDemoClockUpdatedAt(realNowMs),
+  };
+  return { status: 200, body: demoClockResult() };
 }
 
 function resetDemo(body) {
@@ -808,9 +924,9 @@ const POST_ACTIONS = {
   registerAttendee, confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
   boothCheckin, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
-  myCheckins, mySignupSelections,
+  myCheckins, mySignupSelections, eventClock, setDemoClock,
 };
-const GET_ACTIONS = {};
+const GET_ACTIONS = { eventClock };
 
 // ---------- tiny static file server + router ----------
 function serveStatic(req, res, pathname) {

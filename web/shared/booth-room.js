@@ -1,8 +1,13 @@
 /* Each attendee booth is its own Phase 2 room. This module mounts a blank
- * name + raffle login, grants access only to the current booth, and leaves
- * the room-specific activity to booth-common.js. */
+ * name + raffle login, enforces the attendee's timed route, and leaves the
+ * room-specific activity to booth-common.js. Staff and kiosk pages do not
+ * load this module, so their controls are not affected by the attendee gate. */
 function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   const portal = `phase2.${boothId}`;
+  const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+  const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
+    ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+    : Promise.resolve();
   const phone = document.getElementById("phone");
   const room = document.getElementById("booth-room-content");
   const phoneGate = document.getElementById("booth-gate");
@@ -14,7 +19,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   login.innerHTML = `
     <p class="eyebrow">Phase 2 · Booth room</p>
     <h1 class="display">Welcome to the <em id="booth-login-room-name"></em> room.</h1>
-    <p class="lede">You are at this booth now. Enter the name and raffle number from Phase 1 to open this room only.</p>
+    <p class="lede">Enter the name and raffle number from Phase 1. This room will open only during your assigned 20-minute session.</p>
     <div class="field">
       <label for="booth-login-name">Name used in Phase 1</label>
       <input id="booth-login-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
@@ -26,12 +31,29 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       <div class="err" id="booth-login-error"></div>
     </div>
     <button class="btn btn-primary" id="btn-booth-login"></button>
-    <p class="top-note">You will log in separately when you arrive at another booth.</p>
+    <p class="top-note">Your wristband route and the shared event timer decide when this booth unlocks.</p>
   `;
   phone.insertBefore(login, room);
   document.getElementById("booth-login-room-name").textContent = roomName;
   const loginButton = document.getElementById("btn-booth-login");
-  loginButton.textContent = `Enter the ${roomName} room →`;
+  loginButton.textContent = `Check my ${roomName} session →`;
+
+  const locked = document.createElement("section");
+  locked.className = "screen booth-room-locked";
+  locked.id = "booth-room-locked";
+  locked.style.display = "none";
+  locked.innerHTML = `
+    <div class="booth-lock-card">
+      <div class="booth-lock-icon" aria-hidden="true">🔒</div>
+      <p class="eyebrow" id="booth-lock-kicker">Timed booth access</p>
+      <h1 class="display" id="booth-lock-title">This booth is locked.</h1>
+      <p class="lede" id="booth-lock-copy"></p>
+      <div class="booth-lock-time" id="booth-lock-time" style="display:none;"></div>
+    </div>
+    <a class="btn btn-primary" id="btn-booth-route" href="hub.html" style="display:block; text-decoration:none;">View my booth schedule →</a>
+    <button class="btn-link booth-lock-switch" id="btn-booth-locked-switch">Switch attendee</button>
+  `;
+  phone.insertBefore(locked, room);
 
   const welcome = document.createElement("section");
   welcome.className = "screen booth-room-welcome";
@@ -39,22 +61,36 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   welcome.innerHTML = `
     <div class="staff-toolbar"><button class="btn-link" id="btn-booth-switch">Switch attendee</button></div>
     <div class="booth-guide">
-      <div class="g-kicker">Signed into this booth only</div>
+      <div class="g-kicker">Your active booth · Open now</div>
       <div class="g-loc" id="booth-welcome-title"></div>
-      <div class="g-detail">When you visit another booth, open that booth's link and log in there.</div>
+      <div class="g-detail">This room stays available until the current 20-minute session ends.</div>
     </div>
   `;
   room.insertBefore(welcome, phoneGate);
+
+  const warning = document.createElement("div");
+  warning.className = "booth-ending-warning booth-room-ending-warning";
+  warning.id = "booth-room-ending-warning";
+  warning.setAttribute("role", "status");
+  warning.setAttribute("aria-live", "assertive");
+  warning.style.display = "none";
+  warning.innerHTML = `
+    <strong>15 seconds left</strong>
+    <span>Go to the end and tap Finish now so your visit saves before this booth closes.</span>
+  `;
+  room.insertBefore(warning, phoneGate);
 
   const complete = document.createElement("section");
   complete.className = "screen";
   complete.id = "booth-room-complete";
   complete.style.display = "none";
   complete.innerHTML = `
-    <div class="done-badge">✓</div>
-    <p class="eyebrow" style="text-align:center;">Booth complete</p>
+    <div class="done-badge booth-visited-badge">✓</div>
+    <p class="eyebrow" style="text-align:center;">Visit saved</p>
     <h1 class="display" style="text-align:center;">Thank you for visiting <em id="booth-complete-name"></em></h1>
-    <p class="lede" style="text-align:center;">You can close this link now. When you get to another booth, open that booth's link and log in there.</p>
+    <p class="lede" style="text-align:center;">This booth is marked visited. You may reopen it until your session ends.</p>
+    <button class="btn btn-ghost" id="btn-booth-reopen">Reopen this booth</button>
+    <a class="btn btn-primary" id="btn-booth-complete-route" href="hub.html" style="display:block; text-decoration:none; margin-top:10px;">Return to my schedule →</a>
   `;
   phone.appendChild(complete);
   const completeName = complete.querySelector("#booth-complete-name");
@@ -65,12 +101,61 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   const loginError = document.getElementById("booth-login-error");
   nameInput.value = "";
   raffleInput.value = "";
+  let currentIdentity = null;
   let roomStarted = false;
+  let roomCompleted = false;
+  let visibleView = "";
+
+  function boothAccess(identity, snapshot) {
+    if (!identity || !identity.wristbandColor) return false;
+    if (typeof EventSchedule.canOpenBooth === "function") {
+      return Boolean(EventSchedule.canOpenBooth(identity.wristbandColor, boothId, snapshot));
+    }
+    const route = EventSchedule.route(identity.wristbandColor);
+    return snapshot.phase === "active" && route[snapshot.sessionIndex] === boothId;
+  }
+
+  function routeDetails(identity, snapshot) {
+    const route = EventSchedule.route(identity.wristbandColor);
+    const routeIndex = route.indexOf(boothId);
+    if (routeIndex < 0) {
+      return {
+        kicker: "Not on your wristband route",
+        title: `${roomName} is not one of your stops.`,
+        copy: "Use your personal booth schedule to see the three rooms assigned to your wristband color.",
+        time: "",
+      };
+    }
+    const session = BOOTH_SESSIONS[routeIndex];
+    const sessionTime = session ? `${EventSchedule.formattedTime(session.startsAt)}–${EventSchedule.formattedTime(session.endsAt)}` : "";
+    const isPast = snapshot.phase === "ended" || (snapshot.phase === "active" && routeIndex < snapshot.sessionIndex);
+    if (isPast) {
+      return {
+        kicker: "Session ended",
+        title: `${roomName} is now closed.`,
+        copy: "Booth rooms cannot be reopened after their assigned session. Return to your schedule for your current stop.",
+        time: sessionTime,
+      };
+    }
+    return {
+      kicker: `Your stop ${routeIndex + 1} of 3`,
+      title: `${roomName} is not open yet.`,
+      copy: "This booth unlocks automatically when its assigned session begins. You do not need to refresh.",
+      time: sessionTime ? `Opens for you at ${sessionTime}` : "",
+    };
+  }
+
+  function showOnly(viewName) {
+    if (visibleView === viewName) return;
+    login.style.display = viewName === "login" ? "block" : "none";
+    locked.style.display = viewName === "locked" ? "block" : "none";
+    room.style.display = viewName === "room" ? "block" : "none";
+    complete.style.display = viewName === "complete" ? "block" : "none";
+    visibleView = viewName;
+  }
 
   function showLogin(message, clearFields) {
-    room.style.display = "none";
-    complete.style.display = "none";
-    login.style.display = "block";
+    showOnly("login");
     if (clearFields) {
       nameInput.value = "";
       raffleInput.value = "";
@@ -79,15 +164,62 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     loginError.style.display = message ? "block" : "none";
   }
 
-  function showRoom(identity) {
-    login.style.display = "none";
-    complete.style.display = "none";
-    room.style.display = "block";
+  function showLocked(snapshot) {
+    showOnly("locked");
+    const details = routeDetails(currentIdentity, snapshot);
+    document.getElementById("booth-lock-kicker").textContent = details.kicker;
+    document.getElementById("booth-lock-title").textContent = details.title;
+    document.getElementById("booth-lock-copy").textContent = details.copy;
+    const lockTime = document.getElementById("booth-lock-time");
+    lockTime.textContent = details.time;
+    lockTime.style.display = details.time ? "block" : "none";
+  }
+
+  function showRoom(identity, snapshot) {
+    showOnly("room");
     document.getElementById("booth-welcome-title").textContent = `Welcome, ${identity.name || "friend"}, to the ${roomName} room.`;
     if (!roomStarted) {
       roomStarted = true;
       initBoothGate({ boothId, boothName, onReady, identity });
     }
+    updateEndingWarning(snapshot);
+  }
+
+  function showComplete() {
+    showOnly("complete");
+  }
+
+  function updateEndingWarning(snapshot) {
+    const endingSoon = snapshot.phase === "active"
+      && (typeof EventSchedule.isEndingSoon === "function"
+        ? EventSchedule.isEndingSoon(snapshot, 15000)
+        : snapshot.remainingMs > 0 && snapshot.remainingMs <= 15000);
+    warning.style.display = endingSoon && !roomCompleted ? "flex" : "none";
+  }
+
+  function refreshBoothRoomAccess() {
+    if (!currentIdentity) return false;
+    const snapshot = EventSchedule.current();
+    if (!boothAccess(currentIdentity, snapshot)) {
+      showLocked(snapshot);
+      return false;
+    }
+    if (roomCompleted) showComplete();
+    else showRoom(currentIdentity, snapshot);
+    return true;
+  }
+
+  async function restoreRoomState(identity) {
+    currentIdentity = identity;
+    try {
+      const checkins = await EventAPI.myCheckins(identity.attendeeId);
+      roomCompleted = (checkins.boothIds || []).includes(boothId);
+    } catch (error) {
+      // Access can still render from the signed-in identity. The booth gate
+      // will retry its normal backend verification before showing activity.
+      console.warn("Couldn't restore this booth's completion state", error);
+    }
+    refreshBoothRoomAccess();
   }
 
   async function submitLogin() {
@@ -98,9 +230,10 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       return;
     }
     loginButton.disabled = true;
-    loginButton.textContent = "Finding registration…";
+    loginButton.textContent = "Finding your session…";
     try {
-      showRoom(await AttendeePortal.signIn(portal, name, raffleNumber));
+      await demoClockReady;
+      await restoreRoomState(await AttendeePortal.signIn(portal, name, raffleNumber));
     } catch (error) {
       console.error(error);
       if (["ATTENDEE_LOGIN_FAILED", "LOGIN_FIELDS_REQUIRED", "PHASE1_INCOMPLETE"].includes(error.code)) {
@@ -110,40 +243,62 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       }
     } finally {
       loginButton.disabled = false;
-      loginButton.textContent = `Enter the ${roomName} room →`;
+      loginButton.textContent = `Check my ${roomName} session →`;
     }
+  }
+
+  function switchAttendee() {
+    AttendeePortal.clearAccess(portal);
+    window.location.reload();
   }
 
   loginButton.addEventListener("click", submitLogin);
   [nameInput, raffleInput].forEach((input) => input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") submitLogin();
   }));
-  document.getElementById("btn-booth-switch").addEventListener("click", () => {
-    AttendeePortal.clearAccess(portal);
-    window.location.reload();
+  document.getElementById("btn-booth-switch").addEventListener("click", switchAttendee);
+  document.getElementById("btn-booth-locked-switch").addEventListener("click", switchAttendee);
+  document.getElementById("btn-booth-reopen").addEventListener("click", () => {
+    roomCompleted = false;
+    refreshBoothRoomAccess();
   });
 
+  const routeUrl = EventSchedule.linkWithPreview("hub.html");
+  document.getElementById("btn-booth-route").href = routeUrl;
+  document.getElementById("btn-booth-complete-route").href = routeUrl;
+
+  window.isCurrentBoothRoomOpen = () => {
+    if (!currentIdentity) return false;
+    return boothAccess(currentIdentity, EventSchedule.current());
+  };
+  window.refreshBoothRoomAccess = refreshBoothRoomAccess;
   window.completeBoothRoom = (completedBoothName) => {
-    login.style.display = "none";
-    room.style.display = "none";
-    complete.style.display = "block";
+    roomCompleted = true;
     completeName.textContent = typeof completedBoothName === "string" && completedBoothName.trim()
       ? completedBoothName
       : boothName;
+    refreshBoothRoomAccess();
   };
 
-  if (!AttendeePortal.hasAccess(portal)) {
-    showLogin("", true);
-    return;
-  }
-  AttendeePortal.restore(portal)
-    .then(showRoom)
-    .catch((error) => {
-      console.error(error);
-      AttendeePortal.clearAccess(portal);
-      const message = error.code === "PHASE1_INCOMPLETE"
-        ? error.message
-        : `Log in to enter the ${roomName} room.`;
-      showLogin(message, true);
-    });
+  setInterval(refreshBoothRoomAccess, 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshBoothRoomAccess();
+  });
+
+  demoClockReady.then(() => {
+    if (!AttendeePortal.hasAccess(portal)) {
+      showLogin("", true);
+      return;
+    }
+    AttendeePortal.restore(portal)
+      .then(restoreRoomState)
+      .catch((error) => {
+        console.error(error);
+        AttendeePortal.clearAccess(portal);
+        const message = error.code === "PHASE1_INCOMPLETE"
+          ? error.message
+          : `Log in to check your ${roomName} session.`;
+        showLogin(message, true);
+      });
+  });
 }

@@ -33,6 +33,7 @@ function initBoothStaff(boothId) {
   let presentationEpoch = 0;
   let published = normalizePresentation(null);
   let draft = { ...published };
+  let demoClockSyncStarted = false;
 
   document.title = `${booth.title} — Booth Leader`;
   document.getElementById("staff-booth-name").textContent = booth.title;
@@ -324,6 +325,19 @@ function initBoothStaff(boothId) {
     timer.textContent = "Closed";
   }
 
+  async function startSharedDemoClock() {
+    const demoBackend = window.EVENT_APP_CONFIG
+      && String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+    if (!demoBackend || demoClockSyncStarted || typeof EventSchedule === "undefined"
+      || typeof EventSchedule.startDemoClockSync !== "function") return;
+    demoClockSyncStarted = true;
+    try {
+      await EventSchedule.startDemoClockSync(1000);
+    } catch (error) {
+      console.warn("Demo clock sync unavailable", error);
+    }
+  }
+
   async function refresh(options) {
     if (refreshInFlight || saving) return false;
     const authGeneration = OrganizerAuth.generation();
@@ -358,8 +372,10 @@ function initBoothStaff(boothId) {
         const schedule = typeof EventSchedule !== "undefined" && EventSchedule.current
           ? EventSchedule.current()
           : null;
-        const isLocalPreview = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
-          && new URLSearchParams(window.location.search).has("preview");
+        const isLocalPreview = typeof EventSchedule !== "undefined" && typeof EventSchedule.isPreviewing === "function"
+          ? EventSchedule.isPreviewing()
+          : ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+            && new URLSearchParams(window.location.search).has("preview");
         const publishedMs = published.updatedAt ? new Date(published.updatedAt).getTime() : NaN;
         const belongsToPriorSession = !isLocalPreview
           && schedule
@@ -398,6 +414,7 @@ function initBoothStaff(boothId) {
 
   OrganizerAuth.init({
     onUnlocked: async () => {
+      await startSharedDemoClock();
       const refreshed = await refresh();
       if (refreshed && OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => refresh({ silent: true }), 5000);

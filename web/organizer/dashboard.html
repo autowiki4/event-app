@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Organizer Dashboard — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
+<style>
+  .demo-clock-panel{ margin:22px 0 24px; padding:18px; border:1px solid rgba(78,72,112,.18); border-radius:18px; background:linear-gradient(145deg,#f7f3ff,#fff9f0); box-shadow:0 12px 34px rgba(43,36,74,.08); }
+  .demo-clock-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:14px; }
+  .demo-clock-badge{ display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border-radius:999px; background:#6f4bd8; color:#fff; font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+  .demo-clock-panel h2{ margin:6px 0 4px; font-size:22px; }
+  .demo-clock-panel p{ margin:0; color:var(--ink-soft); font-size:12px; line-height:1.5; }
+  .demo-clock-readout{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:14px 0; }
+  .demo-clock-stat{ min-width:0; padding:10px; border:1px solid rgba(78,72,112,.12); border-radius:12px; background:rgba(255,255,255,.75); }
+  .demo-clock-stat span{ display:block; color:var(--ink-soft); font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .demo-clock-stat strong{ display:block; overflow-wrap:anywhere; margin-top:4px; color:var(--ink); font-size:12px; line-height:1.3; }
+  .demo-clock-presets{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .demo-clock-presets button{ min-height:42px; padding:9px 10px; border:1px solid rgba(78,72,112,.18); border-radius:11px; background:#fff; color:var(--ink); font:700 11px/1.25 inherit; cursor:pointer; }
+  .demo-clock-presets button:hover{ border-color:#6f4bd8; }
+  .demo-clock-presets button[aria-pressed="true"]{ border-color:#6f4bd8; background:#6f4bd8; color:#fff; box-shadow:0 5px 14px rgba(111,75,216,.22); }
+  .demo-clock-presets button:disabled{ cursor:wait; opacity:.55; }
+  .demo-clock-state{ min-height:18px; margin-top:10px !important; }
+  @media (max-width:520px){ .demo-clock-head{ display:block; } .demo-clock-badge{ margin-top:10px; } .demo-clock-readout{ grid-template-columns:1fr; } }
+</style>
 </head>
 <body>
 
@@ -29,6 +47,35 @@
 
     <div id="organizer-content" style="display:none;">
     <div class="staff-toolbar" style="gap:18px;"><a class="btn-link" href="../phase2-staff/index.html">Phase 2 booth staff hub</a><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
+
+    <section class="demo-clock-panel" id="demo-clock-panel" style="display:none;" aria-labelledby="demo-clock-title">
+      <div class="demo-clock-head">
+        <div>
+          <p class="eyebrow">Rehearsal control</p>
+          <h2 id="demo-clock-title">Shared event time</h2>
+          <p>Jump every screen connected to this local demo server to the same point in the event.</p>
+        </div>
+        <span class="demo-clock-badge">Demo only</span>
+      </div>
+      <div class="demo-clock-readout">
+        <div class="demo-clock-stat"><span>Preset</span><strong id="demo-clock-mode">Live clock</strong></div>
+        <div class="demo-clock-stat"><span>Simulated time</span><strong id="demo-clock-time">Checking…</strong></div>
+        <div class="demo-clock-stat"><span>Event state</span><strong id="demo-clock-phase">Checking…</strong></div>
+      </div>
+      <div class="demo-clock-presets" id="demo-clock-presets" role="group" aria-label="Set shared demo event time">
+        <button type="button" data-demo-clock-mode="live">Live clock</button>
+        <button type="button" data-demo-clock-mode="before">Before event</button>
+        <button type="button" data-demo-clock-mode="session1">Session 1 · midpoint</button>
+        <button type="button" data-demo-clock-mode="session1-final15">Session 1 · final 15s</button>
+        <button type="button" data-demo-clock-mode="session2">Session 2 · midpoint</button>
+        <button type="button" data-demo-clock-mode="session2-final15">Session 2 · final 15s</button>
+        <button type="button" data-demo-clock-mode="session3">Session 3 · midpoint</button>
+        <button type="button" data-demo-clock-mode="session3-final15">Session 3 · final 15s</button>
+        <button type="button" data-demo-clock-mode="ended">After booths</button>
+      </div>
+      <p class="demo-clock-state" id="demo-clock-state" role="status">Unlocking shared demo clock…</p>
+    </section>
+
     <div class="dash-grid" id="totals-grid"></div>
 
     <div class="section-title">Booth check-ins</div>
@@ -63,10 +110,120 @@
 <script src="../shared/organizer-auth.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
+<script src="../shared/event-schedule.js"></script>
 <script src="../shared/phone.js"></script>
 <script>
 function esc(s) { return escapeHtml(s); }
 let refreshTimer = null;
+let demoClockReadoutTimer = null;
+let demoClockSyncStarted = false;
+let demoClockReady = null;
+let demoClockRequestInFlight = false;
+let latestDemoClockMode = "live";
+
+const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+const demoClockLabels = {
+  live: "Live clock",
+  before: "Before event",
+  session1: "Session 1 · midpoint",
+  "session1-final15": "Session 1 · final 15s",
+  session2: "Session 2 · midpoint",
+  "session2-final15": "Session 2 · final 15s",
+  session3: "Session 3 · midpoint",
+  "session3-final15": "Session 3 · final 15s",
+  ended: "After booths",
+};
+
+function formatDemoClockTime(valueMs) {
+  const value = new Date(valueMs);
+  if (Number.isNaN(value.getTime())) return "Unavailable";
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "America/Chicago",
+  }).format(value);
+}
+
+function demoClockPhaseLabel(snapshot) {
+  if (!snapshot) return "Unavailable";
+  if (snapshot.phase === "active" && snapshot.session) return `Session ${snapshot.session.number} active`;
+  if (snapshot.phase === "before") return "Before booth sessions";
+  return "Booths ended · message time";
+}
+
+function renderDemoClock() {
+  if (!demoBackend) return;
+  const state = typeof EventSchedule.demoClockState === "function"
+    ? EventSchedule.demoClockState()
+    : null;
+  const snapshot = EventSchedule.current();
+  const mode = state && state.mode ? state.mode : latestDemoClockMode;
+  latestDemoClockMode = mode;
+  document.getElementById("demo-clock-mode").textContent = demoClockLabels[mode] || mode;
+  document.getElementById("demo-clock-time").textContent = formatDemoClockTime(snapshot.nowMs);
+  document.getElementById("demo-clock-phase").textContent = demoClockPhaseLabel(snapshot);
+  document.querySelectorAll("[data-demo-clock-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.demoClockMode === mode));
+    button.disabled = demoClockRequestInFlight;
+  });
+}
+
+function startSharedDemoClock() {
+  if (!demoBackend) return Promise.resolve();
+  if (demoClockSyncStarted) return demoClockReady || Promise.resolve();
+  demoClockSyncStarted = true;
+  if (typeof EventSchedule.startDemoClockSync === "function") {
+    const started = EventSchedule.startDemoClockSync(1000);
+    demoClockReady = started && typeof started.then === "function"
+      ? started.catch((error) => console.warn("Demo clock sync unavailable", error))
+      : Promise.resolve();
+    return demoClockReady;
+  }
+  demoClockReady = Promise.resolve();
+  return demoClockReady;
+}
+
+async function setSharedDemoClock(mode) {
+  if (!demoBackend || demoClockRequestInFlight || !demoClockLabels[mode]) return;
+  const authGeneration = OrganizerAuth.generation();
+  const organizerKey = OrganizerAuth.key();
+  if (!organizerKey) return;
+  demoClockRequestInFlight = true;
+  renderDemoClock();
+  document.getElementById("demo-clock-state").textContent = `Setting ${demoClockLabels[mode]}…`;
+  try {
+    const targetIso = typeof EventSchedule.demoTargetIso === "function"
+      ? EventSchedule.demoTargetIso(mode)
+      : null;
+    const requestStartedMs = Date.now();
+    const response = await EventAPI.setDemoClock(mode, targetIso, organizerKey);
+    const responseReceivedMs = Date.now();
+    if (!OrganizerAuth.isCurrent(authGeneration)) return;
+    if (typeof EventSchedule.applyDemoClock === "function") {
+      EventSchedule.applyDemoClock(response, requestStartedMs, responseReceivedMs);
+    }
+    latestDemoClockMode = response && response.mode ? response.mode : mode;
+    document.getElementById("demo-clock-state").textContent = "All local demo screens are moving to this event time.";
+  } catch (error) {
+    console.error(error);
+    if (OrganizerAuth.handleError(error, authGeneration)) return;
+    document.getElementById("demo-clock-state").textContent = "Couldn't change the demo time. Check that the local demo server is running.";
+    toast("Couldn't change the demo time.");
+  } finally {
+    if (OrganizerAuth.isCurrent(authGeneration)) {
+      demoClockRequestInFlight = false;
+      renderDemoClock();
+    }
+  }
+}
+
+document.querySelectorAll("[data-demo-clock-mode]").forEach((button) => {
+  button.addEventListener("click", () => setSharedDemoClock(button.dataset.demoClockMode));
+});
 
 function groupSignupsByOption(signups) {
   const configuredById = new Map(FINAL_OPTIONS.map((option, index) => [option.id, { ...option, index }]));
@@ -209,18 +366,27 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
   }
 });
 
-if (window.EVENT_APP_CONFIG.API_BASE_URL.includes("script.google.com")) {
+if (!demoBackend) {
   document.getElementById("btn-reset").style.display = "none";
+} else {
+  document.getElementById("demo-clock-panel").style.display = "block";
 }
 
 OrganizerAuth.init({
   onUnlocked: async () => {
+    await startSharedDemoClock();
+    renderDemoClock();
+    if (demoBackend) document.getElementById("demo-clock-state").textContent = "Shared demo clock ready. Choose a preset to move every rehearsal screen.";
+    if (demoBackend && !demoClockReadoutTimer) demoClockReadoutTimer = setInterval(renderDemoClock, 1000);
     const refreshed = await refresh();
     if (refreshed && OrganizerAuth.key() && !refreshTimer) refreshTimer = setInterval(refresh, 4000);
   },
   onLocked: () => {
     if (refreshTimer) clearInterval(refreshTimer);
+    if (demoClockReadoutTimer) clearInterval(demoClockReadoutTimer);
     refreshTimer = null;
+    demoClockReadoutTimer = null;
+    demoClockRequestInFlight = false;
     clearDashboard();
   },
 });

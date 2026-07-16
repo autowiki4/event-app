@@ -28,9 +28,9 @@ const AttendeePortal = (() => {
     try { sessionStorage.removeItem(markerKey(portal)); } catch (e) { /* optional tab session */ }
   }
 
-  function saveSession(result, previous) {
+  function saveSession(result, previous, requestStartedMs, responseReceivedMs) {
     if (result.serverNow && typeof EventSchedule !== "undefined" && EventSchedule.sync) {
-      EventSchedule.sync(result.serverNow);
+      EventSchedule.sync(result.serverNow, requestStartedMs, responseReceivedMs);
     }
     const sameAttendee = previous.attendeeId === result.attendeeId;
     if (!sameAttendee) {
@@ -49,8 +49,9 @@ const AttendeePortal = (() => {
 
   async function signIn(portal, name, raffleNumber) {
     const previous = Identity.peek();
+    const requestStartedMs = Date.now();
     const result = await EventAPI.loginAttendee(name, raffleNumber, backendPortal(portal));
-    const identity = saveSession(result, previous);
+    const identity = saveSession(result, previous, requestStartedMs, Date.now());
     setAccess(portal, identity.attendeeId);
     return identity;
   }
@@ -62,8 +63,9 @@ const AttendeePortal = (() => {
       throw error;
     }
     const previous = Identity.peek();
+    const requestStartedMs = Date.now();
     const result = await EventAPI.attendeePortalSession(previous.attendeeId, backendPortal(portal));
-    const identity = saveSession(result, previous);
+    const identity = saveSession(result, previous, requestStartedMs, Date.now());
     setAccess(portal, identity.attendeeId);
     return identity;
   }
@@ -75,8 +77,9 @@ const AttendeePortal = (() => {
       error.code = "PORTAL_LOGIN_REQUIRED";
       throw error;
     }
+    const requestStartedMs = Date.now();
     const result = await EventAPI.attendeePortalSession(previous.attendeeId, backendPortal(portal));
-    const identity = saveSession(result, previous);
+    const identity = saveSession(result, previous, requestStartedMs, Date.now());
     setAccess(portal, identity.attendeeId);
     return identity;
   }

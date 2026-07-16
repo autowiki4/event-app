@@ -49,6 +49,10 @@
       <div class="session-countdown" id="session-countdown">--:--</div>
       <div class="session-countdown-label" id="countdown-label">Synchronizing</div>
     </div>
+    <div class="booth-ending-warning" id="booth-ending-warning" role="status" aria-live="assertive" style="display:none;">
+      <strong>15 seconds left</strong>
+      <span>Tap Finish now so your visit saves before this booth closes.</span>
+    </div>
     <div class="sync-note" id="sync-note" style="display:none;"></div>
 
     <div id="current-experience">
@@ -74,7 +78,10 @@
         <p class="top-note" id="presentation-updated"></p>
       </div>
 
-      <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:none; text-decoration:none;">Choose my next steps →</a>
+      <div id="phase3-ready" style="display:none; margin-top:14px;">
+        <div class="placeholder-note" id="phase3-note"></div>
+        <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:block; text-decoration:none;">Continue to Phase 3 →</a>
+      </div>
     </div>
 
     <div class="section-title">Your three stops</div>
@@ -97,17 +104,28 @@ let completedBooths = new Set();
 let activeBoothId = "";
 let presentation = null;
 let presentationBusy = false;
+let progressRefreshBusy = false;
+let routeRenderSignature = "";
+const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
+  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  : Promise.resolve();
 
-function renderProgress() {
+function routeIsComplete() {
+  const route = identity ? EventSchedule.route(identity.wristbandColor) : [];
+  return route.length === BOOTH_SESSIONS.length && route.every((boothId) => completedBooths.has(boothId));
+}
+
+function renderProgress(phase2Complete) {
   const el = document.getElementById("progress");
   el.innerHTML = "";
   for (let i = 0; i < 3; i += 1) {
     const dot = document.createElement("div");
-    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    dot.className = "dot" + (i === 0 || (i === 1 && phase2Complete) ? " done" : i === 1 ? " current" : "");
     el.appendChild(dot);
   }
 }
-renderProgress();
+renderProgress(false);
 
 function showLogin(message) {
   document.getElementById("phase2-content").style.display = "none";
@@ -129,6 +147,31 @@ function showPortal() {
   renderSchedule();
 }
 
+async function refreshCompletedBooths() {
+  if (!identity || !identity.attendeeId || progressRefreshBusy) return false;
+  progressRefreshBusy = true;
+  try {
+    const checkins = await EventAPI.myCheckins(identity.attendeeId);
+    // Booth visits are append-only in this experience. Merge instead of
+    // replacing so a slower refresh can never erase a completion the attendee
+    // just saved in this tab (or in a direct booth tab).
+    const nextCompleted = new Set([...completedBooths, ...(checkins.boothIds || [])]);
+    const changed = nextCompleted.size !== completedBooths.size
+      || Array.from(nextCompleted).some((boothId) => !completedBooths.has(boothId));
+    completedBooths = nextCompleted;
+    if (changed) {
+      routeRenderSignature = "";
+      renderSchedule();
+    }
+    return true;
+  } catch (error) {
+    console.warn("Couldn't refresh saved booth visits", error);
+    return false;
+  } finally {
+    progressRefreshBusy = false;
+  }
+}
+
 function formatUpdated(value) {
   if (!value) return "Waiting for the booth leader's first update.";
   const date = new Date(value);
@@ -139,8 +182,10 @@ function formatUpdated(value) {
 function displayPresentation(booth) {
   let state = presentation || { status: "waiting", stepIndex: 0, message: "" };
   const schedule = EventSchedule.current();
-  const isLocalPreview = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
-    && new URLSearchParams(window.location.search).has("preview");
+  const isLocalPreview = typeof EventSchedule.isPreviewing === "function"
+    ? EventSchedule.isPreviewing()
+    : ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+      && new URLSearchParams(window.location.search).has("preview");
   const updatedMs = state.updatedAt ? new Date(state.updatedAt).getTime() : NaN;
   if (!isLocalPreview && schedule.phase === "active" && Number.isFinite(updatedMs) && updatedMs < schedule.session.startMs) {
     state = { status: "waiting", stepIndex: 0, message: "", updatedAt: "" };
@@ -203,23 +248,55 @@ async function loadPresentation(boothId) {
 
 function renderRoute(snapshot) {
   const route = EventSchedule.route(identity.wristbandColor);
-  document.getElementById("attendee-route").innerHTML = route.map((boothId, index) => {
+  const stops = route.map((boothId, index) => {
     const booth = boothById(boothId);
     const session = BOOTH_SESSIONS[index];
-    const isCurrent = snapshot.phase === "active" && snapshot.sessionIndex === index;
-    const isPast = snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
     const completed = completedBooths.has(boothId);
-    const stateClass = completed ? "complete" : isCurrent ? "current" : isPast ? "missed" : "upcoming";
-    const stateLabel = completed ? "Completed ✓" : isCurrent ? "Go now" : isPast ? "Session ended" : session.label;
+    const fallback = (() => {
+      const current = snapshot.phase === "active" && snapshot.sessionIndex === index;
+      const past = snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
+      if (completed) return { kind: "visited", canOpen: current, faded: true, checked: true };
+      if (current) return { kind: "active", canOpen: true, faded: false, checked: false };
+      if (past) return { kind: "expired", canOpen: false, faded: true, checked: false };
+      return { kind: "locked", canOpen: false, faded: true, checked: false };
+    })();
+    const derived = typeof EventSchedule.deriveBoothStop === "function"
+      ? EventSchedule.deriveBoothStop(index, completed, snapshot)
+      : fallback;
+    const state = { ...fallback, ...(derived || {}) };
+    const canOpen = Boolean(state.canOpen);
+    const checked = Boolean(state.checked || completed);
+    const kind = state.kind || fallback.kind;
+    const classes = [kind, canOpen ? "current" : "", state.faded ? "faded" : "", checked ? "complete" : ""]
+      .filter(Boolean)
+      .join(" ");
+    const stateLabel = kind === "visited"
+      ? (canOpen ? "Visited ✓ · Reopen" : "Visited ✓")
+      : kind === "active"
+        ? "Active · Tap in"
+        : kind === "expired"
+          ? "Ended · Not visited"
+          : `Locked · Opens ${EventSchedule.formattedTime(session.startsAt)}`;
+    return { boothId, index, booth, session, canOpen, checked, classes, stateLabel };
+  });
+  const signature = JSON.stringify(stops.map((stop) => [stop.boothId, stop.index, stop.canOpen, stop.checked, stop.classes, stop.stateLabel]));
+  if (signature === routeRenderSignature) return;
+  routeRenderSignature = signature;
+  document.getElementById("attendee-route").innerHTML = stops.map((stop) => {
+    const { boothId, index, booth, session, canOpen, checked, classes, stateLabel } = stop;
+    const open = canOpen
+      ? `<button type="button" class="route-stop ${classes}" data-open-current="${index}" aria-label="${checked ? "Reopen" : "Open"} ${escapeHtml(booth ? booth.title : boothId)} for the current session">`
+      : `<div class="route-stop ${classes}">`;
+    const close = canOpen ? "</button>" : "</div>";
     return `
-      <div class="route-stop ${stateClass}">
-        <span class="route-number">${index + 1}</span>
+      ${open}
+        <span class="route-number${checked ? " route-check" : ""}" aria-hidden="true">${checked ? "✓" : index + 1}</span>
         <div class="route-stop-copy">
           <strong>${escapeHtml(booth ? booth.title : boothId)}</strong>
           <small>Session ${index + 1} · ${escapeHtml(session.label)}</small>
         </div>
         <span class="route-state">${escapeHtml(stateLabel)}</span>
-      </div>`;
+      ${close}`;
   }).join("");
 }
 
@@ -227,12 +304,26 @@ function renderSchedule() {
   if (!identity) return;
   const snapshot = EventSchedule.current();
   const card = document.getElementById("current-booth-card");
+  const phase3Ready = document.getElementById("phase3-ready");
   const phase3 = document.getElementById("btn-phase3");
+  const phase3Note = document.getElementById("phase3-note");
   const color = wristbandColorById(identity.wristbandColor);
   const currentBooth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
+  const route = EventSchedule.route(identity.wristbandColor);
+  const completedCount = route.filter((boothId) => completedBooths.has(boothId)).length;
+  const phase2Complete = routeIsComplete();
+  const endingSoon = snapshot.phase === "active"
+    && !completedBooths.has(route[snapshot.sessionIndex])
+    && (typeof EventSchedule.isEndingSoon === "function"
+      ? EventSchedule.isEndingSoon(snapshot, 15000)
+      : snapshot.remainingMs > 0 && snapshot.remainingMs <= 15000);
+  document.getElementById("booth-ending-warning").style.display = endingSoon ? "flex" : "none";
 
   document.getElementById("session-countdown").textContent = EventSchedule.formatCountdown(snapshot.remainingMs);
+  renderProgress(phase2Complete);
   renderRoute(snapshot);
+  phase3.href = EventSchedule.linkWithPreview("../phase3-signup/index.html");
+  phase3Ready.style.display = "none";
 
   if (snapshot.phase === "before") {
     document.getElementById("clock-kicker").textContent = "Booths begin at 3:10 PM";
@@ -242,7 +333,6 @@ function renderSchedule() {
     document.getElementById("current-heading").innerHTML = `You will start at <em>${escapeHtml(currentBooth ? currentBooth.title : "your first booth")}</em>`;
     document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} wristband · Session 1 · ${BOOTH_SESSIONS[0].label}. Head there before the timer reaches zero.`;
     card.style.display = "none";
-    phase3.style.display = "none";
     activeBoothId = "";
   } else if (snapshot.phase === "active") {
     document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of 3 · ${snapshot.session.label}`;
@@ -252,14 +342,13 @@ function renderSchedule() {
     document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
     document.getElementById("current-copy").textContent = "This screen follows your booth leader. Keep it open while the group moves through the activity.";
     card.style.display = "block";
-    phase3.style.display = "none";
     if (currentBooth) {
       document.getElementById("current-booth-icon").textContent = currentBooth.icon;
       document.getElementById("current-booth-name").textContent = currentBooth.title;
       const completeButton = document.getElementById("btn-complete-booth");
       const alreadyComplete = completedBooths.has(currentBooth.id);
       completeButton.disabled = alreadyComplete;
-      completeButton.textContent = alreadyComplete ? "Booth completed ✓" : "Mark this booth complete ✓";
+      completeButton.textContent = alreadyComplete ? "Completed ✓ · Open until session ends" : "Mark this booth complete ✓";
       if (activeBoothId !== currentBooth.id) {
         activeBoothId = currentBooth.id;
         presentation = null;
@@ -269,24 +358,53 @@ function renderSchedule() {
         displayPresentation(currentBooth);
       }
     }
+    if (phase2Complete) {
+      phase3Note.textContent = `All three visits are marked complete. Continue now, or reopen ${currentBooth ? currentBooth.title : "this booth"} until ${EventSchedule.formattedTime(snapshot.session.endsAt)}.`;
+      phase3Ready.style.display = "block";
+    }
   } else {
-    document.getElementById("clock-kicker").textContent = "All three sessions complete";
-    document.getElementById("clock-title").textContent = "Phase 3 is ready";
-    document.getElementById("session-countdown").textContent = "DONE";
-    document.getElementById("countdown-label").textContent = "Booths ended at 4:10 PM";
-    document.getElementById("current-kicker").textContent = "Phase 2 complete";
-    document.getElementById("current-heading").innerHTML = "Tick your <em>next steps</em> and go.";
-    document.getElementById("current-copy").textContent = "Your name and raffle number will carry forward. There are no ratings or extra questions.";
+    document.getElementById("clock-kicker").textContent = phase2Complete ? "All three visits marked complete" : "Booth time has ended";
+    document.getElementById("clock-title").textContent = "Continue to Phase 3";
+    document.getElementById("session-countdown").textContent = "4:10";
+    document.getElementById("countdown-label").textContent = "Booths closed at";
+    document.getElementById("current-kicker").textContent = phase2Complete ? "Phase 2 complete" : "Phase 2 time ended";
+    document.getElementById("current-heading").innerHTML = phase2Complete
+      ? "Tick your <em>next steps</em> and go."
+      : "Continue with your <em>saved progress.</em>";
+    document.getElementById("current-copy").textContent = phase2Complete
+      ? "Your three completion taps are saved. Your name and raffle number will carry forward."
+      : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;
     card.style.display = "none";
-    phase3.style.display = "block";
+    phase3Note.textContent = phase2Complete
+      ? "All three booth visits were marked complete."
+      : `Booth time is over. ${completedCount} of ${route.length} visits were marked complete.`;
+    phase3Ready.style.display = "block";
     activeBoothId = "";
   }
 }
 
+document.getElementById("attendee-route").addEventListener("click", (event) => {
+  const stop = event.target.closest("[data-open-current]");
+  if (!stop) return;
+  const snapshot = EventSchedule.current();
+  if (snapshot.phase !== "active" || Number(stop.dataset.openCurrent) !== snapshot.sessionIndex) {
+    renderSchedule();
+    return;
+  }
+  const card = document.getElementById("current-booth-card");
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  card.classList.remove("focus-pulse");
+  window.requestAnimationFrame(() => card.classList.add("focus-pulse"));
+});
+
 document.getElementById("btn-complete-booth").addEventListener("click", async () => {
   const snapshot = EventSchedule.current();
   const booth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
-  if (!booth || snapshot.phase !== "active") return;
+  if (!booth || snapshot.phase !== "active" || activeBoothId !== booth.id) {
+    renderSchedule();
+    toast("The session just changed. Check your newly active booth before finishing.");
+    return;
+  }
   const button = document.getElementById("btn-complete-booth");
   button.disabled = true;
   button.textContent = "Saving…";
@@ -348,6 +466,7 @@ document.getElementById("btn-phase2-signout").addEventListener("click", () => {
 });
 
 async function initPortal() {
+  await demoClockReady;
   try {
     identity = AttendeePortal.hasAccess(PORTAL)
       ? await AttendeePortal.restore(PORTAL)
@@ -376,9 +495,11 @@ setInterval(() => {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     renderSchedule();
+    refreshCompletedBooths();
     if (activeBoothId) loadPresentation(activeBoothId);
   }
 });
+window.addEventListener("focus", refreshCompletedBooths);
 
 initPortal();
 </script>

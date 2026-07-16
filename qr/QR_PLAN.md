@@ -1,8 +1,9 @@
 # QR plan for the unified attendee flow
 
 The timed experience no longer needs a different public QR at every booth.
-Phase 1 assigns the wristband color, then one attendee hub routes all three
-20-minute sessions.
+Phase 1 assigns the wristband color and continues directly into one attendee
+hub, which keeps the same identity through all three 20-minute sessions, Phase
+3, and the final waiting/message screen.
 
 `web/organizer/qr-codes.html` currently generates three cards from a base URL:
 
@@ -18,15 +19,18 @@ access when the library is not already cached.
 ### Entry code
 
 Print the Phase 1 code at registration. This is the normal attendee starting
-point. After staff assign and confirm a wristband color, Phase 1 shows the
-three-stop route and links directly into the unified hub.
+point. After staff assign and confirm a wristband color, Phase 1 opens the
+unified hub directly; the attendee does not need another scan or an
+intermediate Phase 1 completion link.
 
 ### Return-to-schedule code
 
 Place a small number at the help desk or central navigation signs. It is a
 recovery path for someone who closed the tab or changed devices, not a code
 that must be scanned at each booth. On a new device, the hub asks once for the
-Phase 1 name and raffle number, then restores the correct color route.
+Phase 1 name and raffle number, then restores the correct color route. The
+active route row can be reopened from the hub until its session ends, including
+after that visit has been marked complete.
 
 ### Booth-leader code
 
@@ -42,12 +46,14 @@ appropriate roles or booth-specific credentials.
 
 - **No five attendee booth codes:** the timer and wristband route choose the
   active booth inside `hub.html`.
-- **No required Phase 3 code:** the hub reveals the Phase 3 button after the
-  third session ends. A separate Phase 3 recovery sign is optional if the
-  event team wants one.
+- **No required Phase 3 code:** the hub reveals Phase 3 after all three
+  attendee completion taps are saved, or at 4:10 PM even if some visits remain
+  unmarked. Save and **No thanks** continue into the same **DON'T GO YET** or
+  main-message screen. A separate Phase 3 recovery sign is optional.
 - **No organizer key in a code:** credentials must never be placed in a URL.
-- **No preview values:** `?preview=...` is only for local rehearsal and should
-  never be printed.
+- **No preview values:** `?preview=...` is only for local rehearsal. It
+  propagates through the attendee journey for testing and should never be
+  printed.
 
 The direct `phase2-booths/booth-*.html` and kiosk pages remain optional
 fallback tools. Do not print them as the primary attendee route unless the
@@ -61,8 +67,10 @@ event team deliberately switches to the fallback operating model.
    temporary preview domain.
 4. Choose **Regenerate codes**.
 5. Scan every printed code with at least one iPhone and one Android phone.
-6. Complete a full test: Phase 1 → assigned color → hub → Phase 3, plus staff
-   directory authentication.
+6. Complete a full test: Phase 1 → direct hub continuation → three completion
+   taps → reopen the active row → Phase 3 → early **DON'T GO YET** countdown →
+   4:10 PM main message, plus the missed-tap fallback and staff directory
+   authentication.
 7. Print only after the URL and routes are frozen.
 
 If the public origin changes, regenerate and reprint every card. A QR encodes
