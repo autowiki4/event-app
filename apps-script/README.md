@@ -12,8 +12,8 @@ event.
 ## What you'll end up with
 
 - A Google Sheet that fills itself in as people use the app (attendees,
-  booth check-ins, sign-ups) — see `SHEET_SCHEMA.md` for exactly what
-  columns show up.
+  booth check-ins, sign-ups, and booth-leader screen controls) — see
+  `SHEET_SCHEMA.md` for exactly what columns show up.
 - A URL (looks like `https://script.google.com/macros/s/AKfycb.../exec`)
   that the app's pages call instead of `localhost`.
 
@@ -130,7 +130,7 @@ change `Code.gs`.
   the authorization in step 6 didn't complete, or you're using a
   different Google account than the one that authorized it. Redo step 6.
 - **Attendee data isn't showing up in the Sheet's visible tabs** — the
-  tabs (`Attendees`, `BoothCheckins`, `SignUps`, `Meta`) are created
+  tabs (`Attendees`, `BoothCheckins`, `SignUps`, `BoothControls`, `Meta`) are created
   automatically the first time each one is used, not when you first
   deploy. If you unlocked the dashboard before anyone registered, you may
   only see some tabs at first — that's expected.

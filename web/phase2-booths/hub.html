@@ -3,25 +3,384 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>Phase 2 Booth Rooms — The Perfect Summer Day</title>
+<title>My Booth Schedule — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
-<style>
-  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
-</style>
+<style>:root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }</style>
 </head>
 <body>
 <div class="phone">
-  <section class="screen">
-    <p class="eyebrow">Phase 2 · Booth rooms</p>
-    <h1 class="display">Open the link at <em>your booth.</em></h1>
-    <p class="lede">Phase 2 no longer has one shared attendee portal. Each of the five booths has its own link and its own login.</p>
-    <div class="booth-guide">
-      <div class="g-kicker">At the event</div>
-      <div class="g-loc">Use the link posted in the booth room</div>
-      <div class="g-detail">That link opens only the booth you are standing in. You will log in again when you arrive at another booth.</div>
+  <div class="progress" id="progress"></div>
+
+  <section class="screen" id="phase2-login" style="display:none;">
+    <p class="eyebrow">Phase 2 · One attendee link</p>
+    <h1 class="display">Find your <em>booth route.</em></h1>
+    <p class="lede">On a new device, enter the name and raffle number from Phase 1 once. Your wristband color will load your three scheduled booths.</p>
+    <div class="field">
+      <label for="phase2-name">Name used in Phase 1</label>
+      <input id="phase2-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
     </div>
-    <p class="top-note">You can close this page now.</p>
+    <div class="field">
+      <label for="phase2-raffle">Raffle number</label>
+      <input id="phase2-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <div class="err" id="phase2-login-error"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-phase2-login">Open my schedule →</button>
+    <a class="btn-link" href="../phase1-entry/index.html" style="display:block; text-align:center; margin-top:12px;">Start at Phase 1</a>
+  </section>
+
+  <section class="screen" id="phase2-content" style="display:none;">
+    <div class="attendee-banner">
+      <div>
+        <span class="attendee-label">Attendee</span>
+        <strong id="attendee-name">Guest</strong>
+        <span id="attendee-raffle">Raffle #----</span>
+      </div>
+      <div class="attendee-banner-actions">
+        <span class="wristband-chip" id="attendee-wristband">Wristband</span>
+        <button class="btn-link" id="btn-phase2-signout">Switch</button>
+      </div>
+    </div>
+
+    <div class="session-clock" aria-live="polite">
+      <div>
+        <span class="session-clock-kicker" id="clock-kicker">Booth sessions</span>
+        <strong id="clock-title">Loading schedule…</strong>
+      </div>
+      <div class="session-countdown" id="session-countdown">--:--</div>
+      <div class="session-countdown-label" id="countdown-label">Synchronizing</div>
+    </div>
+    <div class="sync-note" id="sync-note" style="display:none;"></div>
+
+    <div id="current-experience">
+      <p class="eyebrow" id="current-kicker">Your experience</p>
+      <h1 class="display" id="current-heading">Your route is loading…</h1>
+      <p class="lede" id="current-copy"></p>
+
+      <div class="current-booth-card" id="current-booth-card" style="display:none;">
+        <div class="current-booth-head">
+          <div class="booth-icon" id="current-booth-icon">✨</div>
+          <div>
+            <span id="presentation-status" class="status-pill waiting">Waiting</span>
+            <h2 id="current-booth-name">Booth</h2>
+          </div>
+        </div>
+        <div class="leader-screen" id="leader-screen">
+          <span class="leader-screen-kicker" id="leader-step-label">Booth leader screen</span>
+          <h3 id="leader-step-title">You're in the right place.</h3>
+          <p id="leader-step-body">Your booth leader will begin soon.</p>
+          <div class="leader-message" id="leader-message" style="display:none;"></div>
+        </div>
+        <button class="btn btn-primary" id="btn-complete-booth">Mark this booth complete ✓</button>
+        <p class="top-note" id="presentation-updated"></p>
+      </div>
+
+      <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:none; text-decoration:none;">Choose my next steps →</a>
+    </div>
+
+    <div class="section-title">Your three stops</div>
+    <div class="route-list" id="attendee-route"></div>
+    <p class="top-note">The shared timer changes everyone to the next stop at 3:30 and 3:50. The event clock cannot be paused by a booth.</p>
   </section>
 </div>
+
+<script src="../shared/config.js"></script>
+<script src="../shared/api.js"></script>
+<script src="../shared/identity.js"></script>
+<script src="../shared/attendee-portal.js"></script>
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script src="../shared/event-schedule.js"></script>
+<script>
+const PORTAL = "phase2";
+let identity = null;
+let completedBooths = new Set();
+let activeBoothId = "";
+let presentation = null;
+let presentationBusy = false;
+
+function renderProgress() {
+  const el = document.getElementById("progress");
+  el.innerHTML = "";
+  for (let i = 0; i < 3; i += 1) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
+    el.appendChild(dot);
+  }
+}
+renderProgress();
+
+function showLogin(message) {
+  document.getElementById("phase2-content").style.display = "none";
+  document.getElementById("phase2-login").style.display = "block";
+  const error = document.getElementById("phase2-login-error");
+  error.textContent = message || "";
+  error.style.display = message ? "block" : "none";
+}
+
+function showPortal() {
+  document.getElementById("phase2-login").style.display = "none";
+  document.getElementById("phase2-content").style.display = "block";
+  const color = wristbandColorById(identity.wristbandColor);
+  document.getElementById("attendee-name").textContent = identity.name || "Guest";
+  document.getElementById("attendee-raffle").textContent = `Raffle #${identity.raffleNumber || "----"}`;
+  const chip = document.getElementById("attendee-wristband");
+  chip.textContent = `${color ? color.label : "Unknown"} wristband`;
+  chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+  renderSchedule();
+}
+
+function formatUpdated(value) {
+  if (!value) return "Waiting for the booth leader's first update.";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Booth screen updated.";
+  return `Leader screen updated ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+}
+
+function displayPresentation(booth) {
+  let state = presentation || { status: "waiting", stepIndex: 0, message: "" };
+  const schedule = EventSchedule.current();
+  const isLocalPreview = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).has("preview");
+  const updatedMs = state.updatedAt ? new Date(state.updatedAt).getTime() : NaN;
+  if (!isLocalPreview && schedule.phase === "active" && Number.isFinite(updatedMs) && updatedMs < schedule.session.startMs) {
+    state = { status: "waiting", stepIndex: 0, message: "", updatedAt: "" };
+  }
+  const maxIndex = Math.max(0, (booth.leaderSteps || []).length - 1);
+  const stepIndex = Math.min(maxIndex, Math.max(0, Number(state.stepIndex) || 0));
+  const step = (booth.leaderSteps || [])[stepIndex] || {
+    title: "You're in the right place.",
+    body: "Your booth leader will begin soon.",
+  };
+  const statusLabels = { waiting: "Waiting", live: "Live", paused: "Paused", wrap: "Wrapping up", complete: "Finished" };
+  const status = Object.prototype.hasOwnProperty.call(statusLabels, state.status) ? state.status : "waiting";
+  const pill = document.getElementById("presentation-status");
+  pill.className = `status-pill ${status}`;
+  pill.textContent = statusLabels[status];
+  document.getElementById("leader-step-label").textContent = status === "live" || status === "wrap"
+    ? `Leader screen · Step ${stepIndex + 1} of ${(booth.leaderSteps || []).length}`
+    : "Booth leader screen";
+  document.getElementById("leader-step-title").textContent = status === "waiting"
+    ? "You're in the right place."
+    : status === "paused"
+      ? "Please hold here."
+      : status === "complete"
+        ? "This booth has finished."
+        : step.title;
+  document.getElementById("leader-step-body").textContent = status === "waiting"
+    ? "Your booth leader will begin when the group is ready."
+    : status === "paused"
+      ? "Keep this page open. The leader will continue the activity shortly."
+      : status === "complete"
+        ? "Mark your visit complete below, then check your route for what comes next."
+        : step.body;
+  const message = document.getElementById("leader-message");
+  message.textContent = state.message || "";
+  message.style.display = state.message ? "block" : "none";
+  document.getElementById("presentation-updated").textContent = formatUpdated(state.updatedAt);
+}
+
+async function loadPresentation(boothId) {
+  if (!boothId || presentationBusy) return;
+  presentationBusy = true;
+  const requestStarted = Date.now();
+  try {
+    const data = await EventAPI.boothPresentation(boothId);
+    EventSchedule.sync(data.serverNow, requestStarted, Date.now());
+    if (activeBoothId !== boothId) return;
+    presentation = data.presentation || data;
+    const booth = boothById(boothId);
+    if (booth) displayPresentation(booth);
+    document.getElementById("sync-note").style.display = "none";
+  } catch (error) {
+    console.error(error);
+    const note = document.getElementById("sync-note");
+    note.textContent = "Leader updates are temporarily offline. The shared schedule is still counting from the last sync.";
+    note.style.display = "block";
+  } finally {
+    presentationBusy = false;
+  }
+}
+
+function renderRoute(snapshot) {
+  const route = EventSchedule.route(identity.wristbandColor);
+  document.getElementById("attendee-route").innerHTML = route.map((boothId, index) => {
+    const booth = boothById(boothId);
+    const session = BOOTH_SESSIONS[index];
+    const isCurrent = snapshot.phase === "active" && snapshot.sessionIndex === index;
+    const isPast = snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
+    const completed = completedBooths.has(boothId);
+    const stateClass = completed ? "complete" : isCurrent ? "current" : isPast ? "missed" : "upcoming";
+    const stateLabel = completed ? "Completed ✓" : isCurrent ? "Go now" : isPast ? "Session ended" : session.label;
+    return `
+      <div class="route-stop ${stateClass}">
+        <span class="route-number">${index + 1}</span>
+        <div class="route-stop-copy">
+          <strong>${escapeHtml(booth ? booth.title : boothId)}</strong>
+          <small>Session ${index + 1} · ${escapeHtml(session.label)}</small>
+        </div>
+        <span class="route-state">${escapeHtml(stateLabel)}</span>
+      </div>`;
+  }).join("");
+}
+
+function renderSchedule() {
+  if (!identity) return;
+  const snapshot = EventSchedule.current();
+  const card = document.getElementById("current-booth-card");
+  const phase3 = document.getElementById("btn-phase3");
+  const color = wristbandColorById(identity.wristbandColor);
+  const currentBooth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
+
+  document.getElementById("session-countdown").textContent = EventSchedule.formatCountdown(snapshot.remainingMs);
+  renderRoute(snapshot);
+
+  if (snapshot.phase === "before") {
+    document.getElementById("clock-kicker").textContent = "Booths begin at 3:10 PM";
+    document.getElementById("clock-title").textContent = "Get ready for Session 1";
+    document.getElementById("countdown-label").textContent = "Until your first session";
+    document.getElementById("current-kicker").textContent = "Your first experience";
+    document.getElementById("current-heading").innerHTML = `You will start at <em>${escapeHtml(currentBooth ? currentBooth.title : "your first booth")}</em>`;
+    document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} wristband · Session 1 · ${BOOTH_SESSIONS[0].label}. Head there before the timer reaches zero.`;
+    card.style.display = "none";
+    phase3.style.display = "none";
+    activeBoothId = "";
+  } else if (snapshot.phase === "active") {
+    document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of 3 · ${snapshot.session.label}`;
+    document.getElementById("clock-title").textContent = "Shared 20-minute session";
+    document.getElementById("countdown-label").textContent = "Time remaining";
+    document.getElementById("current-kicker").textContent = `Stop ${snapshot.session.number} of 3 · Go now`;
+    document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
+    document.getElementById("current-copy").textContent = "This screen follows your booth leader. Keep it open while the group moves through the activity.";
+    card.style.display = "block";
+    phase3.style.display = "none";
+    if (currentBooth) {
+      document.getElementById("current-booth-icon").textContent = currentBooth.icon;
+      document.getElementById("current-booth-name").textContent = currentBooth.title;
+      const completeButton = document.getElementById("btn-complete-booth");
+      const alreadyComplete = completedBooths.has(currentBooth.id);
+      completeButton.disabled = alreadyComplete;
+      completeButton.textContent = alreadyComplete ? "Booth completed ✓" : "Mark this booth complete ✓";
+      if (activeBoothId !== currentBooth.id) {
+        activeBoothId = currentBooth.id;
+        presentation = null;
+        displayPresentation(currentBooth);
+        loadPresentation(currentBooth.id);
+      } else {
+        displayPresentation(currentBooth);
+      }
+    }
+  } else {
+    document.getElementById("clock-kicker").textContent = "All three sessions complete";
+    document.getElementById("clock-title").textContent = "Phase 3 is ready";
+    document.getElementById("session-countdown").textContent = "DONE";
+    document.getElementById("countdown-label").textContent = "Booths ended at 4:10 PM";
+    document.getElementById("current-kicker").textContent = "Phase 2 complete";
+    document.getElementById("current-heading").innerHTML = "Tick your <em>next steps</em> and go.";
+    document.getElementById("current-copy").textContent = "Your name and raffle number will carry forward. There are no ratings or extra questions.";
+    card.style.display = "none";
+    phase3.style.display = "block";
+    activeBoothId = "";
+  }
+}
+
+document.getElementById("btn-complete-booth").addEventListener("click", async () => {
+  const snapshot = EventSchedule.current();
+  const booth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
+  if (!booth || snapshot.phase !== "active") return;
+  const button = document.getElementById("btn-complete-booth");
+  button.disabled = true;
+  button.textContent = "Saving…";
+  try {
+    await EventAPI.boothCheckin({
+      attendeeId: identity.attendeeId,
+      phone: identity.phone || "",
+      boothId: booth.id,
+      boothName: booth.title,
+      checkedInBy: "scheduled-attendee",
+      extraData: {
+        sessionNumber: snapshot.session.number,
+        sessionId: snapshot.session.id,
+        wristbandColor: identity.wristbandColor,
+      },
+    });
+    completedBooths.add(booth.id);
+    toast(`${booth.title} marked complete.`);
+    renderSchedule();
+  } catch (error) {
+    console.error(error);
+    if (Identity.restartIfMissing(error, "../phase1-entry/index.html")) return;
+    toast("Couldn't save this booth yet — try again.");
+    button.disabled = false;
+    button.textContent = "Mark this booth complete ✓";
+  }
+});
+
+document.getElementById("btn-phase2-login").addEventListener("click", async () => {
+  const name = document.getElementById("phase2-name").value.trim();
+  const raffleNumber = document.getElementById("phase2-raffle").value.trim();
+  if (!name || !raffleNumber) {
+    showLogin("Enter both your Phase 1 name and raffle number.");
+    return;
+  }
+  const button = document.getElementById("btn-phase2-login");
+  button.disabled = true;
+  button.textContent = "Finding route…";
+  try {
+    identity = await AttendeePortal.signIn(PORTAL, name, raffleNumber);
+    if (!identity.wristbandColor) {
+      showLogin("A wristband color has not been assigned yet. Ask the Phase 1 Guardian Angel for help.");
+      return;
+    }
+    const checkins = await EventAPI.myCheckins(identity.attendeeId);
+    completedBooths = new Set(checkins.boothIds || []);
+    showPortal();
+  } catch (error) {
+    console.error(error);
+    showLogin(error.message || "We couldn't find that registration.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Open my schedule →";
+  }
+});
+
+document.getElementById("btn-phase2-signout").addEventListener("click", () => {
+  AttendeePortal.signOut("hub.html");
+});
+
+async function initPortal() {
+  try {
+    identity = AttendeePortal.hasAccess(PORTAL)
+      ? await AttendeePortal.restore(PORTAL)
+      : await AttendeePortal.continueAs(PORTAL);
+    if (!identity.wristbandColor) {
+      showLogin("A wristband color has not been assigned yet. Ask the Phase 1 Guardian Angel for help.");
+      return;
+    }
+    const checkins = await EventAPI.myCheckins(identity.attendeeId);
+    completedBooths = new Set(checkins.boothIds || []);
+    showPortal();
+  } catch (error) {
+    console.error(error);
+    if (error.code === "PHASE1_INCOMPLETE") {
+      showLogin("Finish Phase 1 and receive a wristband before opening your booth route.");
+    } else {
+      showLogin();
+    }
+  }
+}
+
+setInterval(renderSchedule, 1000);
+setInterval(() => {
+  if (activeBoothId) loadPresentation(activeBoothId);
+}, 5000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    renderSchedule();
+    if (activeBoothId) loadPresentation(activeBoothId);
+  }
+});
+
+initPortal();
+</script>
 </body>
 </html>

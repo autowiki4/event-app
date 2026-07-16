@@ -1,139 +1,159 @@
 # Demo server
 
-Local stand-in for the production Google Apps Script backend — same API
-shape, backed by `db.json` instead of a Google Sheet. Zero npm
-dependencies (just Node's built-in `http` module), so there's nothing to
-install beyond Node.js itself.
+This zero-dependency Node server runs the event app mock locally. It serves the
+static files under `../web/`, implements the same API shape as the Apps Script
+backend, and stores throwaway rehearsal data in `db.json`.
 
-This is the backend you use for building, rehearsing, and demoing the app
-— see `../README.md` for what the app actually does, and `../DEMO_GUIDE.md`
-for a script to present it live. This file just covers running this one
-piece.
+It is for development and event-flow rehearsal, not a hardened production
+service.
 
-## Prerequisites
+## Run
 
-Node.js, version 16 or newer. Check with `node --version` in a terminal —
-if that fails, install it from [nodejs.org](https://nodejs.org) (the
-"LTS" button).
+Use Node.js 16 or newer:
 
-## Run it
-
-Open a terminal, navigate into this folder, and run:
-
-```
+```bash
 cd demo-server
 node server.js
 ```
 
-You should see:
+No `npm install`, database, or Google account is required. The startup output
+lists the primary experience:
 
-```
+```text
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
-  Phase 2 booth rooms:
-    Heaven:             http://localhost:3000/phase2-booths/booth-heaven.html
-    Bible Bowl:         http://localhost:3000/phase2-booths/booth-trivia.html
-    The Sower:          http://localhost:3000/phase2-booths/booth-story.html
-    Art Therapy:        http://localhost:3000/phase2-booths/booth-art.html
-    New Song:           http://localhost:3000/phase2-booths/booth-newsong.html
+  Attendee booth route: http://localhost:3000/phase2-booths/hub.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Local testing:        open each booth room directly; no QR scan required
+  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
   Local organizer key:  demo
 ```
 
-Open any of those URLs in a browser. That's the whole app, running
-locally — every page under `../web/` is being served by this same process,
-and every button click talks to it.
+Start with Phase 1. Assign a wristband color, complete the handoff, and follow
+the button into the single Phase 2 hub. The old direct booth-room and kiosk
+URLs are still served, but they are optional fallbacks rather than the primary
+attendee route.
 
-The dashboard and staff kiosks ask for an organizer key. The zero-setup local
-default is `demo`. To rehearse with a different key, start the server with:
+Stop the process with `Ctrl+C`.
 
-```
-EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
-```
+If port 3000 is already in use:
 
-You can skip the QR page during local development. Open Phase 1, then open the
-exact Phase 2 room for the booth you want to test; each of the five rooms asks
-for the Phase 1 name and raffle number independently. The old
-`phase2-booths/hub.html` URL is only a compatibility notice, not a shared
-login. Phase 3 and the overall organizer dashboard remain separate and
-unchanged. Final QR generation for the five booth-room links is deferred until
-there is a real public URL to encode; the current generator is intentionally
-unchanged.
-
-Every booth also has a scoped staff page under `phase2-staff/`. It receives
-only that booth's activity and contains a neutral booth-only settings area for
-future controls. Art Therapy and New Song retain their organizer-key kiosks as
-optional staff fallbacks.
-
-**To stop it:** click into that terminal window and press `Ctrl+C`.
-
-**If port 3000 is already taken** (you'll see an `EADDRINUSE` error),
-either stop whatever else is using it, or run this server on a different
-port:
-
-```
+```bash
 PORT=3001 node server.js
 ```
 
-...then use `http://localhost:3001/...` in place of `3000` everywhere.
+Use `localhost:3001` in the URLs after changing the port.
 
-## The "database" (`db.json`)
+## Organizer key
 
-The first time you register an attendee, this folder gets a `db.json`
-file — a plain text file holding every attendee, booth check-in, and
-sign-up so far. It's created automatically; you never need to make it by
-hand, and it's safe to delete any time you want a completely clean slate
-(the server will just recreate an empty one on the next request).
+The local default is `demo`. To use another rehearsal value:
 
-It's excluded from git (see the repo's `.gitignore`) on purpose — it's
-throwaway demo data, not something to commit or share.
-
-## Reset between rehearsals
-
-Two equivalent ways to wipe it back to empty without deleting the file
-yourself:
-
-- Click **"Reset demo data"** at the bottom of the organizer dashboard.
-- Or, from a terminal:
-
-  ```
-  curl -X POST -H "Content-Type: application/json" \
-    -d '{"organizerKey":"demo"}' \
-    http://localhost:3000/api/resetDemo
-  ```
-
-## Run the regression tests
-
-There are no packages to install. From this folder:
-
+```bash
+EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
 ```
+
+The organizer dashboard, booth-leader updates, kiosk actions, sign-up
+confirmation, and reset endpoints require this key. All five booth-leader
+pages share it. API responses are scoped to the requested booth, but the key
+itself is not a booth-level role: its holder can access any staff page. Do not
+reuse the local default or this shared-key model for production.
+
+## Local schedule preview
+
+The schedule currently assumes July 18, 2026 in Nashville. Append one of these
+values to the unified attendee hub or an individual booth-leader URL to
+rehearse a fixed state:
+
+```text
+?preview=before
+?preview=1
+?preview=2
+?preview=3
+?preview=ended
+```
+
+Examples:
+
+```text
+http://localhost:3000/phase2-booths/hub.html?preview=2
+http://localhost:3000/phase2-staff/trivia.html?preview=2
+```
+
+Preview is accepted only on a loopback hostname and intentionally freezes the
+selected moment. Without it, the app uses the real synchronized clock.
+
+## `db.json`
+
+The server creates `db.json` on first write. It contains:
+
+- attendees, including raffle number and assigned wristband color;
+- booth check-ins;
+- Phase 3 option selections;
+- one current presentation state per booth; and
+- the raffle counter.
+
+The file is ignored by Git and safe to delete between rehearsals. Older demo
+files are normalized when read so missing wristband colors or booth
+presentation state do not crash the server.
+
+To reset through the protected API:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"organizerKey":"demo"}' \
+  http://localhost:3000/api/resetDemo
+```
+
+The organizer dashboard exposes the same reset action.
+
+## Tests
+
+Run from this directory:
+
+```bash
 npm test
 ```
 
-The suite starts an isolated temporary server/database and covers separate
-per-booth and Phase 3 login lookup, organizer authorization, booth-scoped staff
-data, duplicate booth-completion protection, secure phone linking, duplicate
-attendee merging, preserved raffle numbers and kiosk history, protected
-confirmation/reset actions, and Apps Script-style HTTP-200 error payloads.
+The suite starts an isolated temporary server and checks the main API/static
+contracts: organizer authorization, attendee registration and lookup,
+wristband-color validation and persistence, Phase 2 eligibility, booth
+check-ins and deduplication, public booth presentation reads, protected
+leader updates, booth-scoped staff results, Phase 3 sign-ups and confirmation,
+reset behavior, error payloads, and inline page-script syntax. It does not
+replace a real-device, network, accessibility, or multi-staff rehearsal.
 
-## How this maps to production
+## API parity
 
-Every route here (`registerAttendee`, `loginAttendee`,
-`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
-`boothCheckin`, `submitSignup`, `boothDashboardData`,
-`confirmSignupInPerson`, `dashboardData`, `myCheckins`) has a matching
-function in `../apps-script/Code.gs`, doing the same thing against a real
-Google Sheet instead of `db.json`. Swapping from this demo server to the
-real event backend is just changing `API_BASE_URL` in
-`../web/shared/config.js` — no frontend code changes, and nothing in
-`../web/` needs to know which backend it's talking to.
+The current primary attendee actions are:
 
-Staff-only routes (`verifyOrganizer`, `dashboardData`,
-`boothDashboardData`, kiosk phone lookup, staff kiosk check-in, confirmation,
-and demo reset) require the organizer key in their POST JSON. Attendee booth
-history resolves only by the canonical attendee ID saved after portal login;
-a phone number alone cannot read a record.
+- `registerAttendee`
+- `confirmWristband`
+- `loginAttendee`
+- `attendeePortalSession`
+- `myCheckins`
+- `boothPresentation`
+- `boothCheckin`
+- `saveSignupSelections` (primary Phase 3 batch action)
+- `mySignupSelections`
+- `submitSignup` (legacy single-option compatibility)
+
+The main protected staff actions are:
+
+- `verifyOrganizer`
+- `updateBoothPresentation`
+- `boothDashboardData`
+- `dashboardData`
+- `confirmSignupInPerson`
+- `resetDemo`
+
+Legacy phone/kiosk actions also remain for the optional fallback pages. These
+actions have matching implementations in `../apps-script/Code.gs`.
+`../web/shared/api.js` calls either backend the same way; moving to Apps Script
+requires changing `API_BASE_URL` in `../web/shared/config.js`.
+
+The Apps Script adapter is a deployment-shaped mock backend, not a production
+approval. Confirm the event date, venue connectivity, staff authentication,
+data privacy/retention, and operational fallback before using real attendee
+data.

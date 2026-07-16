@@ -23,6 +23,17 @@ const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
 const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
 const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
+const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
+const BOOTH_PRESENTATION_STATUSES = new Set(["waiting", "live", "paused", "wrap", "complete"]);
+const MAX_PRESENTATION_STEP_INDEX = 50;
+const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
+const FINAL_SIGNUP_OPTIONS = new Map([
+  ["future", "Keep me posted on future events"],
+  ["bible", "One-on-one Bible study"],
+  ["course", "The 8-month course"],
+  ["art", "Art therapy"],
+  ["friend", "Help me invite a friend"],
+]);
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -36,12 +47,50 @@ const MIME = {
 
 // ---------- tiny JSON-file "database" ----------
 function emptyDb() {
-  return { attendees: [], boothCheckins: [], signups: [], raffleCounter: 1000 };
+  return {
+    attendees: [],
+    boothCheckins: [],
+    signups: [],
+    boothPresentations: {},
+    raffleCounter: 1000,
+  };
+}
+function normalizeDb(raw) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const db = Object.assign(emptyDb(), source);
+  db.attendees = Array.isArray(source.attendees)
+    ? source.attendees.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    : [];
+  db.boothCheckins = Array.isArray(source.boothCheckins)
+    ? source.boothCheckins.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    : [];
+  db.signups = Array.isArray(source.signups)
+    ? source.signups.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    : [];
+  db.boothPresentations = source.boothPresentations
+    && typeof source.boothPresentations === "object"
+    && !Array.isArray(source.boothPresentations)
+    ? source.boothPresentations
+    : {};
+  db.attendees.forEach((attendee) => {
+    if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
+    attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
+  });
+  const highestAssignedRaffle = db.attendees.reduce((highest, attendee) => {
+    const raffleNumber = Number(normalizeRaffleNumber(attendee.raffleNumber));
+    return Number.isSafeInteger(raffleNumber) ? Math.max(highest, raffleNumber) : highest;
+  }, 1000);
+  const storedCounter = Number(source.raffleCounter);
+  db.raffleCounter = Math.max(
+    highestAssignedRaffle,
+    Number.isSafeInteger(storedCounter) ? storedCounter : 1000
+  );
+  return db;
 }
 function readDb() {
   if (!fs.existsSync(DB_PATH)) return emptyDb();
   try {
-    return JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
+    return normalizeDb(JSON.parse(fs.readFileSync(DB_PATH, "utf8")));
   } catch (e) {
     return emptyDb();
   }
@@ -62,6 +111,60 @@ function normalizeRaffleNumber(value) {
 
 function normalizeAttendeeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function normalizeWristbandColor(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return WRISTBAND_COLORS.has(normalized) ? normalized : null;
+}
+
+function requireWristbandColor(value) {
+  const color = normalizeWristbandColor(value);
+  return color
+    ? { color }
+    : { error: errorResult(400, "Choose a valid wristband color.", "INVALID_WRISTBAND_COLOR") };
+}
+
+function requireBoothId(value) {
+  const boothId = String(value || "").trim();
+  return BOOTH_IDS.has(boothId)
+    ? { boothId }
+    : { error: errorResult(404, "booth not found", "BOOTH_NOT_FOUND") };
+}
+
+function defaultBoothPresentation(boothId) {
+  return {
+    boothId,
+    stepIndex: 0,
+    status: "waiting",
+    message: "",
+    createdAt: null,
+    updatedAt: null,
+    version: 0,
+  };
+}
+
+function boothPresentationFromDb(db, boothId) {
+  const stored = db.boothPresentations[boothId];
+  if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+    return defaultBoothPresentation(boothId);
+  }
+  const stepIndex = Number(stored.stepIndex);
+  const version = Number(stored.version);
+  const status = String(stored.status || "").trim().toLowerCase();
+  return {
+    boothId,
+    stepIndex: Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex <= MAX_PRESENTATION_STEP_INDEX
+      ? stepIndex
+      : 0,
+    status: BOOTH_PRESENTATION_STATUSES.has(status) ? status : "waiting",
+    message: typeof stored.message === "string"
+      ? stored.message.slice(0, MAX_PRESENTATION_MESSAGE_LENGTH)
+      : "",
+    createdAt: stored.createdAt || null,
+    updatedAt: stored.updatedAt || null,
+    version: Number.isSafeInteger(version) && version >= 0 ? version : 0,
+  };
 }
 
 function organizerKeyMatches(value) {
@@ -121,6 +224,9 @@ function mergeAttendees(db, canonical, duplicate, phone) {
   canonical.phone = digitsOnly(phone) || canonical.phone || duplicate.phone || null;
   canonical.name = meaningfulName(canonical.name, duplicate.name);
   canonical.wristbandConfirmedAt = canonical.wristbandConfirmedAt || duplicate.wristbandConfirmedAt || null;
+  canonical.wristbandColor = normalizeWristbandColor(canonical.wristbandColor)
+    || normalizeWristbandColor(duplicate.wristbandColor)
+    || null;
   if (!canonical.registeredAt || (duplicate.registeredAt && duplicate.registeredAt < canonical.registeredAt)) {
     canonical.registeredAt = duplicate.registeredAt;
   }
@@ -151,24 +257,46 @@ function registerAttendee(body) {
     attendee = {
       attendeeId, aliasIds: [], name, phone: null,
       raffleNumber: String(db.raffleCounter),
-      wristbandConfirmedAt: null, registeredAt: new Date().toISOString(),
+      wristbandConfirmedAt: null, registeredAt: new Date().toISOString(), wristbandColor: null,
     };
     db.attendees.push(attendee);
   } else {
     attendee.name = name;
   }
   writeDb(db);
-  return { status: 200, body: { raffleNumber: attendee.raffleNumber, attendeeId: attendee.attendeeId, isNew } };
+  return {
+    status: 200,
+    body: {
+      raffleNumber: attendee.raffleNumber,
+      attendeeId: attendee.attendeeId,
+      wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+      isNew,
+    },
+  };
 }
 
 function confirmWristband(body) {
-  const { attendeeId } = body;
+  const { attendeeId, wristbandColor } = body;
+  const colorResult = requireWristbandColor(wristbandColor);
+  if (colorResult.error) return colorResult.error;
   const db = readDb();
   const attendee = findAttendee(db, { attendeeId });
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  const existingColor = normalizeWristbandColor(attendee.wristbandColor);
+  if (attendee.wristbandConfirmedAt && existingColor && existingColor !== colorResult.color && !organizerKeyMatches(body.organizerKey)) {
+    return errorResult(
+      409,
+      "This wristband color is already assigned. Ask an organizer to correct it.",
+      "WRISTBAND_ALREADY_ASSIGNED"
+    );
+  }
+  if (attendee.wristbandConfirmedAt && existingColor === colorResult.color) {
+    return { status: 200, body: { ok: true, wristbandColor: existingColor } };
+  }
   attendee.wristbandConfirmedAt = new Date().toISOString();
+  attendee.wristbandColor = colorResult.color;
   writeDb(db);
-  return { status: 200, body: { ok: true } };
+  return { status: 200, body: { ok: true, wristbandColor: attendee.wristbandColor } };
 }
 
 function attendeePortalResult(attendee) {
@@ -177,7 +305,9 @@ function attendeePortalResult(attendee) {
     name: attendee.name,
     raffleNumber: attendee.raffleNumber,
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
+    wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
     phoneLinked: !!attendee.phone,
+    serverNow: new Date().toISOString(),
   };
 }
 
@@ -260,6 +390,7 @@ function findOrRegisterByPhone(body) {
         raffleNumber: raffleAttendee.raffleNumber,
         isNew: false,
         name: raffleAttendee.name,
+        wristbandColor: normalizeWristbandColor(raffleAttendee.wristbandColor),
       },
     };
   }
@@ -284,6 +415,7 @@ function findOrRegisterByPhone(body) {
         raffleNumber: phoneAttendee.raffleNumber,
         isNew: false,
         name: phoneAttendee.name,
+        wristbandColor: normalizeWristbandColor(phoneAttendee.wristbandColor),
       },
     };
   }
@@ -301,6 +433,7 @@ function findOrRegisterByPhone(body) {
         raffleNumber: idAttendee.raffleNumber,
         isNew: false,
         name: idAttendee.name,
+        wristbandColor: normalizeWristbandColor(idAttendee.wristbandColor),
       },
     };
   }
@@ -319,6 +452,7 @@ function findOrRegisterByPhone(body) {
   const attendee = {
     attendeeId: attendeeId || id(), aliasIds: [], name: name || "Guest", phone: dPhone,
     raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: new Date().toISOString(),
+    wristbandColor: null,
   };
   db.attendees.push(attendee);
   writeDb(db);
@@ -329,6 +463,7 @@ function findOrRegisterByPhone(body) {
       raffleNumber: attendee.raffleNumber,
       isNew: true,
       name: attendee.name,
+      wristbandColor: null,
     },
   };
 }
@@ -360,6 +495,13 @@ function boothCheckin(body) {
     checkin.attendeeId === attendee.attendeeId && checkin.boothId === boothId
   ));
   if (existing) {
+    if (!Object.prototype.hasOwnProperty.call(body, "rating")) row.rating = existing.rating || null;
+    if (!Object.prototype.hasOwnProperty.call(body, "note")) row.note = existing.note || "";
+    const existingExtra = existing.extraData && typeof existing.extraData === "object" ? existing.extraData : {};
+    const incomingExtra = row.extraData && typeof row.extraData === "object" ? row.extraData : {};
+    row.extraData = Object.keys(existingExtra).length || Object.keys(incomingExtra).length
+      ? Object.assign({}, existingExtra, incomingExtra)
+      : null;
     const checkinId = existing.id;
     Object.assign(existing, row, { id: checkinId });
     writeDb(db);
@@ -379,6 +521,19 @@ function submitSignup(body) {
   if (phone && attendee.phone && attendee.phone !== digitsOnly(phone)) {
     return errorResult(409, "phone does not match attendee", "IDENTITY_CONFLICT");
   }
+  const existing = db.signups.find((signup) => (
+    signup.attendeeId === attendee.attendeeId && String(signup.optionId) === String(optionId)
+  ));
+  if (existing) {
+    existing.phone = attendee.phone;
+    existing.name = attendee.name;
+    existing.optionTitle = optionTitle || optionId;
+    if (Object.prototype.hasOwnProperty.call(body, "email")) existing.email = email || "";
+    if (Object.prototype.hasOwnProperty.call(body, "stars")) existing.stars = stars || null;
+    if (Object.prototype.hasOwnProperty.call(body, "comment")) existing.comment = comment || "";
+    writeDb(db);
+    return { status: 200, body: { ok: true, signupId: existing.id, updated: true } };
+  }
   const row = {
     id: id(),
     attendeeId: attendee.attendeeId,
@@ -392,6 +547,64 @@ function submitSignup(body) {
   db.signups.push(row);
   writeDb(db);
   return { status: 200, body: { ok: true, signupId: row.id } };
+}
+
+function saveSignupSelections(body) {
+  const attendeeId = body && body.attendeeId;
+  const rawOptionIds = body && body.optionIds;
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
+  if (!Array.isArray(rawOptionIds)) {
+    return errorResult(400, "optionIds must be a list", "INVALID_SIGNUP_OPTIONS");
+  }
+  const optionIds = Array.from(new Set(rawOptionIds.map((value) => String(value || "").trim()).filter(Boolean)));
+  if (optionIds.some((optionId) => !FINAL_SIGNUP_OPTIONS.has(optionId))) {
+    return errorResult(400, "Choose only valid Phase 3 options.", "INVALID_SIGNUP_OPTIONS");
+  }
+
+  const db = readDb();
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  const selected = new Set(optionIds);
+  db.signups = db.signups.filter((signup) => !(
+    signup.attendeeId === attendee.attendeeId
+      && FINAL_SIGNUP_OPTIONS.has(String(signup.optionId))
+      && !selected.has(String(signup.optionId))
+      && signup.confirmedInPerson !== true
+  ));
+
+  const signupIds = optionIds.map((optionId) => {
+    let signup = db.signups.find((row) => (
+      row.attendeeId === attendee.attendeeId && String(row.optionId) === optionId
+    ));
+    if (signup) {
+      signup.name = attendee.name;
+      signup.phone = attendee.phone;
+      signup.optionTitle = FINAL_SIGNUP_OPTIONS.get(optionId);
+      return signup.id;
+    }
+    signup = {
+      id: id(),
+      attendeeId: attendee.attendeeId,
+      phone: attendee.phone,
+      name: attendee.name,
+      optionId,
+      optionTitle: FINAL_SIGNUP_OPTIONS.get(optionId),
+      email: "",
+      stars: null,
+      comment: "",
+      submittedAt: new Date().toISOString(),
+      confirmedInPerson: false,
+      confirmedBy: null,
+      confirmedAt: null,
+    };
+    db.signups.push(signup);
+    return signup.id;
+  });
+  const savedOptionIds = Array.from(FINAL_SIGNUP_OPTIONS.keys()).filter((optionId) => (
+    db.signups.some((signup) => signup.attendeeId === attendee.attendeeId && String(signup.optionId) === optionId)
+  ));
+  writeDb(db);
+  return { status: 200, body: { ok: true, optionIds: savedOptionIds, signupIds } };
 }
 
 function confirmSignupInPerson(body) {
@@ -422,6 +635,18 @@ function myCheckins(body) {
     status: 200,
     body: { boothIds: Array.from(new Set(boothIds)) },
   };
+}
+
+function mySignupSelections(body) {
+  const attendeeId = body && body.attendeeId;
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
+  const db = readDb();
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  const optionIds = Array.from(FINAL_SIGNUP_OPTIONS.keys()).filter((optionId) => (
+    db.signups.some((signup) => signup.attendeeId === attendee.attendeeId && String(signup.optionId) === optionId)
+  ));
+  return { status: 200, body: { optionIds } };
 }
 
 function dashboardData(body) {
@@ -458,21 +683,91 @@ function dashboardData(body) {
   const signups = db.signups
     .slice()
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
-    .map((s) => ({
-      id: s.id, name: s.name || "Guest", phone: s.phone, optionId: s.optionId, optionTitle: s.optionTitle,
-      submittedAt: s.submittedAt, confirmedInPerson: s.confirmedInPerson, confirmedBy: s.confirmedBy,
-    }));
+    .map((s) => {
+      const attendee = findAttendeeById(db, s.attendeeId);
+      return {
+        id: s.id, name: s.name || "Guest", phone: s.phone,
+        raffleNumber: attendee ? attendee.raffleNumber : "",
+        optionId: s.optionId, optionTitle: s.optionTitle,
+        submittedAt: s.submittedAt, confirmedInPerson: s.confirmedInPerson, confirmedBy: s.confirmedBy,
+      };
+    });
 
   return { status: 200, body: { totals, boothCounts, triviaLeaderboard, songVotes, signups } };
+}
+
+function boothPresentation(body) {
+  const boothResult = requireBoothId(body && body.boothId);
+  if (boothResult.error) return boothResult.error;
+  const db = readDb();
+  return {
+    status: 200,
+    body: Object.assign(
+      boothPresentationFromDb(db, boothResult.boothId),
+      { serverNow: new Date().toISOString() }
+    ),
+  };
+}
+
+function updateBoothPresentation(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const boothResult = requireBoothId(body && body.boothId);
+  if (boothResult.error) return boothResult.error;
+
+  const stepIndex = Number(body && body.stepIndex);
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > MAX_PRESENTATION_STEP_INDEX) {
+    return errorResult(
+      400,
+      `stepIndex must be an integer from 0 to ${MAX_PRESENTATION_STEP_INDEX}.`,
+      "INVALID_PRESENTATION_STEP"
+    );
+  }
+  const status = String((body && body.status) || "").trim().toLowerCase();
+  if (!BOOTH_PRESENTATION_STATUSES.has(status)) {
+    return errorResult(400, "Choose a valid booth presentation status.", "INVALID_PRESENTATION_STATUS");
+  }
+  if (body && body.message !== undefined && body.message !== null && typeof body.message !== "string") {
+    return errorResult(400, "message must be text.", "INVALID_PRESENTATION_MESSAGE");
+  }
+  const message = String((body && body.message) || "").trim();
+  if (message.length > MAX_PRESENTATION_MESSAGE_LENGTH) {
+    return errorResult(
+      400,
+      `message must be ${MAX_PRESENTATION_MESSAGE_LENGTH} characters or fewer.`,
+      "INVALID_PRESENTATION_MESSAGE"
+    );
+  }
+
+  const db = readDb();
+  const previous = boothPresentationFromDb(db, boothResult.boothId);
+  if (body && body.version !== undefined) {
+    const expectedVersion = Number(body.version);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+      return errorResult(409, "This booth screen was updated in another tab. Refresh and try again.", "PRESENTATION_CONFLICT");
+    }
+  }
+  const now = new Date().toISOString();
+  const presentation = {
+    boothId: boothResult.boothId,
+    stepIndex,
+    status,
+    message,
+    createdAt: previous.createdAt || now,
+    updatedAt: now,
+    version: Math.min(Number.MAX_SAFE_INTEGER, previous.version + 1),
+  };
+  db.boothPresentations[boothResult.boothId] = presentation;
+  writeDb(db);
+  return { status: 200, body: Object.assign({}, presentation, { serverNow: now }) };
 }
 
 function boothDashboardData(body) {
   const authError = requireOrganizer(body);
   if (authError) return authError;
-  const boothId = String((body && body.boothId) || "");
-  if (!BOOTH_IDS.has(boothId)) {
-    return errorResult(404, "booth not found", "BOOTH_NOT_FOUND");
-  }
+  const boothResult = requireBoothId(body && body.boothId);
+  if (boothResult.error) return boothResult.error;
+  const boothId = boothResult.boothId;
 
   const db = readDb();
   const checkins = db.boothCheckins
@@ -482,6 +777,8 @@ function boothDashboardData(body) {
     status: 200,
     body: {
       boothId,
+      presentation: boothPresentationFromDb(db, boothId),
+      serverNow: new Date().toISOString(),
       totalCheckins: checkins.length,
       recentCheckins: checkins.slice(0, 50).map((checkin) => ({
         id: checkin.id,
@@ -509,8 +806,9 @@ function verifyOrganizer(body) {
 
 const POST_ACTIONS = {
   registerAttendee, confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
-  boothCheckin, submitSignup, confirmSignupInPerson, dashboardData,
-  boothDashboardData, resetDemo, verifyOrganizer, myCheckins,
+  boothCheckin, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
+  boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
+  myCheckins, mySignupSelections,
 };
 const GET_ACTIONS = {};
 
@@ -573,17 +871,12 @@ function startServer(port = PORT) {
     const actualPort = server.address().port;
     console.log(`Event app demo server running: http://localhost:${actualPort}`);
     console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
-    console.log("  Phase 2 booth rooms:");
-    console.log(`    Heaven:             http://localhost:${actualPort}/phase2-booths/booth-heaven.html`);
-    console.log(`    Bible Bowl:         http://localhost:${actualPort}/phase2-booths/booth-trivia.html`);
-    console.log(`    The Sower:          http://localhost:${actualPort}/phase2-booths/booth-story.html`);
-    console.log(`    Art Therapy:        http://localhost:${actualPort}/phase2-booths/booth-art.html`);
-    console.log(`    New Song:           http://localhost:${actualPort}/phase2-booths/booth-newsong.html`);
+    console.log(`  Attendee booth route: http://localhost:${actualPort}/phase2-booths/hub.html`);
     console.log(`  Phase 3 attendee:     http://localhost:${actualPort}/phase3-signup/index.html`);
     console.log(`  Phase 2 staff hub:    http://localhost:${actualPort}/phase2-staff/index.html`);
     console.log(`  Organizer dashboard:  http://localhost:${actualPort}/organizer/dashboard.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
-    console.log("  Local testing:        open each booth room directly; no QR scan required");
+    console.log("  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL");
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {
       console.log("  Local organizer key:  demo");
     }

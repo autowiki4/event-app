@@ -5,22 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>You're all set — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
-<style>
-  :root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }
-</style>
+<style>:root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }</style>
 </head>
 <body>
-
-<div class="phone" id="phone">
+<div class="phone">
   <div class="progress" id="progress"></div>
   <section class="screen">
+    <div class="attendee-banner">
+      <div>
+        <span class="attendee-label">Attendee</span>
+        <strong id="done-attendee-name">Guest</strong>
+        <span class="attendee-raffle" id="done-attendee-raffle">Raffle #----</span>
+      </div>
+      <div class="attendee-banner-actions"><span class="wristband-chip" id="done-wristband">Registered</span></div>
+    </div>
     <div class="done-badge">✓</div>
-    <h1 class="display" style="text-align:center;">You're not leaving the same.</h1>
-    <p class="lede" style="text-align:center;">Thanks for being here today. Here's a recap:</p>
+    <p class="eyebrow" style="text-align:center;">Saved</p>
+    <h1 class="display" style="text-align:center;">You're all set.</h1>
+    <p class="lede" style="text-align:center;">Your selections are connected to your registration. No more questions—enjoy the rest of the event.</p>
     <ul class="summary-list" id="summary-list"></ul>
     <div id="booth-guides"></div>
-    <div class="connect-card" id="connect-box"></div>
-    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Sign out of Phase 3</button>
+    <div class="connect-card">
+      <div class="kicker">Phase 3 complete</div>
+      <h2>Thanks for being here.</h2>
+      <p style="margin-bottom:0;">Keep your raffle number handy for the live drawing.</p>
+    </div>
+    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Switch attendee</button>
   </section>
 </div>
 
@@ -34,93 +44,57 @@
 function renderProgress() {
   const el = document.getElementById("progress");
   el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const d = document.createElement("div");
-    d.className = "dot" + (i < 2 ? " done" : i === 2 ? " current" : "");
-    el.appendChild(d);
+  for (let i = 0; i < 3; i += 1) {
+    const dot = document.createElement("div");
+    dot.className = "dot done";
+    el.appendChild(dot);
   }
 }
 renderProgress();
 
 let identity = Identity.peek();
 const chosenIds = JSON.parse(sessionStorage.getItem("eventapp.chosen") || "[]");
-const chosen = FINAL_OPTIONS.filter((o) => chosenIds.includes(o.id));
+const chosen = FINAL_OPTIONS.filter((option) => chosenIds.includes(option.id));
 
 async function render() {
+  document.getElementById("done-attendee-name").textContent = identity.name || "Guest";
+  document.getElementById("done-attendee-raffle").textContent = `Raffle #${identity.raffleNumber || "----"}`;
+  const color = wristbandColorById(identity.wristbandColor);
+  const chip = document.getElementById("done-wristband");
+  chip.textContent = color ? `${color.label} wristband` : "Registered";
+  chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+
   let boothIds = [];
   try {
-    const res = await EventAPI.myCheckins(identity.attendeeId);
-    boothIds = res.boothIds || [];
-  } catch (e) {
-    if (Identity.restartIfMissing(e, "../phase3-signup/index.html")) return;
-    console.warn(e);
+    const response = await EventAPI.myCheckins(identity.attendeeId);
+    boothIds = response.boothIds || [];
+  } catch (error) {
+    if (Identity.restartIfMissing(error, "../phase3-signup/index.html")) return;
+    console.warn(error);
   }
 
+  const routeLength = routeForWristband(identity.wristbandColor).length || 3;
   const list = document.getElementById("summary-list");
   list.innerHTML = `
-    <li>🎟️ Raffle entry <b>#${identity.raffleNumber || "----"}</b> — we'll call it live if you win.</li>
-    <li>📜 ${boothIds.length} of ${CONNECTOR_BOOTHS.length} connector booths completed.</li>
+    <li>🎟️ Raffle entry <b>#${escapeHtml(identity.raffleNumber || "----")}</b> — keep it ready for the live drawing.</li>
+    <li>📜 ${boothIds.length} of ${routeLength} scheduled booth visits marked complete.</li>
   `;
-  if (chosen.length === 0) {
-    list.innerHTML += `<li>You skipped the final options — that's okay, we'll still keep your raffle entry.</li>`;
+  if (!chosen.length) {
+    list.innerHTML += "<li>Phase 3 finished with no additional selections.</li>";
   } else {
-    chosen.forEach((o) => { list.innerHTML += `<li>✅ ${o.title}</li>`; });
+    chosen.forEach((option) => {
+      list.innerHTML += `<li>✅ ${escapeHtml(option.title)}</li>`;
+    });
   }
 
   const guides = document.getElementById("booth-guides");
   guides.innerHTML = "";
-  chosen.filter((o) => o.guide).forEach((o) => {
-    const g = document.createElement("div");
-    g.className = "booth-guide";
-    g.style.marginTop = "10px";
-    g.innerHTML = `<div class="g-kicker">${o.guide.kicker}</div><div class="g-loc">${o.guide.loc}</div><div class="g-detail">${o.guide.detail}</div>`;
-    guides.appendChild(g);
-  });
-
-  renderConnectBox();
-}
-
-function renderConnectBox() {
-  const box = document.getElementById("connect-box");
-  if (identity.email) {
-    box.innerHTML = `
-      <div class="kicker">You're connected</div>
-      <h2>So glad you're here.</h2>
-      <p style="margin-bottom:0;">We've got your email — we'll follow up soon on ${chosen.length ? "the next step you picked" : "what's next"}. Can't wait to see where this takes you.</p>
-    `;
-    return;
-  }
-  box.innerHTML = `
-    <div class="kicker">Before you go</div>
-    <h2>Let's stay connected.</h2>
-    <p>Drop your email and we'll follow up${chosen.length ? " on the next step you picked" : ""} — no spam, just what matters.</p>
-    <input id="fld-connect-email" type="email" placeholder="you@email.com">
-    <button class="btn btn-primary" id="btn-connect-email">Keep me connected →</button>
-  `;
-  document.getElementById("btn-connect-email").addEventListener("click", async () => {
-    const input = document.getElementById("fld-connect-email");
-    const val = input.value.trim();
-    if (!val) { input.focus(); return; }
-    const btn = document.getElementById("btn-connect-email");
-    btn.disabled = true; btn.textContent = "Saving…";
-    try {
-      await EventAPI.submitSignup({
-        attendeeId: identity.attendeeId,
-        phone: identity.phone,
-        optionId: "connect",
-        optionTitle: "Stay connected (added after wrap-up)",
-        email: val,
-      });
-      Identity.set({ email: val });
-      identity.email = val;
-      renderConnectBox();
-      toast("Thanks — we'll be in touch!");
-    } catch (e) {
-      console.error(e);
-      if (Identity.restartIfMissing(e, "../phase3-signup/index.html")) return;
-      toast("Couldn't save — check the connection and try again.");
-      btn.disabled = false; btn.textContent = "Keep me connected →";
-    }
+  chosen.filter((option) => option.guide).forEach((option) => {
+    const guide = document.createElement("div");
+    guide.className = "booth-guide";
+    guide.style.marginTop = "10px";
+    guide.innerHTML = `<div class="g-kicker">${escapeHtml(option.guide.kicker)}</div><div class="g-loc">${escapeHtml(option.guide.loc)}</div><div class="g-detail">${escapeHtml(option.guide.detail)}</div>`;
+    guides.appendChild(guide);
   });
 }
 
@@ -136,8 +110,8 @@ async function initCompletePage() {
   try {
     identity = await AttendeePortal.restore("phase3");
     render();
-  } catch (e) {
-    console.error(e);
+  } catch (error) {
+    console.error(error);
     Identity.clear();
     window.location.replace("../phase3-signup/index.html");
   }

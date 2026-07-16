@@ -40,7 +40,7 @@ const EventAPI = (function () {
 
   return {
     registerAttendee: (attendeeId, name) => call("registerAttendee", { attendeeId, name }),
-    confirmWristband: (attendeeId) => call("confirmWristband", { attendeeId }),
+    confirmWristband: (attendeeId, wristbandColor) => call("confirmWristband", { attendeeId, wristbandColor }),
     loginAttendee: (name, raffleNumber, portal) => call("loginAttendee", { name, raffleNumber, portal }),
     attendeePortalSession: (attendeeId, portal) => call("attendeePortalSession", { attendeeId, portal }),
     findOrRegisterByPhone: (attendeeId, phone, name, options) => call("findOrRegisterByPhone", {
@@ -51,6 +51,7 @@ const EventAPI = (function () {
     }),
     boothCheckin: (data) => call("boothCheckin", data),
     submitSignup: (data) => call("submitSignup", data),
+    saveSignupSelections: (attendeeId, optionIds) => call("saveSignupSelections", { attendeeId, optionIds }),
     confirmSignupInPerson: (signupId, confirmedBy, organizerKey) => call("confirmSignupInPerson", {
       signupId,
       confirmedBy,
@@ -58,8 +59,11 @@ const EventAPI = (function () {
     }),
     dashboardData: (organizerKey) => call("dashboardData", { organizerKey }),
     boothDashboardData: (boothId, organizerKey) => call("boothDashboardData", { boothId, organizerKey }),
+    boothPresentation: (boothId) => call("boothPresentation", { boothId }),
+    updateBoothPresentation: (data) => call("updateBoothPresentation", data),
     verifyOrganizer: (organizerKey) => call("verifyOrganizer", { organizerKey }),
     resetDemo: (organizerKey) => call("resetDemo", { organizerKey }),
     myCheckins: (attendeeId) => call("myCheckins", { attendeeId: attendeeId || "" }),
+    mySignupSelections: (attendeeId) => call("mySignupSelections", { attendeeId: attendeeId || "" }),
   };
 })();

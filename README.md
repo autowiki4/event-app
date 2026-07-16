@@ -1,62 +1,55 @@
-# The Perfect Summer Day — Event App
+# The Perfect Summer Day — event app mock
 
-A multi-device event companion app, built for a one-day event with three
-stages:
+This repository is a runnable mock and implementation framework for a timed,
+multi-device event experience. It is useful for design reviews, rehearsals,
+and validating the flow with the event team. It is **not production-ready**:
+the event date and operating rules still need confirmation, access is not
+strong authentication, and the deployment needs a security and venue-network
+review.
 
-1. **Phase 1 — Entry.** Attendee scans a QR code at the door, types their
-   name, gets a raffle number, and a staff member ("Guardian Angel")
-   confirms they physically received a wristband before letting them into
-   the gym.
-2. **Phase 2 — Booths.** Attendees visit connector booths around the gym.
-   Each of the five booths has its own attendee link and its own login, so
-   opening one booth never drops someone into a shared Phase 2 hub or unlocks
-   the other four. Every booth also has a separate, booth-scoped staff
-   dashboard. Art Therapy and New Song retain optional staff-held kiosk pages
-   as a fallback.
-3. **Phase 3 — Sign-up.** Before leaving, attendees pick what they're
-   interested in next (future events, Bible study, a course, etc.). Staff
-   later confirm in person which of those sign-ups actually happened.
+The attendee journey is now one continuous flow:
 
-This README is the starting point. If you just want to see it running,
-skip to **Quick start** below. Everything else in this repo is documented
-in its own `.md` file — see **Where to go next** at the bottom of this
-file for a map.
+1. **Phase 1 — entry:** enter a name, receive a raffle number, and have a
+   Guardian Angel assign and confirm the physical wristband color.
+2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
+   attendee's name and raffle number, a shared timer, the current booth, and
+   the booth leader's live instructions. Each wristband visits three of the
+   five booths.
+3. **Phase 3 — tick and go:** select any next-step options and finish. There
+   are no ratings, comments, or extra attendee questions.
 
----
+The older direct booth-room pages remain available as optional fallbacks, but
+they are no longer the primary attendee experience.
 
-## Prerequisites
+## Wristband routes
 
-You only need one thing installed: **Node.js** (version 16 or newer — 18
-or 20 is fine too). Nothing else. No database, no Google account, no
-`npm install` step, no paid services, to run the demo.
+The color selected in Phase 1 determines all three stops:
 
-**Check if you already have it:** open a terminal and run:
+| Wristband | Session 1 | Session 2 | Session 3 |
+|---|---|---|---|
+| Blue | Can You Draw Heaven? | Bible Bowl | The Sower, Live |
+| Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
+| Orange | Art Therapy Table | The Sower, Live | The New Song in Nashville |
+| Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
+| Yellow | The Sower, Live | The New Song in Nashville | Bible Bowl |
 
-```
-node --version
-```
+The current mock schedule is:
 
-- If that prints something like `v18.19.0`, you're set — skip to Quick
-  start.
-- If it says "command not found," install Node.js from
-  [nodejs.org](https://nodejs.org) (pick the "LTS" button — it's a normal
-  installer, like installing any other app), then re-run `node --version`
-  to confirm.
+| Session | Time |
+|---|---|
+| 1 | 3:10–3:30 PM |
+| 2 | 3:30–3:50 PM |
+| 3 | 3:50–4:10 PM |
 
-You'll also want `git` if you're cloning this from GitHub rather than
-receiving the folder directly — it comes pre-installed on macOS, and on
-Windows you'd install [Git for Windows](https://git-scm.com/downloads).
-
-**A "terminal," if that phrase is new:** on macOS it's the app called
-"Terminal" (search for it with Spotlight/Cmd+Space); on Windows it's
-"Command Prompt" or "PowerShell." Every command below is typed into that
-window, one line at a time, followed by Enter.
-
----
+These timestamps currently assume **July 18, 2026 in Nashville** and use the
+event-day offset `-05:00` (CDT). That date is an editable mock assumption, not
+a production configuration service. Confirm it with the event team and edit
+`BOOTH_SESSIONS` in `web/shared/booths-config.js` before deployment.
 
 ## Quick start
 
-Copy and paste these commands into a terminal:
+The local demo needs Node.js 16 or newer. It has no npm dependencies and does
+not need a Google account or database.
 
 ```bash
 git clone https://github.com/autowiki4/event-app.git
@@ -64,241 +57,142 @@ cd event-app/demo-server
 node server.js
 ```
 
-(If you were handed this folder directly instead of a GitHub link, skip
-the `git clone` line and just open a terminal *inside* the `demo-server`
-folder, then run `node server.js`.)
+The server prints the main local links:
 
-You'll see:
-
-```
+```text
 Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
-  Phase 2 booth rooms:
-    Heaven:             http://localhost:3000/phase2-booths/booth-heaven.html
-    Bible Bowl:         http://localhost:3000/phase2-booths/booth-trivia.html
-    The Sower:          http://localhost:3000/phase2-booths/booth-story.html
-    Art Therapy:        http://localhost:3000/phase2-booths/booth-art.html
-    New Song:           http://localhost:3000/phase2-booths/booth-newsong.html
+  Attendee booth route: http://localhost:3000/phase2-booths/hub.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
   Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Local testing:        open each booth room directly; no QR scan required
+  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
   Local organizer key:  demo
 ```
 
-Open any of those links in your browser — that's the whole app running
-locally on your machine, with a local, throwaway copy of the "database"
-(no attendee's real data, nothing shared with anyone else).
+Start at Phase 1. On the same device, the hub and Phase 3 reuse the saved
+attendee identity. On another device, the attendee enters their Phase 1 name
+and raffle number once to recover the same route. The name and raffle number
+stay visible at the top of the hub and Phase 3 as a reminder.
 
-For ordinary local testing, open Phase 1, any of the five Phase 2 booth-room
-URLs, and Phase 3 directly; ignore QR codes entirely. Phase 1 registers a
-person and ends by telling them they can close the link. At the event, they
-open the link for the booth where they are standing and enter their Phase 1
-name and raffle number. They repeat that login at each booth. Phase 3 keeps its
-existing separate login. Deployment QR work is intentionally deferred until
-the site has a real public URL to encode.
+Press `Ctrl+C` in the terminal to stop the server.
 
-**To stop the server:** click back into that terminal window and press
-`Ctrl+C`.
+### Preview a session without changing the clock
 
-**To run the zero-dependency regression suite:** from `demo-server/`, run
-`npm test`. It covers independent booth-room and Phase 3 login lookup,
-identity pairing/merging, duplicate booth-completion protection, scoped booth
-staff data, organizer authorization, API error propagation, and the protected
-dashboard mutations.
+The real event time is not convenient for rehearsals. On localhost only,
+append one of these query values to the attendee hub or an individual booth
+leader page:
 
-**To reset the demo data** (start over with zero attendees): either click
-"Reset demo data" at the bottom of the organizer dashboard, or run:
-
+```text
+?preview=before
+?preview=1
+?preview=2
+?preview=3
+?preview=ended
 ```
+
+For example:
+
+```text
+http://localhost:3000/phase2-booths/hub.html?preview=1
+http://localhost:3000/phase2-staff/heaven.html?preview=1
+```
+
+Preview mode holds the page at a deterministic point in that state, so its
+countdown is intentionally frozen. Without `?preview=...`, the synchronized
+clock counts down normally. The override is ignored on non-local hosts.
+
+## Booth-leader portals
+
+`web/phase2-staff/index.html` links to one staff portal per booth. After
+unlocking a booth page, its leader can publish:
+
+- a status: waiting, live, paused, wrap up, or complete;
+- the current booth-specific activity step; and
+- an optional short announcement.
+
+The attendee hub polls for that booth's published state and refreshes the
+current screen automatically. Leaders also see the wristband group scheduled
+for their booth, the shared timer, and that booth's recent check-ins.
+
+All five staff portals currently share one organizer key. The backend scopes
+the data and controls by booth, but the shared key is **not per-booth access
+control**: anyone with it can unlock another staff or organizer page. Use the
+local value `demo` only for rehearsal. A production version needs strong,
+rotatable credentials and preferably separate roles or booth-level grants.
+
+## What is in the repo
+
+```text
+event-app/
+├── web/
+│   ├── phase1-entry/       registration + raffle + wristband assignment
+│   ├── phase2-booths/      unified hub + optional legacy booth/kiosk pages
+│   ├── phase2-staff/       booth-leader directory and five scoped portals
+│   ├── phase3-signup/      checkbox-only next steps
+│   ├── done/               final recap
+│   ├── organizer/          event-wide dashboard and unified-flow QR utility
+│   └── shared/             identity, schedule, API, content, and shared UI
+├── demo-server/            local Node backend using a throwaway JSON file
+├── apps-script/            Google Sheets + Apps Script parity backend
+├── ARCHITECTURE.md         identity, timing, controls, and data design
+├── DEMO_GUIDE.md           a short presentation/rehearsal script
+└── qr/QR_PLAN.md           recommended placement and print checklist
+```
+
+Both backends implement the same browser-facing API. The Node version writes
+to `demo-server/db.json`; the Apps Script version writes to Google Sheets.
+Switching backends is controlled by `API_BASE_URL` in
+`web/shared/config.js`.
+
+The Apps Script implementation is deployment-shaped, not proof that the whole
+system is ready for a live event. Test it on the venue network, replace the
+shared organizer-key model, confirm privacy/retention requirements, and define
+an offline fallback before collecting real attendee data.
+
+## Test and reset
+
+From `demo-server/`:
+
+```bash
+npm test
+```
+
+The zero-dependency regression suite exercises the API and static-page
+contracts, including attendee identity lookup, wristband-color persistence,
+Phase 2 eligibility, booth presentation reads and protected updates,
+booth-scoped staff data, duplicate check-in protection, Phase 3 sign-ups,
+organizer authorization, reset behavior, and inline JavaScript syntax.
+
+To clear rehearsal data, use the organizer dashboard or run:
+
+```bash
 curl -X POST -H "Content-Type: application/json" \
   -d '{"organizerKey":"demo"}' \
   http://localhost:3000/api/resetDemo
 ```
 
-Want a guided, step-by-step walkthrough of every part of the app, written
-as a script you can read aloud while presenting it to other people? See
-**`DEMO_GUIDE.md`**.
+## Known mock limitations
 
----
+- Name plus raffle number is convenient record recovery, not strong identity
+  verification.
+- The synchronized experience needs working network access; there is no
+  offline queue.
+- Phase 3 is revealed by the hub after 4:10 PM, but the standalone Phase 3 URL
+  is not a security-enforced time gate.
+- Booth leaders share one organizer key, and their controls are one current
+  state per booth rather than a historical show-control system.
+- QR codes must be regenerated and device-tested after the app has a stable
+  public URL; never print localhost or preview-query links.
 
-## What each part of the project is
+## Related docs
 
-```
-event-app/
-├── README.md              you are here — setup + orientation
-├── ARCHITECTURE.md         why the app is built this way (identity model, data flow)
-├── DEMO_GUIDE.md           step-by-step script for presenting a live demo to a room
-├── event-app.html          the ORIGINAL single-file sketch — kept for reference only, don't edit this
-│
-├── web/                    every page a person actually opens in a browser
-│   ├── shared/              code shared by every page (see below)
-│   ├── phase1-entry/        Phase 1: name → wristband confirmation → raffle ticket
-│   ├── phase2-booths/       five independent attendee booth rooms + optional kiosks
-│   ├── phase2-staff/        Phase 2 staff hub + one scoped page per booth
-│   ├── phase3-signup/       Phase 3 attendee login + "what's next" choices
-│   ├── done/                 final recap screen + "stay connected" email capture
-│   └── organizer/            live dashboard + printable QR codes (staff-only pages)
-│
-├── demo-server/            local backend for demos/rehearsal (no Google account needed)
-│   ├── server.js             the actual server — see demo-server/README.md
-│   ├── package.json
-│   └── db.json               local "database" file, created automatically, safe to delete
-│
-├── apps-script/            production backend — deploy this for the real event
-│   ├── Code.gs               the backend code itself
-│   ├── README.md              step-by-step deployment instructions
-│   └── SHEET_SCHEMA.md        exact spreadsheet column layout it creates
-│
-└── qr/
-    └── QR_PLAN.md            how the printable QR codes work
-```
-
-### `web/` — the pages people open
-
-Every page in here is a plain, standalone HTML file — no build step, no
-compiling, nothing to install. Open any of them directly in a browser (via
-the demo server, or later via a real web host) and they work.
-
-- **`web/shared/`** — not a page itself, but code every page reuses:
-  `styles.css` (the look of the app), `api.js` (how every page talks to
-  the backend), `identity.js` and `attendee-portal.js` (phase-specific
-  attendee sign-in), `booths-config.js` (the list of booths, trivia
-  questions, sign-up options — edit this file to change any of that
-  content), `booth-room.js` (the independent login shell used by all five
-  attendee rooms), `booth-common.js` (shared attendee-booth behavior),
-  `booth-staff-common.js` (scoped booth-staff data), `organizer-auth.js`
-  (page-memory-only staff access), and `toast.js` (confirmation messages).
-
-- **`web/phase1-entry/index.html`** — what the entry QR code points to.
-  Name entry → raffle ticket → wristband confirmation → a Phase 1-complete
-  screen that thanks the attendee, tells them they can close the link, and
-  reminds them to use the same name and raffle number when they reach a booth.
-  It no longer sends attendees directly into Phase 2.
-
-- **`web/phase2-booths/`** — five independent attendee rooms:
-  - `booth-heaven.html` ("Can You Draw Heaven?"), `booth-trivia.html`
-    ("Bible Bowl"), `booth-story.html` ("The Sower, Live"),
-    `booth-art.html` ("Art Therapy Table"), and `booth-newsong.html`
-    ("The New Song in Nashville").
-  - On first arrival, every room opens with blank name and raffle-number
-    fields, validates the Phase 1 registration, welcomes the attendee to that
-    booth only, and keeps its own tab-level access marker. Signing in at
-    Heaven, for example, does not unlock Bible Bowl. The first booth also
-    collects a 10-digit phone number; the same attendee record is reused as
-    they move between rooms.
-  - `kiosk-art.html` and `kiosk-newsong.html` remain available as optional
-    staff-operated fallback tools. Staff unlock them with the organizer key,
-    verify a first-time visitor's name and raffle number, and can explicitly
-    create a visitor who truly skipped entry. They are not the primary
-    attendee links.
-  - `hub.html` is now only a compatibility notice explaining that Phase 2 has
-    no shared attendee portal. It does not provide a login or a booth list.
-
-- **`web/phase2-staff/`** — the independent Phase 2 staff side:
-  - **`index.html`** — staff booth directory.
-  - **`heaven.html`, `trivia.html`, `story.html`, `art.html`, and
-    `newsong.html`** — five distinct organizer URLs. Each calls a
-    server-filtered endpoint that returns only that booth's count and recent
-    check-ins. Each includes a booth-only settings area ready for the controls
-    that will be defined later. Art and New Song also link to their optional
-    staff kiosks. The pages currently share one organizer key, so this is
-    server-enforced data scoping and UI separation rather than five separate
-    staff credentials.
-
-- **`web/phase3-signup/index.html`** — the independent Phase 3 attendee
-  link. It finds the Phase 1 registration by name + raffle number, then shows
-  future events, Bible study, the 8-month course, art therapy, and referring
-  a friend. Phase 2 participation is not required.
-
-- **`web/done/index.html`** — recap screen shown after Phase 3: raffle
-  number, booths completed, choices made, and an email capture if they
-  haven't given one already.
-
-- **`web/organizer/`** — for staff, not attendees:
-  - **`dashboard.html`** — live-updating view of registrations, wristband
-    confirmations, booth check-in counts, the Bible Bowl leaderboard, song
-    votes, and Phase 3 sign-up rosters grouped by option for in-person
-    confirmation. Phone numbers are shown in `(555) 555-5555` format. It
-    stays locked until staff enter the runtime organizer key.
-  - **`qr-codes.html`** — generates and prints the QR codes for the door
-    and the three original self-service booths. It remains unchanged for now;
-    the deployment-time QR update for all five booth-room links is deferred
-    until a real public URL exists.
-
-### `demo-server/` vs `apps-script/` — two interchangeable backends
-
-Both implement the *exact same* set of actions (register or sign in an
-attendee, confirm a wristband, look up someone by phone, log a booth
-check-in, return booth-scoped staff data, etc.) — the pages in `web/` don't
-know or care which one they're talking
-to. That's on purpose: build and rehearse everything against
-`demo-server/` (fast, free, no Google account), then switch to
-`apps-script/` for the actual event by changing one line in
-`web/shared/config.js`. See `demo-server/README.md` and
-`apps-script/README.md` for how to run each one.
-
----
-
-## Troubleshooting
-
-- **"node: command not found"** — Node.js isn't installed yet; see
-  Prerequisites above.
-- **"Error: listen EADDRINUSE ... :3000"** — something else is already
-  using port 3000 (maybe a previous copy of this server still running).
-  Either stop that process, or run this one on a different port:
-  `PORT=3001 node server.js`, then use `localhost:3001` in the URLs
-  instead.
-- **A page loads but looks unstyled / broken fonts** — the page couldn't
-  reach Google Fonts (needs internet the first time it loads, after that
-  your browser usually caches it). The app still works, it just won't
-  look as polished.
-- **Booth pages keep asking for a phone number again** — that's expected
-  behavior if you're using a private/incognito window (which doesn't
-  keep `localStorage` between sessions) or if you cleared your browser
-  data. It's also expected on kiosk pages — those intentionally ask every
-  time, since a new visitor is standing there each time.
-- **Dashboard shows nothing / stays at zero** — make sure you're looking
-  at the dashboard from the *same* server you registered attendees on
-  (e.g. both on `localhost:3000`, not one on `3000` and one on `3001`) and
-  that you unlocked it with the local key `demo`.
-- **A kiosk asks for a raffle number** — this is how staff securely attach
-  a first-time kiosk phone number to the attendee record created at entry.
-  Verify the name and number in the confirmation against their ticket.
-  Returning phones can leave it blank. Only mark "skipped entry" when the
-  visitor really has no entry raffle number, then give them the new number
-  displayed by the kiosk.
-
----
-
-## Going from demo to the real event
-
-1. Deploy the production backend — follow `apps-script/README.md`
-   end-to-end (create a Google Sheet, set a strong organizer key in Script
-   Properties, paste in `Code.gs`, deploy as a Web App, and copy its URL).
-2. Host the `web/` folder somewhere public — any static host works
-   (Netlify, GitHub Pages, Vercel), since every page is plain HTML/CSS/JS
-   with no build step.
-3. In `web/shared/config.js`, set `API_BASE_URL` to the Apps Script
-   `/exec` URL from step 1.
-4. Once the final public routes are deployed, finish the deferred QR setup and
-   print codes pointed at that real public URL (not `localhost`) — see
-   `qr/QR_PLAN.md`. The current generator has intentionally not yet been
-   expanded to all five booth rooms.
-5. Do a full run-through with a couple of real phones and one kiosk
-   device before the actual day — `DEMO_GUIDE.md` doubles as a rehearsal
-   script for this.
-
----
-
-## Where to go next
-
-| Doc | What's in it |
+| Document | Purpose |
 |---|---|
-| `ARCHITECTURE.md` | Why the app is designed this way — the shared-identity model that lets different devices (an attendee's phone, a staff kiosk) stay in sync, and the reasoning behind self-service vs. kiosk booths. |
-| `DEMO_GUIDE.md` | A word-for-word script for presenting this live to a room — what to click, what to say, in order, plus a Q&A section. |
-| `demo-server/README.md` | Everything about the local backend used for demos. |
-| `apps-script/README.md` | Step-by-step deployment of the real, production backend. |
-| `apps-script/SHEET_SCHEMA.md` | The exact spreadsheet columns the production backend creates and uses. |
-| `qr/QR_PLAN.md` | How the printable QR codes work and which ones you need. |
+| `ARCHITECTURE.md` | How identity, schedule synchronization, routing, and booth controls connect |
+| `DEMO_GUIDE.md` | How to present the unified flow using local preview states |
+| `demo-server/README.md` | Local backend, data file, reset, and API parity |
+| `apps-script/README.md` | Google Apps Script deployment sketch |
+| `apps-script/SHEET_SCHEMA.md` | Sheet tabs and columns |
+| `qr/QR_PLAN.md` | Unified-flow QR destinations, placement, and print checklist |

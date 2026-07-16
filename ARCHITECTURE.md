@@ -1,247 +1,222 @@
-# Event App — Architecture
+# Event app architecture
 
-This explains *why* the app is built the way it is — the identity model,
-the data store, and the reasoning behind each phase. For *how to run it*,
-see the main `README.md`; for a live walkthrough script, see
-`DEMO_GUIDE.md`. Everything described below has been built — this
-document reflects the app as it actually exists in this repo, not just a
-plan.
+This document explains how the current runnable mock connects Phase 1,
+the timed booth experience, booth-leader controls, and Phase 3. For setup, see
+`README.md`; for a presentation script, see `DEMO_GUIDE.md`.
 
-Built from `event-app.html` (the original single-file sketch), split into
-a real multi-page, multi-device app. Backend: Google Sheets + Apps Script
-in production, a zero-dependency Node server for local demos. Every booth has
-its own attendee room and booth-scoped staff dashboard; Art Therapy and New
-Song also retain optional staff-run kiosk fallbacks. Organizer: a live
-dashboard.
+## System shape
 
-## The core problem this solves
+The browser UI is a collection of static HTML, CSS, and JavaScript files under
+`web/`. It can use either of two API implementations:
 
-People move between phases, booths, and devices during the event. Phase 1 and
-Phase 3 have separate attendee URLs, while Phase 2 has five separate attendee
-URLs—one for each physical booth—instead of one automatic consumer flow.
-Optional staff kiosks can support Art Therapy and New Song, and Phase 3
-remains available even when somebody skipped the booths.
+- `demo-server/server.js`: a zero-dependency local Node server backed by
+  `demo-server/db.json`;
+- `apps-script/Code.gs`: an API-compatible Google Apps Script implementation
+  backed by a Google Sheet.
 
-One attendee row is reopened in three ways:
+`web/shared/config.js` selects the backend. The frontend should not need to
+change when that URL changes.
 
-- **Phase 1 name + raffle number** — the explicit registration lookup used
-  independently by the Phase 2 and Phase 3 portals. Name alone is not enough
-  because two attendees can share it. Matching ignores capitalization and
-  extra spaces, and a wrong pair returns one generic error without attendee
-  details.
-- **`attendeeId`** — a random canonical ID created in Phase 1 and saved after
-  a successful portal lookup. Each Phase 2 booth uses its own tab-level marker
-  (`eventapp.portal.phase2.<boothId>`), and Phase 3 uses
-  `eventapp.portal.phase3`. Entering one booth therefore does not silently
-  unlock another booth or Phase 3.
-- **phone number** — collected once, at the first booth check-in. On an
-  attendee's own phone it is linked through their random `attendeeId`. At a
-  staff kiosk, the first link is paired with the raffle number already shown
-  at entry; returning phones can then be looked up directly.
+The primary attendee path is:
 
-Name + raffle number is a lightweight event registration lookup, not strong
-authentication; both details can be shared or guessed. It solves duplicate
-names and cross-device continuity for the current event prototype. Add phone
-OTP or another verified credential before using it as a production security
-boundary.
+```text
+Phase 1 entry
+  name → raffle number → staff selects and confirms wristband color
+        ↓
+One Phase 2 hub
+  sticky name/raffle → shared timer → color route → leader-controlled screen
+        ↓
+Phase 3
+  sticky name/raffle → tick next-step options → finish
+```
 
-All three resolve to the same row in a Google Sheet. If staff pair a phone that was
-previously created as a "skipped entry" visitor with a later entry record, the
-backend keeps the entry record and raffle number, migrates its booth/sign-up
-history, retains the old ID as an alias, and removes the duplicate attendee.
-The model assumes one phone number belongs to one attendee for this event.
+## Identity and continuity
 
-## Data store: Google Sheet ("EventDB")
+Phase 1 creates a random canonical `attendeeId`. The backend assigns the
+raffle number and stores the name, wristband confirmation, and wristband
+color against that record.
 
-One spreadsheet, one Apps Script Web App in front of it acting as a tiny JSON API. Tabs:
+The attendee's own browser stores the current identity in `localStorage`, so
+moving from Phase 1 to the hub and then Phase 3 on the same device is
+automatic. A tab-level `sessionStorage` marker records access to the unified
+Phase 2 portal or Phase 3. On a different device, name plus raffle number
+reopens the same backend record and stores it locally on that device.
 
-**Attendees** — attendeeId, name, phone, raffleNumber, wristbandConfirmedAt, registeredAt
+Phase 2 requires a confirmed wristband. Phase 3 does not require a booth
+check-in, which lets staff still record next-step interest for someone who
+missed a session.
 
-**BoothCheckins** — attendeeId, phone, boothId, boothName, checkedInBy (self / staff name), checkedInAt, rating, note, extraData (JSON string — trivia score, story answers, art prompt shown, song voted for, etc.)
+Once a wristband color is confirmed, repeating the same color is idempotent
+but an unauthenticated call cannot switch the attendee to another group. A
+correction requires the organizer key at the API boundary; the mock does not
+yet include a dedicated correction screen.
 
-**SignUps** — attendeeId, phone, optionId, optionTitle, email, stars, comment, submittedAt, confirmedInPerson (bool), confirmedBy, confirmedAt
+The hub and Phase 3 display the attendee's name and raffle number in a top
+banner. This is both a reminder and a quick way to notice that a shared device
+is showing the wrong person's session. The **Switch** action clears the local
+identity and portal markers.
 
-**Meta** — a small key/value tab; currently holds just one row, `raffleCounter`, the last raffle number handed out. Apps Script increments this under a lock before handing out each new number, so two people registering at the exact same instant can never collide.
+Name plus raffle number is record lookup, not strong authentication. Both can
+be shared or observed. Do not treat this as an account-security boundary; a
+production design should use a verified credential if the stored data or
+available actions become sensitive.
 
-Every Apps Script action that touches the Sheet uses the same script-lock
-boundary, including dashboard/history reads. Besides keeping a merge that
-deletes a duplicate attendee row atomic with every row-number-dependent write,
-this serializes creation of the four tabs on a brand-new Sheet. The raffle
-helper requires the already-held lock rather than acquiring a nested lock, and
-pending Sheet writes are flushed before the lock is released. Public strings
-are also forced to text before they reach a Sheet cell so attendee input cannot
-be interpreted as a spreadsheet formula.
+## Wristband routing
 
-This Sheet *is* "the file with everyone's name and number" you asked for — Attendees tab, filterable/exportable to CSV anytime, no separate export step needed. `File > Download > CSV` in Google Sheets covers a one-click end-of-day export. Exact column layout for every tab is in `apps-script/SHEET_SCHEMA.md`.
+`web/shared/booths-config.js` is the shared source of truth for booth metadata,
+leader steps, colors, routes, and session timestamps.
 
-Apps Script exposes actions like `registerAttendee`, `loginAttendee`,
-`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
-`boothCheckin`, `submitSignup`, `boothDashboardData`,
-`confirmSignupInPerson`, and `dashboardData`. Sensitive staff actions are
-authenticated POST requests; the organizer key lives in Apps Script's Script
-Properties rather than the public static site. There is no separate server or
-database to manage.
+| Wristband | Session 1 | Session 2 | Session 3 |
+|---|---|---|---|
+| Blue | Can You Draw Heaven? | Bible Bowl | The Sower, Live |
+| Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
+| Orange | Art Therapy Table | The Sower, Live | The New Song in Nashville |
+| Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
+| Yellow | The Sower, Live | The New Song in Nashville | Bible Bowl |
 
-## Repo structure
+Each group visits three of the five booths. The inverse lookup also tells a
+booth-leader portal which wristband group should be at that booth during the
+current session.
 
-See the annotated file tree in the main `README.md` — it's kept there
-(rather than duplicated here) so there's only one place it can go stale.
+## Shared clock
 
-The short version: each booth is its own static HTML file—its own little
-"platform"—using the shared booth-room login and check-in modules. That keeps
-the attendee experience specific to the booth where the person is standing
-while still writing to the same backend so nothing gets lost as people move
-around.
+The mock defines three contiguous sessions:
 
-All five booths now have attendee-room pages. The `mode: "self"` /
-`mode: "kiosk"` metadata in `web/shared/booths-config.js` preserves the current
-operating model and optional kiosk links; it no longer means that Art Therapy
-or New Song lacks an attendee room.
+- Session 1: 3:10–3:30 PM
+- Session 2: 3:30–3:50 PM
+- Session 3: 3:50–4:10 PM
 
-## Phase 1 — Entry (own phone, one QR code)
+The ISO timestamps currently assume **July 18, 2026 in Nashville**, where the
+event-day offset is `-05:00`. This is an editable mock assumption. It must be
+confirmed and changed in `BOOTH_SESSIONS` before a real event if the date,
+venue, or timing changes.
 
-Single QR code, printed once, pointing to `phase1-entry/index.html`.
+`web/shared/event-schedule.js` turns those timestamps into three states:
+`before`, an active session, or `ended`. During backend reads, it can estimate
+the difference between the device clock and server clock; the browser uses
+that offset between refreshes. The attendee timer renders every second, while
+the current booth presentation is refreshed periodically.
 
-1. Page loads → generates `attendeeId` if none is saved locally.
-2. Name entered → `registerAttendee` → Sheet row created and a unique raffle
-   number assigned server-side.
-3. A Guardian Angel confirms the wristband handoff in the current prototype.
-4. The page ends on a Phase 1-complete screen showing the two details needed
-   later: registered name and raffle number. It thanks the attendee, tells
-   them they can close the link, and instructs them to open and log in to the
-   room link when they arrive at each booth. It does not navigate to Phase 2.
+This reduces ordinary phone-clock drift but is not precision show control. A
+bad network connection can delay leader updates, and there is no offline
+queue. The hub shows an offline note and continues from its last clock sync.
 
-## Phase 2 — Booths (phone number becomes the shared key)
+For deterministic local rehearsals, `event-schedule.js` recognizes
+`?preview=before|1|2|3|ended` only on `localhost`, `127.0.0.1`, or `::1`.
+Preview mode freezes the selected state; it does not simulate a ticking
+20-minute session.
 
-There is no shared Phase 2 attendee login. The five attendee-room links are:
+## Unified Phase 2 attendee hub
 
-- `phase2-booths/booth-heaven.html`
-- `phase2-booths/booth-trivia.html`
-- `phase2-booths/booth-story.html`
-- `phase2-booths/booth-art.html`
-- `phase2-booths/booth-newsong.html`
+`web/phase2-booths/hub.html` is the primary Phase 2 attendee URL. It:
 
-On first arrival, each room starts with blank name and raffle-number fields.
-The attendee explicitly reopens the Phase 1 record, even on the same phone used
-at entry, and sees a welcome naming only the booth they are currently visiting.
-A completed wristband check is required. The browser stores access under that
-booth's own `eventapp.portal.phase2.<boothId>` session marker, while backend
-login/session calls still use the common `phase2` policy. This means the same
-Phase 1 eligibility check applies everywhere without allowing a Heaven-room
-login to unlock Bible Bowl, for example.
+1. restores the Phase 1 identity, or asks for name plus raffle number once on
+   a new device;
+2. loads the wristband's three-stop route and completed check-ins;
+3. shows the shared session label and countdown;
+4. resolves the correct booth for the current color and session;
+5. polls that booth's public presentation state;
+6. lets the attendee mark the current booth complete; and
+7. reveals the Phase 3 action after Session 3 ends.
 
-`phase2-booths/hub.html` remains only as a compatibility notice for old links;
-it explains that the attendee should open the link posted at their current
-booth and contains neither the shared login nor a booth picker. Completing a
-booth thanks the attendee and tells them they can close that link. Phase 2 does
-not automatically navigate into another booth or Phase 3. If the same attendee
-finishes the same booth again, the backend updates that booth record instead of
-adding a duplicate person to its activity count.
+A scheduled check-in includes the booth, attendee, session number/ID, and
+wristband color. Repeating the same attendee/booth combination updates the
+existing check-in instead of inflating the booth count.
 
-First phone-number entry anywhere calls `findOrRegisterByPhone`. An attendee
-room links it to the random attendee ID already on that phone.
-The phone gate is still collected once and then reused for the same attendee on
-that browser. The optional Art Therapy and New Song kiosks are unlocked with
-the organizer key and can pair a new phone with the visitor's raffle number,
-preventing a second attendee/raffle record from being created when a kiosk is
-their first booth. Before a new pairing is written, staff see the entry name
-and raffle number and explicitly confirm the ticket. Staff can mark someone as
-having skipped entry only after entering their name; the kiosk then displays
-the newly assigned raffle number. Returning kiosk phones need no raffle
-re-entry. The current event flow accepts exactly ten phone digits: inputs
-format them as `(555) 555-5555`, while the backends and stored rows keep the
-canonical digits-only value (`5555555555`).
+The five `booth-*.html` pages and the Art Therapy/New Song kiosk pages remain
+as optional compatibility or staff-assistance fallbacks. They are not part of
+the normal color-routed journey and should not be printed as the default booth
+links.
 
-Phone knowledge alone is not treated as identity proof. If an attendee device
-enters a phone already attached to another record, it receives a
-generic "ask staff" conflict rather than the other attendee's name or raffle.
-This prototype does not perform SMS verification, so a determined caller can
-still test whether a number is already linked by comparing success with that
-generic conflict. Add OTP verification before treating phone ownership as a
-production security boundary.
+## Booth-leader control flow
 
-Each booth check-in writes its own `BoothCheckins` row with whatever that booth's `extraData` is (trivia score, story answers, chosen art prompt, song vote) — same shape as the prototype's per-booth state, just persisted server-side instead of in-page JS state.
+There is one staff page per booth under `web/phase2-staff/`. Each uses the
+same shared module but loads only that booth's metadata and API data.
 
-The separate staff side starts at `phase2-staff/index.html`. Every booth has
-its own URL under that folder. Those pages call authenticated
-`boothDashboardData`, which filters on the server and returns only that
-booth's count and recent check-ins—never the overall dashboard, Phase 3
-sign-ups, or phone numbers. Each page also has a neutral booth-only settings
-area; actual controls will be added after that booth's rules are defined. All
-pages temporarily share the organizer key, so this is data/UI separation
-rather than per-booth authorization; dedicated booth keys can be introduced
-when the final controls are defined. Art Therapy and New Song staff pages also
-link to their optional kiosk fallbacks.
+A booth leader chooses:
 
-## Phase 3 — Sign-up (app UI + in-person confirmation)
+- a presentation status (`waiting`, `live`, `paused`, `wrap`, or `complete`);
+- one of the activity steps defined for that booth; and
+- an optional announcement.
 
-`phase3-signup/index.html` is a separate attendee portal with its own name +
-raffle lookup and its own phase session. It does not depend on a Phase 2 phone
-or booth visit. After lookup, the UI stays close to the current sketch: cards
-for each option (future events, Bible study, 8-month course, art therapy, refer
-a friend), expanding relevant fields per selection. Submitting writes
-`SignUps` rows with `confirmedInPerson: false`.
+Saving calls the protected `updateBoothPresentation` action. The backend
+stores one current presentation record for that booth. The attendee hub calls
+the read-only `boothPresentation` action without receiving the organizer key.
+`boothDashboardData` returns that booth's current presentation and recent
+check-ins to the authenticated staff page.
 
-Organizer-facing piece: the dashboard groups sign-ups into one roster per
-option, with each person's name, formatted phone number, status, and a one-tap
-"Confirm in person" button for whichever staff member is standing with that
-attendee at the actual table. Confirmation sets `confirmedInPerson: true`,
-`confirmedBy`, and `confirmedAt`. A person who selected multiple options
-appears in each relevant roster, without repeating the option title on every
-row. This gives you a clean before/after: "said they're interested" vs. "we
-actually talked to them and signed them up."
+Control writes include the last-seen `version`. The backend rejects a stale
+leader tab instead of silently overwriting a newer update. This is still a
+small mock rather than a full multi-operator show-control system, so staff
+should decide who owns each booth page during a live session.
 
-## Organizer dashboard (`organizer/dashboard.html`)
+All booth and organizer pages currently use the same organizer key. The API
+does filter booth dashboard results by the requested booth, but the key does
+not prevent its holder from opening a different booth page or the overall
+dashboard. A live deployment should use role-based or booth-specific access,
+key rotation, and an audit/incident plan.
 
-Polls `dashboardData` every 4 seconds. Shows: total registered / wristbands
-confirmed / raffle entries, live count per booth, the Bible Bowl
-leaderboard, song vote tally, and the grouped Phase 3 sign-up rosters
-described above, plus a "Reset demo data" button (rehearsal use only — see
-`demo-server/README.md`). The dashboard and kiosk pages stay behind a runtime
-organizer-key gate, and the backend independently checks that key on every
-sensitive read or mutation. The key stays only in the current page's memory,
-not web storage, static source, or a URL; staff re-enter it after a reload or on
-each staff page. Drawing the actual raffle winner isn't automated — pick a
-number from the Attendees list/dashboard count and call it out live, or add a
-"pick random entry" button if you want that automated.
+## Phase 3
 
-## QR codes and separate links
+`web/phase3-signup/index.html` reuses the saved identity or performs the same
+name-plus-raffle lookup on a new device. It renders the name and raffle number
+at the top, then presents each next-step option as a checkbox-style card.
 
-1. **Entry QR** (Phase 1) — one, printed at the door.
-2. **Five Phase 2 booth-room links** — one direct attendee URL per physical
-   booth, each with its own login and welcome.
-3. **Phase 3 attendee link** — opens the independent final signup login.
-4. **Optional staff kiosks** — Art Therapy and New Song retain separate staff
-   tools, but those do not replace their new attendee-room links.
+The page first loads `mySignupSelections`, so reopening it preserves earlier
+ticks. One `saveSignupSelections` request reconciles the complete set and writes one
+`SignUps` row per selected option. There are no email,
+rating, stars, comments, or social-sharing questions in the attendee form.
+Selecting nothing is allowed through **No thanks, finish**. Existing Sheet
+columns for older optional details remain for backend compatibility but the
+new Phase 3 UI does not collect them.
 
-The current QR generator is intentionally unchanged and still reflects the
-older entry-plus-three-self-service-booths set. Expanding it to the five room
-links, deciding which public routes receive printed codes, and printing those
-codes are deferred until the app has a deployed public URL. For local testing,
-open the localhost room URLs directly and skip the QR page. See
-`qr/QR_PLAN.md` for the current generator and deployment note.
+The organizer dashboard may still confirm an expressed interest in person.
+The hub reveals Phase 3 after the third session, but a direct Phase 3 URL is
+not server-enforced as a time gate.
 
-## Two interchangeable backends
+## Data model
 
-Every action described above (`registerAttendee`, `loginAttendee`,
-`attendeePortalSession`, `confirmWristband`, `findOrRegisterByPhone`,
-`boothCheckin`, `submitSignup`, `boothDashboardData`,
-`confirmSignupInPerson`, `dashboardData`, `myCheckins`) exists twice:
+The local JSON object and Google Sheet tabs represent the same concepts:
 
-- **`demo-server/`** — a small zero-dependency Node server, backed by a
-  JSON file (`db.json`). Used for local development and rehearsal. No
-  Google account, no deployment, no cost.
-- **`apps-script/Code.gs`** — the production version, backed by a real
-  Google Sheet. Used for the actual event.
+- **Attendees:** canonical ID, aliases, name, optional legacy phone, raffle
+  number, registration time, wristband confirmation time, and color.
+- **BoothCheckins:** attendee, booth, time, method, and optional booth/session
+  metadata.
+- **SignUps:** one row per selected next-step option plus staff confirmation
+  fields.
+- **BoothControls:** one current status, step, message, timestamps, and version
+  per booth.
+- **Meta:** the raffle counter.
 
-`web/shared/api.js` calls both the exact same way — only
-`web/shared/config.js`'s `API_BASE_URL` changes between them. This is
-what lets you build and rehearse everything for free, then flip one
-setting to go live. See `demo-server/README.md` and
-`apps-script/README.md` for how to run each.
+See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
-## Current status
+## API boundary
 
-Everything described in this document has been built and tested
-end-to-end (see repo `README.md` for how to run it). This file describes
-the reasoning behind the design, not a to-do list.
+The main attendee actions are `registerAttendee`, `confirmWristband`,
+`loginAttendee`, `attendeePortalSession`, `myCheckins`, `mySignupSelections`,
+`boothPresentation`, `boothCheckin`, `saveSignupSelections`, and the legacy
+`submitSignup` action.
+
+The protected staff actions are `verifyOrganizer`,
+`updateBoothPresentation`, `boothDashboardData`, `dashboardData`,
+`confirmSignupInPerson`, and the demo reset. Legacy phone/kiosk actions remain
+for the optional fallback pages.
+
+Public presentation reads return only the booth's display state and server
+time. They do not return the organizer key, attendee roster, or event-wide
+dashboard data.
+
+## What still needs a production decision
+
+- Confirm the event date, Nashville timezone assumption, and exact session
+  transitions.
+- Replace the shared organizer key with appropriate staff authentication and
+  authorization.
+- Test venue Wi-Fi capacity and define an offline/manual fallback.
+- Decide attendee-data consent, access, retention, export, and deletion rules.
+- Update and validate the final QR plan after a stable public URL exists.
+- Test real devices, accessibility, staff handoff, and recovery from late or
+  incorrectly assigned wristbands.
+
+The included Apps Script backend provides API parity for testing the proposed
+shape. It does not remove these operating and security decisions.

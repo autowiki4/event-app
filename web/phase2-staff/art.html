@@ -14,7 +14,7 @@
 </head>
 <body>
   <div class="phone dash-wrap">
-    <div class="device-tag organizer">Booth staff</div>
+    <div class="device-tag organizer">Booth leader</div>
     <section class="screen">
       <a class="btn-link" href="index.html">← Phase 2 staff hub</a>
       <p class="eyebrow" id="staff-booth-mode">Booth</p>
@@ -23,7 +23,7 @@
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock this booth's staff page.</p>
+        <p>Unlock this booth's presentation controls and check-ins.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
@@ -45,8 +45,8 @@
         </div>
         <div id="staff-room-launch"></div>
         <div id="staff-kiosk-launch"></div>
-        <div class="section-title">Booth settings</div>
-        <div class="placeholder-note" id="staff-settings"></div>
+        <div class="section-title">Attendee screen controls</div>
+        <div id="staff-settings"></div>
         <div class="section-title">Recent check-ins</div>
         <div style="overflow-x:auto;">
           <table class="dash-table" id="staff-roster">
@@ -55,14 +55,13 @@
                 <th>Name</th>
                 <th>Time</th>
                 <th>Method</th>
-                <th>Rating</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh</button>
-        <p class="top-note" id="staff-last-updated"></p>
+        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh check-ins and controls</button>
+        <p class="top-note" id="staff-last-updated" aria-live="polite"></p>
       </div>
     </section>
   </div>
@@ -72,6 +71,7 @@
   <script src="../shared/organizer-auth.js"></script>
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
+  <script src="../shared/event-schedule.js"></script>
   <script src="../shared/booth-staff-common.js"></script>
   <script>initBoothStaff("art");</script>
 </body>

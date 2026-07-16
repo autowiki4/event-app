@@ -160,7 +160,7 @@ async function refresh() {
               <div class="signup-person">
                 <div class="signup-person-details">
                   <strong>${esc(s.name)}</strong>
-                  <span>${esc(Phone.formatDisplay(s.phone) || "No phone")}</span>
+                  <span>Raffle #${esc(s.raffleNumber || "----")}${s.phone ? ` · ${esc(Phone.formatDisplay(s.phone))}` : ""}</span>
                 </div>
                 <div class="signup-person-actions">
                   ${s.confirmedInPerson ? `<span class="pill confirmed">Confirmed</span>` : `<span class="pill pending">Pending</span>`}

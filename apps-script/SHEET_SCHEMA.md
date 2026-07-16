@@ -1,12 +1,12 @@
 # Sheet schema
 
-Reference for the four tabs `Code.gs` creates automatically — you don't
+Reference for the five tabs `Code.gs` creates automatically — you don't
 need to make any of these by hand. For how to actually deploy `Code.gs`
 and get this Sheet up and running, see `README.md` in this same folder.
 
 ## Attendees
-| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt |
-|---|---|---|---|---|---|---|
+| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor |
+|---|---|---|---|---|---|---|---|
 
 - `attendeeId`: UUID generated in the browser at Phase 1 (or by a kiosk if someone skips Phase 1).
 - `aliasIds`: JSON array of older device/attendee IDs retained when staff
@@ -17,6 +17,10 @@ and get this Sheet up and running, see `README.md` in this same folder.
   If a duplicate record is merged, the raffle number shown on the canonical
   entry record is preserved. The discarded number is never reused, so harmless
   gaps can appear in the sequence.
+- `wristbandColor`: one of `blue`, `red`, `orange`, `green`, or `yellow`.
+  It is written at the same time staff confirm the wristband and determines
+  the attendee's three-booth route. Older rows are left intact and receive an
+  empty value until staff reconfirm a color.
 
 ## BoothCheckins
 | id | attendeeId | phone | name | boothId | boothName | checkedInBy | checkedInAt | rating | note | extraData |
@@ -32,6 +36,18 @@ and get this Sheet up and running, see `README.md` in this same folder.
 
 - One row per option an attendee selected in Phase 3.
 - `confirmedInPerson` starts `false` — the organizer dashboard flips it to `true` once staff actually talk to that person at the relevant table.
+
+## BoothControls
+| boothId | stepIndex | status | message | createdAt | updatedAt | version |
+|---|---|---|---|---|---|---|
+
+- One row per booth. The booth-leader portal updates this row; attendee screens
+  read it without receiving the organizer key.
+- `status`: `waiting`, `live`, `paused`, `wrap`, or `complete`.
+- `stepIndex`: zero-based presentation step, limited to `0`–`50` by the API.
+- `message`: optional booth-leader text, limited to 500 characters.
+- `version`: starts at `1` on the first update and increments on every saved
+  change so attendee screens can ignore stale responses.
 
 ## Meta
 | key | value |

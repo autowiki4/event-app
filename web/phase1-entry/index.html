@@ -18,7 +18,7 @@
   <section class="screen" id="s-welcome">
     <p class="eyebrow">Lobby · Registration (Phase 1 of 3)</p>
     <h1 class="display">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
-    <p class="lede">Scan this QR code once, at the door. Enter your name to register — you'll use it with your raffle number in the separate Phase 2 and Phase 3 portals.</p>
+    <p class="lede">Scan this QR code once at the door. Enter your name, receive your raffle number, and keep this same experience open as you move through the event.</p>
 
     <div class="field">
       <label for="in-name">Your name</label>
@@ -27,7 +27,7 @@
     </div>
 
     <button class="btn btn-primary" id="btn-welcome-next">Experience Heaven →</button>
-    <p class="top-note">We'll ask for your phone number once you check in at your first booth.</p>
+    <p class="top-note">Your name, raffle number, wristband route, and booth schedule stay together on this device.</p>
   </section>
 
   <section class="screen" id="s-pass" style="display:none;">
@@ -48,7 +48,12 @@
       </div>
     </div>
     <div class="perf"></div>
-    <p class="lede" style="margin-top:0;">Show your ticket to your Guardian Angel to receive a wristband and enter the gym.</p>
+    <p class="lede" style="margin-top:0;">Show your ticket to your Guardian Angel. They will choose the color of the physical wristband they hand you.</p>
+    <fieldset class="wristband-fieldset">
+      <legend>Guardian Angel: wristband color</legend>
+      <div class="wristband-picker" id="wristband-picker"></div>
+      <div class="err" id="err-wristband">Choose the color printed on this guest's wristband.</div>
+    </fieldset>
     <div class="field" style="display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px;">
       <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
       <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
@@ -61,13 +66,15 @@
     <div class="done-badge">✓</div>
     <p class="eyebrow" style="text-align:center;">Phase 1 complete</p>
     <h1 class="display" style="text-align:center;">Thank you, <em id="complete-name">friend</em>.</h1>
-    <p class="lede" style="text-align:center;">You're registered. Keep your raffle number handy for the separate booth rooms and Phase 3.</p>
+    <p class="lede" style="text-align:center;">You're registered and your three-booth route is ready.</p>
     <div class="ticket-hero">
       <div class="kicker">Your sign-in details</div>
       <h2 id="complete-raffle">Raffle #----</h2>
-      <div class="sub">Use the same name you entered here plus this number when another phase asks you to find your registration.</div>
+      <div class="sub"><span id="complete-color">Your wristband</span> determines which booth you visit during each 20-minute session.</div>
     </div>
-    <div class="placeholder-note" style="margin-top:18px;">You can close this link now. When you get to a booth, open that booth's link and log in with this same name and raffle number. You will log in separately at every booth.</div>
+    <div class="route-list" id="complete-route" style="margin-top:18px;"></div>
+    <a class="btn btn-primary" href="../phase2-booths/hub.html" style="display:block; text-decoration:none; margin-top:16px;">Open my booth schedule →</a>
+    <p class="top-note">Keep this link open. It will move you to the right booth as each shared session begins.</p>
   </section>
 </div>
 
@@ -75,6 +82,7 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
 <script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
 <script>
 function renderProgress(phaseIndex) {
   const el = document.getElementById("progress");
@@ -86,6 +94,29 @@ function renderProgress(phaseIndex) {
   }
 }
 renderProgress(0);
+
+let selectedWristbandColor = "";
+const wristbandPicker = document.getElementById("wristband-picker");
+wristbandPicker.innerHTML = WRISTBAND_COLORS.map((color) => `
+  <label class="wristband-choice" style="--wristband-color:${color.hex}">
+    <input type="radio" name="wristband-color" value="${color.id}">
+    <span class="wristband-dot"></span>
+    <span>${color.label}</span>
+  </label>
+`).join("");
+
+function updateWristbandConfirmation() {
+  const handedOver = document.getElementById("in-wristband").checked;
+  document.getElementById("btn-enter-gym").disabled = !(handedOver && selectedWristbandColor);
+}
+
+wristbandPicker.querySelectorAll('input[name="wristband-color"]').forEach((input) => {
+  input.addEventListener("change", (event) => {
+    selectedWristbandColor = event.target.value;
+    document.getElementById("err-wristband").style.display = "none";
+    updateWristbandConfirmation();
+  });
+});
 
 document.getElementById("btn-welcome-next").addEventListener("click", async () => {
   const val = document.getElementById("in-name").value.trim();
@@ -103,6 +134,7 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
       attendeeId: result.attendeeId || identity.attendeeId,
       name: val,
       raffleNumber: result.raffleNumber,
+      wristbandColor: result.wristbandColor || "",
       phone: result.isNew ? "" : identity.phone || "",
       phoneLinked: result.isNew ? false : !!(identity.phone || identity.phoneLinked),
       email: result.isNew ? "" : identity.email || "",
@@ -119,17 +151,31 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
 });
 
 document.getElementById("in-wristband").addEventListener("change", (e) => {
-  document.getElementById("btn-enter-gym").disabled = !e.target.checked;
+  updateWristbandConfirmation();
 });
 
 document.getElementById("btn-enter-gym").addEventListener("click", async () => {
   const btn = document.getElementById("btn-enter-gym");
+  if (!selectedWristbandColor) {
+    document.getElementById("err-wristband").style.display = "block";
+    return;
+  }
   btn.disabled = true; btn.textContent = "Completing…";
   try {
     const identity = Identity.get();
-    await EventAPI.confirmWristband(identity.attendeeId);
+    const confirmation = await EventAPI.confirmWristband(identity.attendeeId, selectedWristbandColor);
+    const colorId = confirmation.wristbandColor || selectedWristbandColor;
+    Identity.set({ wristbandColor: colorId });
+    const color = wristbandColorById(colorId);
+    const route = routeForWristband(colorId);
     document.getElementById("complete-name").textContent = identity.name || "friend";
     document.getElementById("complete-raffle").textContent = "Raffle #" + (identity.raffleNumber || "----");
+    document.getElementById("complete-color").textContent = `${color ? color.label : "Your"} wristband`;
+    document.getElementById("complete-route").innerHTML = route.map((boothId, index) => {
+      const booth = boothById(boothId);
+      const session = BOOTH_SESSIONS[index];
+      return `<div class="route-stop"><span class="route-number">${index + 1}</span><div class="route-stop-copy"><strong>${booth ? booth.title : boothId}</strong><small>Session ${index + 1} · ${session.label}</small></div></div>`;
+    }).join("");
     document.getElementById("s-pass").style.display = "none";
     document.getElementById("s-complete").style.display = "block";
   } catch (e) {

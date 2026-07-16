@@ -15,16 +15,31 @@ const SHEET_NAMES = {
   ATTENDEES: "Attendees",
   BOOTH_CHECKINS: "BoothCheckins",
   SIGNUPS: "SignUps",
+  BOOTH_CONTROLS: "BoothControls",
   META: "Meta",
 };
 
 const ORGANIZER_KEY_PROPERTY = "ORGANIZER_KEY";
 const BOOTH_IDS = ["heaven", "trivia", "story", "art", "newsong"];
+const WRISTBAND_COLORS = ["blue", "red", "orange", "green", "yellow"];
+const BOOTH_PRESENTATION_STATUSES = ["waiting", "live", "paused", "wrap", "complete"];
+const MAX_PRESENTATION_STEP_INDEX = 50;
+const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
+const FINAL_SIGNUP_OPTIONS = {
+  future: "Keep me posted on future events",
+  bible: "One-on-one Bible study",
+  course: "The 8-month course",
+  art: "Art therapy",
+  friend: "Help me invite a friend",
+};
 
 const HEADERS = {
-  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt"],
+  // wristbandColor is intentionally appended so an existing Attendees tab can
+  // be upgraded in place without shifting any of its older columns.
+  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor"],
   [SHEET_NAMES.BOOTH_CHECKINS]: ["id", "attendeeId", "phone", "name", "boothId", "boothName", "checkedInBy", "checkedInAt", "rating", "note", "extraData"],
   [SHEET_NAMES.SIGNUPS]: ["id", "attendeeId", "phone", "name", "optionId", "optionTitle", "email", "stars", "comment", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt"],
+  [SHEET_NAMES.BOOTH_CONTROLS]: ["boothId", "stepIndex", "status", "message", "createdAt", "updatedAt", "version"],
   [SHEET_NAMES.META]: ["key", "value"],
 };
 
@@ -37,7 +52,22 @@ function getSheet(name) {
     sheet = ss.insertSheet(name);
     sheet.appendRow(HEADERS[name]);
     sheet.setFrozenRows(1);
+    return sheet;
   }
+  // Existing event sheets predate wristbandColor. Append newly introduced
+  // headers rather than inserting columns, preserving every stored value.
+  const values = sheet.getDataRange().getValues();
+  const existingHeaders = values.length ? values[0].map((header) => String(header || "")) : [];
+  if (!existingHeaders.some((header) => header)) {
+    HEADERS[name].forEach((header, index) => sheet.getRange(1, index + 1).setValue(header));
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+  HEADERS[name].forEach((header) => {
+    if (existingHeaders.indexOf(header) !== -1) return;
+    existingHeaders.push(header);
+    sheet.getRange(1, existingHeaders.length).setValue(header);
+  });
   return sheet;
 }
 
@@ -100,6 +130,56 @@ function normalizeRaffleNumber(value) {
 
 function normalizeAttendeeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeWristbandColor(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return WRISTBAND_COLORS.indexOf(normalized) === -1 ? null : normalized;
+}
+
+function requireWristbandColor(value) {
+  const color = normalizeWristbandColor(value);
+  if (!color) throw apiError("Choose a valid wristband color.", "INVALID_WRISTBAND_COLOR");
+  return color;
+}
+
+function requireBoothId(value) {
+  const boothId = String(value || "").trim();
+  if (BOOTH_IDS.indexOf(boothId) === -1) throw apiError("booth not found", "BOOTH_NOT_FOUND");
+  return boothId;
+}
+
+function defaultBoothPresentation(boothId) {
+  return {
+    boothId,
+    stepIndex: 0,
+    status: "waiting",
+    message: "",
+    createdAt: null,
+    updatedAt: null,
+    version: 0,
+  };
+}
+
+function boothPresentationFromRows(rows, boothId) {
+  const stored = rows.find((row) => String(row.boothId) === boothId);
+  if (!stored) return defaultBoothPresentation(boothId);
+  const stepIndex = Number(stored.stepIndex);
+  const version = Number(stored.version);
+  const status = String(stored.status || "").trim().toLowerCase();
+  return {
+    boothId,
+    stepIndex: Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex <= MAX_PRESENTATION_STEP_INDEX
+      ? stepIndex
+      : 0,
+    status: BOOTH_PRESENTATION_STATUSES.indexOf(status) === -1 ? "waiting" : status,
+    message: typeof stored.message === "string"
+      ? stored.message.slice(0, MAX_PRESENTATION_MESSAGE_LENGTH)
+      : "",
+    createdAt: stored.createdAt || null,
+    updatedAt: stored.updatedAt || null,
+    version: Number.isSafeInteger(version) && version >= 0 ? version : 0,
+  };
 }
 
 function newId() {
@@ -216,6 +296,9 @@ function mergeAttendees(canonical, duplicate, phone) {
     registeredAt: !canonical.registeredAt || (duplicate.registeredAt && duplicate.registeredAt < canonical.registeredAt)
       ? duplicate.registeredAt
       : canonical.registeredAt,
+    wristbandColor: normalizeWristbandColor(canonical.wristbandColor)
+      || normalizeWristbandColor(duplicate.wristbandColor)
+      || "",
   };
 
   updateRow(SHEET_NAMES.ATTENDEES, canonical._row, merged);
@@ -244,23 +327,46 @@ function actionRegisterAttendee(payload) {
         raffleNumber,
         wristbandConfirmedAt: "",
         registeredAt: nowIso(),
+        wristbandColor: "",
       });
-      attendee = { attendeeId, raffleNumber, name };
+      attendee = { attendeeId, raffleNumber, name, wristbandColor: "" };
     } else {
       updateRow(SHEET_NAMES.ATTENDEES, attendee._row, { name });
       attendee.name = name;
     }
-    return { raffleNumber: attendee.raffleNumber, attendeeId: attendee.attendeeId, isNew };
+    return {
+      raffleNumber: attendee.raffleNumber,
+      attendeeId: attendee.attendeeId,
+      wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+      isNew,
+    };
   });
 }
 
 function actionConfirmWristband(payload) {
-  const { attendeeId } = payload;
+  const { attendeeId, wristbandColor } = payload;
+  const color = requireWristbandColor(wristbandColor);
   return withScriptLock(() => {
     const attendee = findAttendee(attendeeId, null);
     if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
-    updateRow(SHEET_NAMES.ATTENDEES, attendee._row, { wristbandConfirmedAt: nowIso() });
-    return { ok: true };
+    const existingColor = normalizeWristbandColor(attendee.wristbandColor);
+    if (attendee.wristbandConfirmedAt && existingColor && existingColor !== color) {
+      const configuredKey = PropertiesService.getScriptProperties().getProperty(ORGANIZER_KEY_PROPERTY);
+      if (!configuredKey || payload.organizerKey !== configuredKey) {
+        throw apiError(
+          "This wristband color is already assigned. Ask an organizer to correct it.",
+          "WRISTBAND_ALREADY_ASSIGNED"
+        );
+      }
+    }
+    if (attendee.wristbandConfirmedAt && existingColor === color) {
+      return { ok: true, wristbandColor: existingColor };
+    }
+    updateRow(SHEET_NAMES.ATTENDEES, attendee._row, {
+      wristbandConfirmedAt: nowIso(),
+      wristbandColor: color,
+    });
+    return { ok: true, wristbandColor: color };
   });
 }
 
@@ -270,7 +376,9 @@ function attendeePortalResult(attendee) {
     name: attendee.name,
     raffleNumber: attendee.raffleNumber,
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
+    wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
     phoneLinked: !!attendee.phone,
+    serverNow: nowIso(),
   };
 }
 
@@ -347,6 +455,7 @@ function actionFindOrRegisterByPhone(payload) {
         raffleNumber: raffleAttendee.raffleNumber,
         isNew: false,
         name: raffleAttendee.name,
+        wristbandColor: normalizeWristbandColor(raffleAttendee.wristbandColor),
       };
     }
 
@@ -370,6 +479,7 @@ function actionFindOrRegisterByPhone(payload) {
         raffleNumber: phoneAttendee.raffleNumber,
         isNew: false,
         name: phoneAttendee.name,
+        wristbandColor: normalizeWristbandColor(phoneAttendee.wristbandColor),
       };
     }
 
@@ -383,6 +493,7 @@ function actionFindOrRegisterByPhone(payload) {
         raffleNumber: idAttendee.raffleNumber,
         isNew: false,
         name: idAttendee.name,
+        wristbandColor: normalizeWristbandColor(idAttendee.wristbandColor),
       };
     }
 
@@ -409,12 +520,14 @@ function actionFindOrRegisterByPhone(payload) {
       raffleNumber: newRaffleNumber,
       wristbandConfirmedAt: "",
       registeredAt: nowIso(),
+      wristbandColor: "",
     });
     return {
       attendeeId: newAttendeeId,
       raffleNumber: newRaffleNumber,
       isNew: true,
       name: name || "Guest",
+      wristbandColor: null,
     };
   });
 }
@@ -433,6 +546,9 @@ function actionBoothCheckin(payload) {
       String(checkin.attendeeId) === String(attendee.attendeeId)
         && String(checkin.boothId) === String(boothId)
     ));
+    const existingExtra = existing ? toJsonSafe(existing.extraData, {}) : {};
+    const incomingExtra = extraData && typeof extraData === "object" && !Array.isArray(extraData) ? extraData : {};
+    const mergedExtra = Object.assign({}, existingExtra, incomingExtra);
     const checkin = {
       attendeeId: attendee.attendeeId,
       phone: attendee.phone,
@@ -443,9 +559,11 @@ function actionBoothCheckin(payload) {
       checkedInAt: nowIso(),
       rating: rating || "",
       note: note || "",
-      extraData: extraData ? JSON.stringify(extraData) : "",
+      extraData: Object.keys(mergedExtra).length ? JSON.stringify(mergedExtra) : "",
     };
     if (existing) {
+      if (!Object.prototype.hasOwnProperty.call(payload, "rating")) checkin.rating = existing.rating || "";
+      if (!Object.prototype.hasOwnProperty.call(payload, "note")) checkin.note = existing.note || "";
       updateRow(SHEET_NAMES.BOOTH_CHECKINS, existing._row, checkin);
       return { ok: true, checkinId: existing.id, updated: true };
     }
@@ -464,6 +582,22 @@ function actionSubmitSignup(payload) {
     if (phone && attendee.phone && String(attendee.phone) !== digitsOnly(phone)) {
       throw apiError("phone does not match attendee", "IDENTITY_CONFLICT");
     }
+    const existing = readRows(SHEET_NAMES.SIGNUPS).find((signup) => (
+      String(signup.attendeeId) === String(attendee.attendeeId)
+        && String(signup.optionId) === String(optionId)
+    ));
+    if (existing) {
+      const patch = {
+        phone: attendee.phone,
+        name: attendee.name,
+        optionTitle: optionTitle || optionId,
+      };
+      if (Object.prototype.hasOwnProperty.call(payload, "email")) patch.email = email || "";
+      if (Object.prototype.hasOwnProperty.call(payload, "stars")) patch.stars = stars || "";
+      if (Object.prototype.hasOwnProperty.call(payload, "comment")) patch.comment = comment || "";
+      updateRow(SHEET_NAMES.SIGNUPS, existing._row, patch);
+      return { ok: true, signupId: existing.id, updated: true };
+    }
     const id = newId();
     appendRow(SHEET_NAMES.SIGNUPS, {
       id,
@@ -481,6 +615,75 @@ function actionSubmitSignup(payload) {
       confirmedAt: "",
     });
     return { ok: true, signupId: id };
+  });
+}
+
+function actionSaveSignupSelections(payload) {
+  const attendeeId = payload && payload.attendeeId;
+  const rawOptionIds = payload && payload.optionIds;
+  if (!attendeeId) throw apiError("attendeeId required", "ATTENDEE_ID_REQUIRED");
+  if (!Array.isArray(rawOptionIds)) throw apiError("optionIds must be a list", "INVALID_SIGNUP_OPTIONS");
+  const optionIds = Array.from(new Set(
+    rawOptionIds.map((value) => String(value || "").trim()).filter(Boolean)
+  ));
+  if (optionIds.some((optionId) => !Object.prototype.hasOwnProperty.call(FINAL_SIGNUP_OPTIONS, optionId))) {
+    throw apiError("Choose only valid Phase 3 options.", "INVALID_SIGNUP_OPTIONS");
+  }
+
+  return withScriptLock(() => {
+    const attendee = findAttendee(attendeeId, null);
+    if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
+    const selected = new Set(optionIds);
+    const staleRows = readRows(SHEET_NAMES.SIGNUPS)
+      .filter((signup) => (
+        String(signup.attendeeId) === String(attendee.attendeeId)
+          && Object.prototype.hasOwnProperty.call(FINAL_SIGNUP_OPTIONS, String(signup.optionId))
+          && !selected.has(String(signup.optionId))
+          && !(signup.confirmedInPerson === true || String(signup.confirmedInPerson).toLowerCase() === "true")
+      ))
+      .sort((a, b) => b._row - a._row);
+    staleRows.forEach((signup) => getSheet(SHEET_NAMES.SIGNUPS).deleteRow(signup._row));
+
+    const currentRows = readRows(SHEET_NAMES.SIGNUPS);
+    const signupIds = optionIds.map((optionId) => {
+      const existing = currentRows.find((signup) => (
+        String(signup.attendeeId) === String(attendee.attendeeId)
+          && String(signup.optionId) === optionId
+      ));
+      if (existing) {
+        updateRow(SHEET_NAMES.SIGNUPS, existing._row, {
+          phone: attendee.phone,
+          name: attendee.name,
+          optionTitle: FINAL_SIGNUP_OPTIONS[optionId],
+        });
+        return existing.id;
+      }
+      const signupId = newId();
+      appendRow(SHEET_NAMES.SIGNUPS, {
+        id: signupId,
+        attendeeId: attendee.attendeeId,
+        phone: attendee.phone,
+        name: attendee.name,
+        optionId,
+        optionTitle: FINAL_SIGNUP_OPTIONS[optionId],
+        email: "",
+        stars: "",
+        comment: "",
+        submittedAt: nowIso(),
+        confirmedInPerson: false,
+        confirmedBy: "",
+        confirmedAt: "",
+      });
+      return signupId;
+    });
+    const savedRows = readRows(SHEET_NAMES.SIGNUPS);
+    const savedOptionIds = Object.keys(FINAL_SIGNUP_OPTIONS).filter((optionId) => (
+      savedRows.some((signup) => (
+        String(signup.attendeeId) === String(attendee.attendeeId)
+          && String(signup.optionId) === optionId
+      ))
+    ));
+    return { ok: true, optionIds: savedOptionIds, signupIds };
   });
 }
 
@@ -513,6 +716,23 @@ function actionMyCheckins(params) {
       .filter((c) => ids.indexOf(c.attendeeId) !== -1 || (attendee.phone && String(c.phone) === String(attendee.phone)))
       .map((c) => c.boothId);
     return { boothIds: Array.from(new Set(boothIds)) };
+  });
+}
+
+function actionMySignupSelections(payload) {
+  const attendeeId = payload && payload.attendeeId;
+  if (!attendeeId) throw apiError("attendeeId required", "ATTENDEE_ID_REQUIRED");
+  return withScriptLock(() => {
+    const attendee = findAttendee(attendeeId, null);
+    if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
+    const signups = readRows(SHEET_NAMES.SIGNUPS);
+    const optionIds = Object.keys(FINAL_SIGNUP_OPTIONS).filter((optionId) => (
+      signups.some((signup) => (
+        String(signup.attendeeId) === String(attendee.attendeeId)
+          && String(signup.optionId) === optionId
+      ))
+    ));
+    return { optionIds };
   });
 }
 
@@ -561,33 +781,99 @@ function actionDashboardData(payload) {
     const signupsOut = signups
       .slice()
       .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
-      .map((s) => ({
-        id: s.id,
-        name: s.name || "Guest",
-        phone: s.phone,
-        optionId: s.optionId,
-        optionTitle: s.optionTitle,
-        submittedAt: s.submittedAt,
-        confirmedInPerson: !!s.confirmedInPerson,
-        confirmedBy: s.confirmedBy,
-      }));
+      .map((s) => {
+        const attendee = findAttendeeInRows(attendees, s.attendeeId, null);
+        return {
+          id: s.id,
+          name: s.name || "Guest",
+          phone: s.phone,
+          raffleNumber: attendee ? attendee.raffleNumber : "",
+          optionId: s.optionId,
+          optionTitle: s.optionTitle,
+          submittedAt: s.submittedAt,
+          confirmedInPerson: !!s.confirmedInPerson,
+          confirmedBy: s.confirmedBy,
+        };
+      });
 
     return { totals, boothCounts, triviaLeaderboard, songVotes, signups: signupsOut };
   });
 }
 
+function actionBoothPresentation(payload) {
+  const boothId = requireBoothId(payload && payload.boothId);
+  const presentation = boothPresentationFromRows(readRows(SHEET_NAMES.BOOTH_CONTROLS), boothId);
+  return Object.assign({}, presentation, { serverNow: nowIso() });
+}
+
+function actionUpdateBoothPresentation(payload) {
+  requireOrganizer(payload);
+  const boothId = requireBoothId(payload && payload.boothId);
+  const stepIndex = Number(payload && payload.stepIndex);
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > MAX_PRESENTATION_STEP_INDEX) {
+    throw apiError(
+      `stepIndex must be an integer from 0 to ${MAX_PRESENTATION_STEP_INDEX}.`,
+      "INVALID_PRESENTATION_STEP"
+    );
+  }
+  const status = String((payload && payload.status) || "").trim().toLowerCase();
+  if (BOOTH_PRESENTATION_STATUSES.indexOf(status) === -1) {
+    throw apiError("Choose a valid booth presentation status.", "INVALID_PRESENTATION_STATUS");
+  }
+  if (payload && payload.message !== undefined && payload.message !== null && typeof payload.message !== "string") {
+    throw apiError("message must be text.", "INVALID_PRESENTATION_MESSAGE");
+  }
+  const message = String((payload && payload.message) || "").trim();
+  if (message.length > MAX_PRESENTATION_MESSAGE_LENGTH) {
+    throw apiError(
+      `message must be ${MAX_PRESENTATION_MESSAGE_LENGTH} characters or fewer.`,
+      "INVALID_PRESENTATION_MESSAGE"
+    );
+  }
+
+  return withScriptLock(() => {
+    const rows = readRows(SHEET_NAMES.BOOTH_CONTROLS);
+    const existing = rows.find((row) => String(row.boothId) === boothId);
+    const previous = boothPresentationFromRows(rows, boothId);
+    if (payload && payload.version !== undefined) {
+      const expectedVersion = Number(payload.version);
+      if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+        throw apiError(
+          "This booth screen was updated in another tab. Refresh and try again.",
+          "PRESENTATION_CONFLICT"
+        );
+      }
+    }
+    const now = nowIso();
+    const presentation = {
+      boothId,
+      stepIndex,
+      status,
+      message,
+      createdAt: previous.createdAt || now,
+      updatedAt: now,
+      version: Math.min(Number.MAX_SAFE_INTEGER, previous.version + 1),
+    };
+    if (existing) {
+      updateRow(SHEET_NAMES.BOOTH_CONTROLS, existing._row, presentation);
+    } else {
+      appendRow(SHEET_NAMES.BOOTH_CONTROLS, presentation);
+    }
+    return Object.assign({}, presentation, { serverNow: now });
+  });
+}
+
 function actionBoothDashboardData(payload) {
   requireOrganizer(payload);
-  const boothId = String((payload && payload.boothId) || "");
-  if (BOOTH_IDS.indexOf(boothId) === -1) {
-    throw apiError("booth not found", "BOOTH_NOT_FOUND");
-  }
+  const boothId = requireBoothId(payload && payload.boothId);
   return withScriptLock(() => {
     const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS)
       .filter((checkin) => String(checkin.boothId) === boothId)
       .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
     return {
       boothId,
+      presentation: boothPresentationFromRows(readRows(SHEET_NAMES.BOOTH_CONTROLS), boothId),
+      serverNow: nowIso(),
       totalCheckins: checkins.length,
       recentCheckins: checkins.slice(0, 50).map((checkin) => ({
         id: checkin.id,
@@ -632,11 +918,15 @@ function doPost(e) {
       case "findOrRegisterByPhone": result = actionFindOrRegisterByPhone(payload); break;
       case "boothCheckin": result = actionBoothCheckin(payload); break;
       case "submitSignup": result = actionSubmitSignup(payload); break;
+      case "saveSignupSelections": result = actionSaveSignupSelections(payload); break;
       case "confirmSignupInPerson": result = actionConfirmSignupInPerson(payload); break;
       case "dashboardData": result = actionDashboardData(payload); break;
+      case "boothPresentation": result = actionBoothPresentation(payload); break;
+      case "updateBoothPresentation": result = actionUpdateBoothPresentation(payload); break;
       case "boothDashboardData": result = actionBoothDashboardData(payload); break;
       case "verifyOrganizer": result = actionVerifyOrganizer(payload); break;
       case "myCheckins": result = actionMyCheckins(payload); break;
+      case "mySignupSelections": result = actionMySignupSelections(payload); break;
       default: return jsonOutput({ error: "unknown action: " + action, code: "UNKNOWN_ACTION" });
     }
     return jsonOutput(result);

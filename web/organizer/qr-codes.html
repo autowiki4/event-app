@@ -23,7 +23,7 @@
   <section class="screen">
     <p class="eyebrow">Print these before the event</p>
     <h1 class="display">QR codes</h1>
-    <p class="lede">One code for the door (Phase 1), one per self-service booth. Kiosk booths (Art Therapy, New Song) don't need a code — staff run those on one device.</p>
+    <p class="lede">The attendee journey now uses one shared route instead of a different public link at every booth. Print the entry code at the door and the return-to-schedule code as a recovery option.</p>
 
     <div class="field no-print">
       <label for="base-url">Base URL (edit before printing for the real event)</label>
@@ -45,10 +45,11 @@ function defaultBase() {
 document.getElementById("base-url").value = defaultBase();
 
 function targets(base) {
-  const list = [{ name: "Phase 1 · Entry (door)", path: "/phase1-entry/index.html" }];
-  CONNECTOR_BOOTHS.filter((b) => b.mode === "self").forEach((b) => {
-    list.push({ name: b.title + " (booth)", path: "/phase2-booths/" + b.page });
-  });
+  const list = [
+    { name: "Attendee entry · Start here", path: "/phase1-entry/index.html" },
+    { name: "Attendee booth schedule · Return link", path: "/phase2-booths/hub.html" },
+    { name: "Booth leaders · Staff only", path: "/phase2-staff/index.html" },
+  ];
   return list.map((t) => ({ name: t.name, url: base.replace(/\/$/, "") + t.path }));
 }
 

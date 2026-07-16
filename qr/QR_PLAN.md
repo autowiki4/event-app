@@ -1,66 +1,80 @@
-# QR codes
+# QR plan for the unified attendee flow
 
-Instead of static image files, the current QR codes are generated **inside the
-app** at `web/organizer/qr-codes.html`. Open it in a browser (via the demo
-server or a hosted URL) and it builds codes on the fly using whatever base URL
-you type in (defaulting to wherever the page is running).
+The timed experience no longer needs a different public QR at every booth.
+Phase 1 assigns the wristband color, then one attendee hub routes all three
+20-minute sessions.
 
-Requires an internet connection the first time it loads (it pulls a small
-QR-drawing library from a CDN) — after that your browser typically caches
-it.
+`web/organizer/qr-codes.html` currently generates three cards from a base URL:
 
-Jump to **Current generator steps** below if you just want to inspect or print
-the existing cards; the **Why this way** section explains the reasoning.
+1. **Attendee entry · Start here** → `phase1-entry/index.html`
+2. **Attendee booth schedule · Return link** → `phase2-booths/hub.html`
+3. **Booth leaders · Staff only** → `phase2-staff/index.html`
 
-## Current generator vs. the five booth rooms
+It loads its QR-rendering library from a CDN, so the generator needs internet
+access when the library is not already cached.
 
-The generator implementation is intentionally unchanged for now. It currently
-creates:
+## Recommended placement
 
-- **Entry QR** (Phase 1) → `phase1-entry/index.html`
-- **Three original booth QRs** → Can You Draw Heaven?, Bible Bowl, and The
-  Sower Live
+### Entry code
 
-The Phase 2 attendee design now has five separate room links:
+Print the Phase 1 code at registration. This is the normal attendee starting
+point. After staff assign and confirm a wristband color, Phase 1 shows the
+three-stop route and links directly into the unified hub.
 
-- `phase2-booths/booth-heaven.html`
-- `phase2-booths/booth-trivia.html`
-- `phase2-booths/booth-story.html`
-- `phase2-booths/booth-art.html`
-- `phase2-booths/booth-newsong.html`
+### Return-to-schedule code
 
-Each room has its own blank name + raffle login and welcomes the attendee to
-that booth only. Art Therapy and New Song also retain their old kiosk pages as
-optional staff fallbacks, but they now have attendee rooms too. Phase 3 remains
-the separate `phase3-signup/index.html` link.
+Place a small number at the help desk or central navigation signs. It is a
+recovery path for someone who closed the tab or changed devices, not a code
+that must be scanned at each booth. On a new device, the hub asks once for the
+Phase 1 name and raffle number, then restores the correct color route.
 
-Updating the printable generator to represent all five room links—and deciding
-whether Phase 3 also receives a printed code—is deliberately deferred until
-the app is deployed and has a stable public URL. For local testing, open the
-exact booth-room URLs directly and skip QR generation. The old
-`phase2-booths/hub.html` route is only a compatibility notice and should not be
-used as a new QR destination.
+### Booth-leader code
 
-## Current generator steps (optional)
+Keep this card in staff materials rather than public attendee signage. It
+opens the directory for the five booth portals; the leader still has to enter
+the organizer key. The key is not embedded in the QR or URL.
 
-These steps are useful for testing the existing cards, but they are not the
-final five-room production print plan:
+All staff portals currently share one organizer key, so possession of that key
+is broader than one booth. A final production plan should replace this with
+appropriate roles or booth-specific credentials.
 
-1. Get the app running somewhere reachable — for the demo, that's `http://localhost:3000` (or your machine's LAN IP if scanning from a real phone on the same Wi-Fi, e.g. `http://192.168.1.42:3000`); for the real event, that's wherever you deploy it (see repo README for hosting options).
-2. Open `organizer/qr-codes.html` on that same host.
-3. Confirm/edit the base URL field, click **Regenerate codes**.
-4. Print the page (`Cmd/Ctrl+P`—it's laid out to print cleanly, one card per
-   code) only if you need the current set.
-5. Re-print if the base URL changes later. Before the real event, first update
-   and verify the deferred five-room QR plan against the final production URL.
+## Codes not needed in the normal flow
 
-## Why this way
+- **No five attendee booth codes:** the timer and wristband route choose the
+  active booth inside `hub.html`.
+- **No required Phase 3 code:** the hub reveals the Phase 3 button after the
+  third session ends. A separate Phase 3 recovery sign is optional if the
+  event team wants one.
+- **No organizer key in a code:** credentials must never be placed in a URL.
+- **No preview values:** `?preview=...` is only for local rehearsal and should
+  never be printed.
 
-An alternative would be a handful of pre-made PNG images checked into the
-repo. That falls apart the moment the URL changes — a QR code baked in
-during development would point at `localhost`, which is useless once this
-is hosted somewhere real for the actual event. Generating them from the
-live page instead means they encode whatever URL you're actually running on
-without anyone needing to regenerate image files by hand. Waiting for the
-stable deployment URL also avoids printing room codes that later point at the
-wrong host or route.
+The direct `phase2-booths/booth-*.html` and kiosk pages remain optional
+fallback tools. Do not print them as the primary attendee route unless the
+event team deliberately switches to the fallback operating model.
+
+## Generate and print
+
+1. Deploy the `web/` folder to its final HTTPS public host.
+2. Open `organizer/qr-codes.html` on that host.
+3. Confirm the base URL uses the final public origin, not `localhost` or a
+   temporary preview domain.
+4. Choose **Regenerate codes**.
+5. Scan every printed code with at least one iPhone and one Android phone.
+6. Complete a full test: Phase 1 → assigned color → hub → Phase 3, plus staff
+   directory authentication.
+7. Print only after the URL and routes are frozen.
+
+If the public origin changes, regenerate and reprint every card. A QR encodes
+the literal URL and cannot follow a moved deployment unless the old host
+redirects it.
+
+## Event-day checklist
+
+- Entry signage clearly says **Start here**.
+- Return signage says it is for reopening the booth schedule, not selecting a
+  booth.
+- Staff QR material is not mixed into attendee signage.
+- A manual route matrix is available if Wi-Fi or the backend fails.
+- Staff know that the mock schedule currently assumes July 18, 2026 in
+  Nashville and have confirmed the deployed schedule before doors open.
