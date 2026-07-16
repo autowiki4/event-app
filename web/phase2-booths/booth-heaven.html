@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Can You Draw Heaven? — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
@@ -25,6 +25,25 @@
   .sky-bottom-btn.btn-primary{
     position:absolute; left:0; right:0; bottom:0; margin:0; border-radius:0; padding:20px 28px;
     background:linear-gradient(90deg, var(--coral-deep), var(--sun-deep)); color:#fff; box-shadow:none;
+  }
+  .heaven-kicker{
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--coral); margin-bottom:8px;
+  }
+  .heaven-details{ display:grid; gap:10px; margin:18px 0; }
+  .heaven-detail{
+    display:flex; align-items:flex-start; gap:12px; padding:13px 14px;
+    border:1px solid var(--line); border-radius:14px; background:#fff;
+  }
+  .heaven-detail-number{
+    flex:0 0 28px; width:28px; height:28px; display:grid; place-items:center;
+    border-radius:50%; background:var(--teal); color:#fff; font-weight:800; font-size:13px;
+  }
+  .heaven-detail-text{ font-weight:700; line-height:1.4; padding-top:4px; }
+  .draw-ready{
+    border-radius:20px; padding:22px; text-align:center;
+    background:linear-gradient(145deg, rgba(46,159,214,.13), rgba(29,122,120,.15));
+    border:1px solid rgba(29,122,120,.25);
   }
 </style>
 </head>
@@ -72,8 +91,11 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/journey-state.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
@@ -84,6 +106,7 @@
 const BOOTH_ID = "heaven";
 const BOOTH_NAME = "Can You Draw Heaven?";
 const BOOTH_ROOM_NAME = "Heaven";
+const HEAVEN_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
 const HEAVEN_VERSE_TEXT = "And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,";
 
 function renderProgress() {
@@ -98,6 +121,22 @@ function renderProgress() {
 renderProgress();
 
 const heavenState = { page: 1 };
+let heavenStateOwner = "";
+
+function restoreHeavenState() {
+  const owner = String((Identity.peek() || {}).attendeeId || "");
+  if (!owner || heavenStateOwner === owner) return;
+  const saved = JourneyState.load(HEAVEN_DRAFT_SCOPE, {}) || {};
+  const page = Number(saved.page);
+  heavenState.page = Number.isInteger(page) ? Math.min(3, Math.max(1, page)) : 1;
+  heavenStateOwner = owner;
+}
+
+function setHeavenPage(page) {
+  heavenState.page = Math.min(3, Math.max(1, Number(page) || 1));
+  JourneyState.save(HEAVEN_DRAFT_SCOPE, { page: heavenState.page });
+  renderHeaven();
+}
 
 function setChrome(sky) {
   document.getElementById("phone").classList.toggle("sky-mode", sky);
@@ -107,6 +146,7 @@ function setChrome(sky) {
 }
 
 function renderHeaven() {
+  restoreHeavenState();
   const wrap = document.getElementById("booth-content");
   if (heavenState.page === 1) {
     setChrome(true);
@@ -121,38 +161,54 @@ function renderHeaven() {
       </div>
       <button class="btn btn-primary sky-bottom-btn" id="btn-heaven-next">What Does It Look Like →</button>
     `;
-    document.getElementById("btn-heaven-next").addEventListener("click", () => { heavenState.page = 2; renderHeaven(); });
+    document.getElementById("btn-heaven-next").addEventListener("click", () => setHeavenPage(2));
     return;
   }
   if (heavenState.page === 2) {
     setChrome(false);
+    document.getElementById("booth-footer-wrap").style.display = "none";
     wrap.innerHTML = `
       <section class="screen" style="padding-top:6px;">
-        <div class="placeholder-note">🚧 Page 2 — drop in the checklist of New Jerusalem details (12 gates of pearl, streets of gold, river of life, etc.) here once you're ready.</div>
-        <div class="poll-nav" style="margin-top:10px;">
+        <div class="heaven-kicker">What's actually there</div>
+        <h2 style="font-family:'Fraunces',serif; font-size:30px; line-height:1.08; margin:0 0 10px;">Revelation paints the picture</h2>
+        <p class="lede">A few details John saw when he looked at the holy city:</p>
+        <div class="heaven-details">
+          ${HEAVEN_DETAILS.map((detail, index) => `
+            <div class="heaven-detail">
+              <div class="heaven-detail-number">${index + 1}</div>
+              <div class="heaven-detail-text">${escapeHtml(detail.text)}</div>
+            </div>
+          `).join("")}
+        </div>
+        <p class="lede" style="margin-bottom:0;">Now grab paper and draw what you picture — we'll compare notes after.</p>
+        <div class="poll-nav" style="margin-top:16px;">
           <button class="btn btn-ghost" id="btn-heaven-back">← Back</button>
-          <button class="btn btn-primary" id="btn-heaven-next">Next →</button>
+          <button class="btn btn-primary" id="btn-heaven-next">I'm ready to draw →</button>
         </div>
       </section>
     `;
-    document.getElementById("btn-heaven-back").addEventListener("click", () => { heavenState.page = 1; renderHeaven(); });
-    document.getElementById("btn-heaven-next").addEventListener("click", () => { heavenState.page = 3; renderHeaven(); });
+    document.getElementById("btn-heaven-back").addEventListener("click", () => setHeavenPage(1));
+    document.getElementById("btn-heaven-next").addEventListener("click", () => setHeavenPage(3));
     return;
   }
   setChrome(false);
   wrap.innerHTML = `
     <section class="screen" style="padding-top:6px;">
-      <div class="placeholder-note">🚧 Page 3 — drop in the "reveal image" / draw-your-own comparison here once you're ready.</div>
-      <button class="btn btn-ghost" id="btn-heaven-back" style="margin-top:6px;">← Back</button>
+      <div class="draw-ready">
+        <div style="font-size:44px; margin-bottom:8px;">🎨</div>
+        <h2 style="font-family:'Fraunces',serif; font-size:28px; margin:0 0 8px;">Create your New Jerusalem</h2>
+        <p class="lede" style="margin:0;">Use the details from Revelation as inspiration, then add the colors and feeling you imagine. Share one detail with your group if you'd like.</p>
+      </div>
+      <button class="btn btn-ghost" id="btn-heaven-back" style="margin-top:14px;">← Review the details</button>
     </section>
   `;
-  document.getElementById("btn-heaven-back").addEventListener("click", () => { heavenState.page = 2; renderHeaven(); });
+  document.getElementById("btn-heaven-back").addEventListener("click", () => setHeavenPage(2));
 }
 
 window.getBoothExtraData = () => ({ reachedPage: heavenState.page });
 
 initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderHeaven });
-renderBoothFooter();
+renderBoothFooter(BOOTH_ID);
 document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>
 </body>

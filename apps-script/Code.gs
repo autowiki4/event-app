@@ -14,6 +14,7 @@
 const SHEET_NAMES = {
   ATTENDEES: "Attendees",
   BOOTH_CHECKINS: "BoothCheckins",
+  SONG_VOTES: "SongVotes",
   SIGNUPS: "SignUps",
   BOOTH_CONTROLS: "BoothControls",
   META: "Meta",
@@ -22,6 +23,25 @@ const SHEET_NAMES = {
 const ORGANIZER_KEY_PROPERTY = "ORGANIZER_KEY";
 const BOOTH_IDS = ["heaven", "trivia", "story", "art", "newsong"];
 const WRISTBAND_COLORS = ["blue", "red", "orange", "green", "yellow"];
+const BOOTH_NAMES = {
+  heaven: "Can You Draw Heaven?",
+  trivia: "Bible Bowl",
+  story: "The Sower, Live",
+  art: "Art Therapy Table",
+  newsong: "The New Song in Nashville",
+};
+const WRISTBAND_ROUTES = {
+  blue: ["heaven", "trivia", "story"],
+  red: ["trivia", "heaven", "art"],
+  orange: ["art", "story", "newsong"],
+  green: ["newsong", "art", "heaven"],
+  yellow: ["story", "newsong", "trivia"],
+};
+const BOOTH_SESSIONS = [
+  { number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
+  { number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
+  { number: 3, startsAt: "2026-07-18T15:50:00-05:00", endsAt: "2026-07-18T16:10:00-05:00", label: "3:50–4:10 PM" },
+];
 const BOOTH_PRESENTATION_STATUSES = ["waiting", "live", "paused", "wrap", "complete"];
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
@@ -32,12 +52,19 @@ const FINAL_SIGNUP_OPTIONS = {
   art: "Art therapy",
   friend: "Help me invite a friend",
 };
+const NEW_SONG_CHOICES = [
+  "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life", "Reckless Love",
+  "King of Kings", "Living Hope", "Graves Into Gardens", "Raise a Hallelujah", "The Blessing",
+  "O Come to the Altar", "Do It Again", "House of the Lord", "Same God", "Great Things",
+  "Battle Belongs", "Jireh", "Yes I Will", "Firm Foundation", "Champion",
+];
 
 const HEADERS = {
   // New attendee fields are appended so an existing Attendees tab can be
   // upgraded in place without shifting any of its older columns.
   [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor", "phase3CompletedAt"],
   [SHEET_NAMES.BOOTH_CHECKINS]: ["id", "attendeeId", "phone", "name", "boothId", "boothName", "checkedInBy", "checkedInAt", "rating", "note", "extraData"],
+  [SHEET_NAMES.SONG_VOTES]: ["id", "attendeeId", "name", "songTitle", "votedAt"],
   [SHEET_NAMES.SIGNUPS]: ["id", "attendeeId", "phone", "name", "optionId", "optionTitle", "email", "stars", "comment", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt"],
   [SHEET_NAMES.BOOTH_CONTROLS]: ["boothId", "stepIndex", "status", "message", "createdAt", "updatedAt", "version"],
   [SHEET_NAMES.META]: ["key", "value"],
@@ -190,6 +217,43 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function eventSessionState(nowMs) {
+  const currentMs = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const sessions = BOOTH_SESSIONS.map((session, index) => ({
+    number: session.number,
+    label: session.label,
+    index,
+    startMs: Date.parse(session.startsAt),
+    endMs: Date.parse(session.endsAt),
+  }));
+  const active = sessions.find((session) => currentMs >= session.startMs && currentMs < session.endMs);
+  if (active) {
+    return {
+      phase: "active",
+      serverNow: new Date(currentMs).toISOString(),
+      sessionIndex: active.index,
+      sessionNumber: active.number,
+      sessionLabel: active.label,
+    };
+  }
+  if (currentMs < sessions[0].startMs) {
+    return {
+      phase: "before",
+      serverNow: new Date(currentMs).toISOString(),
+      sessionIndex: null,
+      sessionNumber: null,
+      sessionLabel: null,
+    };
+  }
+  return {
+    phase: "ended",
+    serverNow: new Date(currentMs).toISOString(),
+    sessionIndex: null,
+    sessionNumber: null,
+    sessionLabel: null,
+  };
+}
+
 function apiError(message, code) {
   const err = new Error(message);
   err.code = code;
@@ -276,7 +340,7 @@ function earliestTimestamp() {
 
 function reassignAttendeeReferences(duplicate, canonical) {
   const duplicateIds = [duplicate.attendeeId].concat(toJsonSafe(duplicate.aliasIds, []));
-  [SHEET_NAMES.BOOTH_CHECKINS, SHEET_NAMES.SIGNUPS].forEach((sheetName) => {
+  [SHEET_NAMES.BOOTH_CHECKINS, SHEET_NAMES.SONG_VOTES, SHEET_NAMES.SIGNUPS].forEach((sheetName) => {
     readRows(sheetName).forEach((row) => {
       if (duplicateIds.indexOf(row.attendeeId) === -1) return;
       updateRow(sheetName, row._row, {
@@ -586,6 +650,42 @@ function actionBoothCheckin(payload) {
   });
 }
 
+function actionSaveSongVote(payload) {
+  const attendeeId = payload && payload.attendeeId;
+  const songTitle = String((payload && payload.songTitle) || "").trim();
+  if (!attendeeId) throw apiError("attendeeId required", "ATTENDEE_ID_REQUIRED");
+  if (NEW_SONG_CHOICES.indexOf(songTitle) === -1) {
+    throw apiError("Choose a valid New Song option.", "INVALID_SONG_CHOICE");
+  }
+  return withScriptLock(() => {
+    const attendee = findAttendee(attendeeId, null);
+    if (!attendee) throw apiError("attendee not found", "ATTENDEE_NOT_FOUND");
+    const votes = readRows(SHEET_NAMES.SONG_VOTES);
+    const existing = votes.find((vote) => String(vote.attendeeId) === String(attendee.attendeeId));
+    const vote = {
+      attendeeId: attendee.attendeeId,
+      name: attendee.name,
+      songTitle,
+      votedAt: nowIso(),
+    };
+    if (existing) {
+      updateRow(SHEET_NAMES.SONG_VOTES, existing._row, vote);
+      existing.songTitle = songTitle;
+      existing.name = attendee.name;
+      existing.votedAt = vote.votedAt;
+    } else {
+      appendRow(SHEET_NAMES.SONG_VOTES, Object.assign({ id: newId() }, vote));
+      votes.push(vote);
+    }
+    return {
+      ok: true,
+      songTitle,
+      votes: votes.filter((row) => String(row.songTitle) === songTitle).length,
+      totalVotes: votes.length,
+    };
+  });
+}
+
 function actionSubmitSignup(payload) {
   const { attendeeId, phone, optionId, optionTitle, email, stars, comment } = payload;
   if (!optionId) throw new Error("optionId required");
@@ -754,18 +854,75 @@ function actionMySignupSelections(payload) {
   });
 }
 
+function wristbandGroupsForDashboard(attendees, checkins, eventState) {
+  return WRISTBAND_COLORS.map((colorId) => {
+    const route = WRISTBAND_ROUTES[colorId] || [];
+    const currentBoothId = eventState.phase === "active"
+      ? route[eventState.sessionIndex] || null
+      : null;
+    const groupAttendees = attendees
+      .filter((attendee) => (
+        attendee.wristbandConfirmedAt && normalizeWristbandColor(attendee.wristbandColor) === colorId
+      ))
+      .map((attendee) => {
+        const parsedAliases = toJsonSafe(attendee.aliasIds, []);
+        const attendeeIds = [attendee.attendeeId]
+          .concat(Array.isArray(parsedAliases) ? parsedAliases : [])
+          .map((value) => String(value));
+        const completedSet = new Set(checkins
+          .filter((checkin) => (
+            attendeeIds.indexOf(String(checkin.attendeeId)) !== -1
+              || (attendee.phone && String(checkin.phone) === String(attendee.phone))
+          ))
+          .map((checkin) => String(checkin.boothId)));
+        const completedBoothIds = route.filter((boothId) => completedSet.has(boothId));
+        return {
+          name: attendee.name || "Guest",
+          raffleNumber: attendee.raffleNumber || "",
+          completedBoothIds,
+          completedStops: completedBoothIds.length,
+          totalStops: route.length,
+          currentStopCompleted: currentBoothId ? completedSet.has(currentBoothId) : null,
+          phase3Completed: !!attendee.phase3CompletedAt,
+        };
+      })
+      .sort((a, b) => {
+        const raffleA = Number(a.raffleNumber);
+        const raffleB = Number(b.raffleNumber);
+        if (Number.isFinite(raffleA) && Number.isFinite(raffleB) && raffleA !== raffleB) return raffleA - raffleB;
+        return String(a.name).localeCompare(String(b.name));
+      });
+    return {
+      colorId,
+      count: groupAttendees.length,
+      route: route.map((boothId) => ({ boothId, boothName: BOOTH_NAMES[boothId] || boothId })),
+      currentBooth: currentBoothId
+        ? { boothId: currentBoothId, boothName: BOOTH_NAMES[currentBoothId] || currentBoothId }
+        : null,
+      attendees: groupAttendees,
+    };
+  });
+}
+
 function actionDashboardData(payload) {
   requireOrganizer(payload);
   return withScriptLock(() => {
     const attendees = readRows(SHEET_NAMES.ATTENDEES);
     const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS);
+    const liveSongVotes = readRows(SHEET_NAMES.SONG_VOTES);
     const signups = readRows(SHEET_NAMES.SIGNUPS);
+    const eventState = eventSessionState();
 
     const totals = {
       registered: attendees.length,
       wristbandsConfirmed: attendees.filter((a) => a.wristbandConfirmedAt).length,
       raffleEntries: attendees.length,
     };
+    const wristbandGroups = wristbandGroupsForDashboard(attendees, checkins, eventState);
+    const wristbandCounts = wristbandGroups.map((group) => ({
+      colorId: group.colorId,
+      count: group.count,
+    }));
 
     const boothCountsMap = {};
     checkins.forEach((c) => {
@@ -785,13 +942,25 @@ function actionDashboardData(payload) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 10);
 
-    const songVotesMap = {};
+    const songVoteByAttendee = {};
     checkins
       .filter((c) => c.boothId === "newsong" && c.extraData)
       .forEach((c) => {
         const extra = toJsonSafe(c.extraData, {});
-        if (extra.votedFor) songVotesMap[extra.votedFor] = (songVotesMap[extra.votedFor] || 0) + 1;
+        if (NEW_SONG_CHOICES.indexOf(extra.votedFor) !== -1) {
+          songVoteByAttendee[String(c.attendeeId)] = extra.votedFor;
+        }
       });
+    liveSongVotes.forEach((vote) => {
+      if (NEW_SONG_CHOICES.indexOf(String(vote.songTitle)) !== -1) {
+        songVoteByAttendee[String(vote.attendeeId)] = String(vote.songTitle);
+      }
+    });
+    const songVotesMap = {};
+    Object.keys(songVoteByAttendee).forEach((attendeeId) => {
+      const title = songVoteByAttendee[attendeeId];
+      songVotesMap[title] = (songVotesMap[title] || 0) + 1;
+    });
     const songVotes = Object.keys(songVotesMap)
       .map((title) => ({ title, votes: songVotesMap[title] }))
       .sort((a, b) => b.votes - a.votes);
@@ -814,7 +983,16 @@ function actionDashboardData(payload) {
         };
       });
 
-    return { totals, boothCounts, triviaLeaderboard, songVotes, signups: signupsOut };
+    return {
+      totals,
+      eventState,
+      wristbandCounts,
+      wristbandGroups,
+      boothCounts,
+      triviaLeaderboard,
+      songVotes,
+      signups: signupsOut,
+    };
   });
 }
 
@@ -888,11 +1066,36 @@ function actionBoothDashboardData(payload) {
     const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS)
       .filter((checkin) => String(checkin.boothId) === boothId)
       .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
+    const songVotes = [];
+    if (boothId === "newsong") {
+      const byAttendee = {};
+      checkins.forEach((checkin) => {
+        const extra = toJsonSafe(checkin.extraData, {});
+        if (NEW_SONG_CHOICES.indexOf(extra.votedFor) !== -1) {
+          byAttendee[String(checkin.attendeeId)] = extra.votedFor;
+        }
+      });
+      readRows(SHEET_NAMES.SONG_VOTES).forEach((vote) => {
+        if (NEW_SONG_CHOICES.indexOf(String(vote.songTitle)) !== -1) {
+          byAttendee[String(vote.attendeeId)] = String(vote.songTitle);
+        }
+      });
+      const totals = {};
+      Object.keys(byAttendee).forEach((attendeeId) => {
+        const title = byAttendee[attendeeId];
+        totals[title] = (totals[title] || 0) + 1;
+      });
+      Object.keys(totals)
+        .map((title) => ({ title, votes: totals[title] }))
+        .sort((a, b) => b.votes - a.votes)
+        .forEach((entry) => songVotes.push(entry));
+    }
     return {
       boothId,
       presentation: boothPresentationFromRows(readRows(SHEET_NAMES.BOOTH_CONTROLS), boothId),
       serverNow: nowIso(),
       totalCheckins: checkins.length,
+      songVotes,
       recentCheckins: checkins.slice(0, 50).map((checkin) => ({
         id: checkin.id,
         name: checkin.name || "Guest",
@@ -935,6 +1138,7 @@ function doPost(e) {
       case "attendeePortalSession": result = actionAttendeePortalSession(payload); break;
       case "findOrRegisterByPhone": result = actionFindOrRegisterByPhone(payload); break;
       case "boothCheckin": result = actionBoothCheckin(payload); break;
+      case "saveSongVote": result = actionSaveSongVote(payload); break;
       case "submitSignup": result = actionSubmitSignup(payload); break;
       case "saveSignupSelections": result = actionSaveSignupSelections(payload); break;
       case "confirmSignupInPerson": result = actionConfirmSignupInPerson(payload); break;

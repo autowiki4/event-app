@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Organizer Portal — The Perfect Summer Day</title>
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+  .organizer-directory{ max-width:900px; }
+  .organizer-directory-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:18px 0 22px; }
+  .organizer-role-card{
+    display:flex; align-items:center; gap:14px; min-height:92px; padding:16px;
+    border:1.5px solid var(--line); border-radius:16px; background:#fff;
+    color:inherit; text-decoration:none; box-shadow:0 7px 20px rgba(43,36,74,.06);
+    transition:transform .15s, border-color .15s, box-shadow .15s;
+  }
+  .organizer-role-card:hover,
+  .organizer-role-card:focus-visible{ transform:translateY(-2px); border-color:var(--teal); box-shadow:0 11px 28px rgba(43,36,74,.11); outline:none; }
+  .organizer-role-card.featured{ grid-column:1 / -1; border-color:rgba(29,122,120,.38); background:linear-gradient(145deg,#eef8f6,#fff); }
+  .organizer-role-icon{
+    display:flex; align-items:center; justify-content:center; width:48px; height:48px;
+    flex:0 0 48px; border-radius:14px; background:var(--parchment-dim); font-size:22px;
+  }
+  .organizer-role-copy{ min-width:0; flex:1; }
+  .organizer-role-copy strong{ display:block; color:var(--ink); font-size:15px; }
+  .organizer-role-copy span{ display:block; margin-top:4px; color:var(--ink-soft); font-size:12px; line-height:1.4; }
+  .organizer-role-arrow{ color:var(--coral-deep); font-size:20px; font-weight:800; }
+  @media (max-width:650px){ .organizer-directory-grid{ grid-template-columns:1fr; } .organizer-role-card.featured{ grid-column:auto; } }
+</style>
+</head>
+<body>
+<div class="phone dash-wrap organizer-directory">
+  <div class="device-tag organizer">Staff only</div>
+  <section class="screen">
+    <p class="eyebrow">One organizer link</p>
+    <h1 class="display">Choose your <em>staff view.</em></h1>
+    <p class="lede">Open the overall event dashboard or the controls for the booth you are leading. The selected page will ask for the organizer access key before showing staff data.</p>
+
+    <div class="organizer-directory-grid" id="organizer-directory-grid">
+      <a class="organizer-role-card featured" href="dashboard.html">
+        <span class="organizer-role-icon" aria-hidden="true">📊</span>
+        <span class="organizer-role-copy">
+          <strong>Overall Organizer</strong>
+          <span>Event timing, wristband locations, attendance, booth totals, sign-ups, and rehearsal controls.</span>
+        </span>
+        <span class="organizer-role-arrow" aria-hidden="true">→</span>
+      </a>
+    </div>
+
+    <div class="placeholder-note">Booth leaders should choose only the booth they are operating. All staff pages currently use the same event organizer key.</div>
+    <a class="btn btn-ghost" href="qr-codes.html">Open QR-code utility</a>
+  </section>
+</div>
+
+<script src="../shared/toast.js"></script>
+<script src="../shared/booths-config.js"></script>
+<script>
+const organizerDirectory = document.getElementById("organizer-directory-grid");
+organizerDirectory.insertAdjacentHTML("beforeend", CONNECTOR_BOOTHS.map((booth) => `
+  <a class="organizer-role-card" href="../phase2-staff/${escapeHtml(booth.staffPage)}">
+    <span class="organizer-role-icon" aria-hidden="true">${escapeHtml(booth.icon)}</span>
+    <span class="organizer-role-copy">
+      <strong>${escapeHtml(booth.title)}</strong>
+      <span>Booth presentation controls and booth-only check-ins.</span>
+    </span>
+    <span class="organizer-role-arrow" aria-hidden="true">→</span>
+  </a>
+`).join(""));
+</script>
+</body>
+</html>

@@ -41,6 +41,31 @@ function request(port, action, payload, method = "POST") {
   });
 }
 
+function rawRequest(port, action, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: "127.0.0.1",
+      port,
+      path: `/api/${action}`,
+      method: "POST",
+      headers: Object.assign({ "Content-Length": Buffer.byteLength(body) }, headers),
+    }, (res) => {
+      let chunks = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => { chunks += chunk; });
+      res.on("end", () => {
+        let parsed = null;
+        try { parsed = JSON.parse(chunks); }
+        catch (error) { return reject(new Error(`Invalid raw JSON response: ${chunks}`)); }
+        resolve({ status: res.statusCode, body: parsed });
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 function getPage(port, pathname) {
   return new Promise((resolve, reject) => {
     http.get({ hostname: "127.0.0.1", port, path: pathname }, (res) => {
@@ -89,6 +114,18 @@ async function runApiRegression(port) {
   res = await request(port, "verifyOrganizer", { organizerKey });
   assert.deepEqual(res.body, { ok: true });
 
+  res = await rawRequest(port, "eventClock", "{not-json", { "Content-Type": "application/json" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_JSON");
+  res = await rawRequest(
+    port,
+    "eventClock",
+    JSON.stringify({ padding: "x".repeat(65 * 1024) }),
+    { "Content-Type": "application/json" }
+  );
+  assert.equal(res.status, 413);
+  assert.equal(res.body.code, "REQUEST_TOO_LARGE");
+
   // The local rehearsal clock is public but contains no attendee or organizer
   // data. Only the organizer can move it, and an anchored preset keeps ticking
   // for every browser instead of freezing at a screenshot-like instant.
@@ -131,6 +168,7 @@ async function runApiRegression(port) {
 
   for (const mode of [
     "before",
+    "session1-start",
     "session1-final15",
     "session2",
     "session2-final15",
@@ -233,6 +271,23 @@ async function runApiRegression(port) {
   assert.equal(res.body.wristbandColor, null);
   res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
   assert.equal(res.body.isNew, false);
+
+  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Not a real option" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_SONG_CHOICE");
+  res = await request(port, "saveSongVote", { attendeeId: "missing-voter", songTitle: "Way Maker" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
+  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Way Maker" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.votes, 1);
+  assert.equal(res.body.totalVotes, 1);
+  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Way Maker" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.votes, 1);
+  assert.equal(res.body.totalVotes, 1);
+  res = await request(port, "dashboardData", { organizerKey });
+  assert.deepEqual(res.body.songVotes, [{ title: "Way Maker", votes: 1 }]);
 
   res = await request(port, "loginAttendee", {
     name: "  aVeRy  ",
@@ -484,6 +539,7 @@ async function runApiRegression(port) {
   res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
   assert.equal(res.body.totalCheckins, 1);
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Casey"]);
+  assert.deepEqual(res.body.songVotes, [{ title: "Way Maker", votes: 1 }]);
   assert.equal(res.body.presentation.boothId, "newsong");
   assert.equal(res.body.presentation.version, 0);
 
@@ -620,6 +676,14 @@ async function runApiRegression(port) {
   assertIsoTimestamp(res.body.updatedAt, "demo clock updatedAt after data reset");
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.body.totals.registered, 0);
+  const resetBackup = JSON.parse(fs.readFileSync(`${testDb}.bak`, "utf8"));
+  assert.equal(resetBackup.attendees.length, 0);
+  assert.equal(resetBackup.boothCheckins.length, 0);
+  assert.equal(resetBackup.songVotes.length, 0);
+  fs.writeFileSync(testDb, "{corrupted after reset", "utf8");
+  res = await request(port, "health", undefined, "GET");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.registered, 0);
   res = await request(port, "boothPresentation", { boothId: "art" });
   assert.equal(res.body.status, "waiting");
   assert.equal(res.body.version, 0);
@@ -679,6 +743,126 @@ async function runApiRegression(port) {
   assert.equal(res.status, 404);
 }
 
+async function runCapacityRegression(port) {
+  const organizerKey = "test-organizer-key";
+  const colors = ["blue", "red", "orange", "green", "yellow"];
+  const routes = {
+    blue: ["heaven", "trivia", "story"],
+    red: ["trivia", "heaven", "art"],
+    orange: ["art", "story", "newsong"],
+    green: ["newsong", "art", "heaven"],
+    yellow: ["story", "newsong", "trivia"],
+  };
+  const songChoices = ["Way Maker", "Goodness of God", "Firm Foundation"];
+
+  let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+
+  const registrations = await Promise.all(Array.from({ length: 150 }, (_, index) => (
+    request(port, "registerAttendee", {
+      attendeeId: `capacity-${index + 1}`,
+      name: `Capacity Guest ${index + 1}`,
+    })
+  )));
+  assert.equal(registrations.every((result) => result.status === 200), true);
+  assert.equal(new Set(registrations.map((result) => result.body.attendeeId)).size, 150);
+  assert.equal(new Set(registrations.map((result) => result.body.raffleNumber)).size, 150);
+
+  const assignments = registrations.map((result, index) => ({
+    attendeeId: result.body.attendeeId,
+    colorId: colors[index % colors.length],
+  }));
+  const confirmations = await Promise.all(assignments.map((assignment) => (
+    request(port, "confirmWristband", {
+      attendeeId: assignment.attendeeId,
+      wristbandColor: assignment.colorId,
+    })
+  )));
+  assert.equal(confirmations.every((result) => result.status === 200), true);
+
+  const songVoters = assignments.filter((assignment) => routes[assignment.colorId].includes("newsong"));
+  const songVotes = await Promise.all(songVoters.map((assignment, index) => (
+    request(port, "saveSongVote", {
+      attendeeId: assignment.attendeeId,
+      songTitle: songChoices[index % songChoices.length],
+    })
+  )));
+  assert.equal(songVotes.length, 90);
+  assert.equal(songVotes.every((result) => result.status === 200), true);
+
+  const checkins = await Promise.all(assignments.flatMap((assignment) => (
+    routes[assignment.colorId].map((boothId, sessionIndex) => request(port, "boothCheckin", {
+      attendeeId: assignment.attendeeId,
+      boothId,
+      boothName: boothId,
+      checkedInBy: "capacity-test",
+      extraData: { sessionNumber: sessionIndex + 1, wristbandColor: assignment.colorId },
+    }))
+  )));
+  assert.equal(checkins.length, 450);
+  assert.equal(checkins.every((result) => result.status === 200), true);
+
+  const phase3Finishes = await Promise.all(assignments.map((assignment) => (
+    request(port, "saveSignupSelections", {
+      attendeeId: assignment.attendeeId,
+      optionIds: ["future"],
+    })
+  )));
+  assert.equal(phase3Finishes.every((result) => result.status === 200), true);
+
+  const synchronizedReads = await Promise.all(assignments.flatMap((assignment, index) => [
+    request(port, "eventClock", {}, index % 2 ? "GET" : "POST"),
+    request(port, "boothPresentation", { boothId: routes[assignment.colorId][0] }),
+  ]));
+  assert.equal(synchronizedReads.every((result) => result.status === 200), true);
+
+  res = await request(port, "setDemoClock", {
+    mode: "session2",
+    targetIso: "2026-07-18T20:35:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+
+  res = await request(port, "dashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.totals.registered, 150);
+  assert.deepEqual(
+    res.body.wristbandCounts.map((entry) => [entry.colorId, entry.count]),
+    colors.map((colorId) => [colorId, 30])
+  );
+  assert.equal(res.body.eventState.phase, "active");
+  assert.equal(res.body.eventState.sessionNumber, 2);
+  assert.equal(res.body.eventState.sessionLabel, "3:30–3:50 PM");
+  assert.equal(res.body.wristbandGroups.length, 5);
+  const blueGroup = res.body.wristbandGroups.find((group) => group.colorId === "blue");
+  const greenGroup = res.body.wristbandGroups.find((group) => group.colorId === "green");
+  assert.deepEqual(blueGroup.currentBooth, { boothId: "trivia", boothName: "Bible Bowl" });
+  assert.deepEqual(greenGroup.currentBooth, { boothId: "art", boothName: "Art Therapy Table" });
+  assert.equal(blueGroup.attendees.length, 30);
+  assert.equal(blueGroup.attendees.every((attendee) => (
+    attendee.completedStops === 3
+      && attendee.totalStops === 3
+      && attendee.currentStopCompleted === true
+      && attendee.phase3Completed === true
+      && !("attendeeId" in attendee)
+      && !("phone" in attendee)
+  )), true);
+  assert.deepEqual(
+    Object.fromEntries(res.body.boothCounts.map((entry) => [entry.boothId, entry.count])),
+    { heaven: 90, trivia: 90, story: 90, art: 90, newsong: 90 }
+  );
+  assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 90);
+  assert.equal(res.body.signups.length, 150);
+
+  res = await request(port, "health", undefined, "GET");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.registered, 150);
+
+  res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+}
+
 async function runFrontendContractRegression() {
   const phoneSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "phone.js"), "utf8");
   const phoneContext = {};
@@ -721,6 +905,77 @@ async function runFrontendContractRegression() {
     setItem(key, value) { this.values.set(key, String(value)); }
     removeItem(key) { this.values.delete(key); }
   }
+  const pendingStorage = new FakeStorage();
+  let pendingAttempts = 0;
+  const pendingTimers = [];
+  const pendingResults = [];
+  const pendingContext = {
+    localStorage: pendingStorage,
+    console,
+    setTimeout(callback, delay) {
+      const timer = { callback, delay };
+      pendingTimers.push(timer);
+      return timer;
+    },
+    EventAPI: {
+      boothCheckin: async () => {
+        pendingAttempts += 1;
+        if (pendingAttempts === 1) throw new Error("temporary outage");
+        return { ok: true };
+      },
+    },
+  };
+  vm.createContext(pendingContext);
+  const pendingSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "pending-checkins.js"), "utf8");
+  vm.runInContext(`${pendingSource}\nthis.__pendingCheckins = PendingCheckins;`, pendingContext);
+  const pendingCheckins = pendingContext.__pendingCheckins;
+  const queuedCompletion = { attendeeId: "queue-attendee", boothId: "heaven", boothName: "Draw Heaven" };
+  pendingCheckins.stage(queuedCompletion);
+  pendingCheckins.retry("queue-attendee", (result) => pendingResults.push(result));
+  assert.equal(pendingTimers.length, 1);
+  assert.equal(pendingTimers[0].delay, 2500);
+  await pendingTimers.shift().callback();
+  assert.equal(pendingAttempts, 1);
+  assert.equal(pendingResults[0].attendeePendingCount, 1);
+  assert.equal(pendingTimers.length, 1);
+  assert.equal(pendingTimers[0].delay, 5000);
+  await pendingTimers.shift().callback();
+  assert.equal(pendingAttempts, 2);
+  assert.deepEqual(Array.from(pendingResults[1].completedBoothIds), ["heaven"]);
+  assert.equal(pendingResults[1].pendingCount, 0);
+  assert.equal(pendingTimers.length, 0);
+  assert.equal(pendingStorage.getItem("eventapp.pending-booth-checkins.v1"), null);
+
+  // A successful older request must not erase a newer revision staged for
+  // the same attendee/booth while that request is in flight.
+  const concurrentStorage = new FakeStorage();
+  const concurrentTimers = [];
+  let finishConcurrentRequest;
+  const concurrentContext = {
+    localStorage: concurrentStorage,
+    console,
+    setTimeout(callback, delay) {
+      const timer = { callback, delay };
+      concurrentTimers.push(timer);
+      return timer;
+    },
+    EventAPI: {
+      boothCheckin: () => new Promise((resolve) => { finishConcurrentRequest = resolve; }),
+    },
+  };
+  vm.createContext(concurrentContext);
+  vm.runInContext(`${pendingSource}\nthis.__pendingCheckins = PendingCheckins;`, concurrentContext);
+  const concurrentCheckins = concurrentContext.__pendingCheckins;
+  concurrentCheckins.stage({ ...queuedCompletion, note: "old" });
+  const inFlightFlush = concurrentCheckins.flush("queue-attendee");
+  await Promise.resolve();
+  concurrentCheckins.stage({ ...queuedCompletion, note: "new" });
+  finishConcurrentRequest({ ok: true });
+  await inFlightFlush;
+  const remainingConcurrent = JSON.parse(concurrentStorage.getItem("eventapp.pending-booth-checkins.v1"));
+  assert.equal(remainingConcurrent.length, 1);
+  assert.equal(remainingConcurrent[0].payload.note, "new");
+
   const identityStorage = new FakeStorage();
   const portalStorage = new FakeStorage();
   const backendPortalCalls = [];
@@ -819,6 +1074,7 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.boothDashboardData, "function");
   assert.equal(typeof apiContext.__eventApi.boothPresentation, "function");
   assert.equal(typeof apiContext.__eventApi.updateBoothPresentation, "function");
+  assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
   assert.equal(typeof apiContext.__eventApi.eventClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
   assert.equal(typeof apiContext.__eventApi.saveSignupSelections, "function");
@@ -915,8 +1171,10 @@ async function runFrontendContractRegression() {
   const phase2Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "hub.html"), "utf8");
   const phase3Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase3-signup", "index.html"), "utf8");
   const doneSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "done", "index.html"), "utf8");
+  const organizerDirectorySource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "organizer", "index.html"), "utf8");
   const boothRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-room.js"), "utf8");
   const boothCommonSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"), "utf8");
+  const newSongSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-newsong.html"), "utf8");
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
   vm.createContext(boothsConfigContext);
@@ -938,6 +1196,8 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /shared\/event-schedule\.js/);
   assert.match(phase1Source, /Complete Phase 1 &amp; continue/);
   assert.match(phase1Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/phase2-booths\/hub\.html"\)/);
+  assert.match(phase1Source, /function resumeSavedAttendee\(\)/);
+  assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
   assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
   assert.match(phase2Source, /shared\/event-schedule\.js/);
@@ -945,10 +1205,18 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /AttendeePortal\.continueAs\(PORTAL\)/);
   assert.match(phase2Source, /EventSchedule\.currentBooth/);
   assert.match(phase2Source, /EventAPI\.boothPresentation/);
+  assert.match(phase2Source, /id="btn-open-booth-activity"/);
+  assert.match(phase2Source, /EventSchedule\.linkWithPreview\(currentBooth\.page\)/);
+  assert.match(phase2Source, /presentationPollMs = Math\.round\(5000 \* \(0\.85 \+ Math\.random\(\) \* 0\.3\)\)/);
+  assert.match(phase2Source, /if \(!document\.hidden && activeBoothId\) loadPresentation/);
+  assert.match(phase2Source, /id="btn-skip-first-booth-phone"/);
   assert.match(phase2Source, /id="attendee-name"/);
   assert.match(phase2Source, /id="attendee-raffle"/);
   assert.match(phase2Source, /id="session-countdown"/);
   assert.match(phase2Source, /id="phase3-ready"/);
+  assert.match(phase2Source, /id="waiting-lobby"/);
+  assert.match(phase2Source, /const cachedIdentity = Identity\.peek\(\)/);
+  assert.match(phase2Source, /AttendeeMenu\.mount\("phase2-attendee-menu"/);
   assert.match(phase2Source, /function routeIsComplete\(\)/);
   assert.match(phase2Source, /data-open-current/);
   assert.match(phase2Source, /Ended · Not visited/);
@@ -956,11 +1224,20 @@ async function runFrontendContractRegression() {
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
+  assert.match(boothRoomSource, /const savedIdentity = Identity\.peek\(\)/);
+  assert.doesNotMatch(boothRoomSource, /AttendeePortal\.hasAccess\("phase2"\)/);
+  assert.match(boothRoomSource, /AttendeePortal\.continueAs\(portal\)/);
+  assert.match(boothRoomSource, /AttendeeMenu\.mount\(id, \{ identity: currentIdentity, logoutUrl \}\)/);
+  assert.match(boothRoomSource, /roomCompleted = roomCompleted \|\| \(checkins\.boothIds \|\| \[\]\)\.includes\(boothId\)/);
+  assert.match(boothRoomSource, /id="booth-welcome-raffle"/);
   assert.match(boothRoomSource, /id="booth-login-name"[^>]*autocomplete="off"/);
   assert.match(boothRoomSource, /id="booth-login-raffle"[^>]*autocomplete="off"/);
   assert.doesNotMatch(boothCommonSource, /hub\.html/);
   assert.match(boothCommonSource, /completeBoothRoom/);
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
+  assert.match(boothCommonSource, /phoneSkipped/);
+  assert.match(newSongSource, /EventAPI\.saveSongVote/);
+  assert.match(newSongSource, /Vote counted for the booth leader/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
   assert.match(phase3Source, /shared\/event-schedule\.js/);
@@ -971,11 +1248,16 @@ async function runFrontendContractRegression() {
   assert.match(phase3Source, /Tick and go/i);
   assert.match(phase3Source, /EventAPI\.saveSignupSelections/);
   assert.match(phase3Source, /EventAPI\.mySignupSelections/);
+  assert.match(phase3Source, /JourneyState\.save\("phase3\.draft"/);
+  assert.match(phase3Source, /AttendeeMenu\.mount\("phase3-attendee-menu"/);
   assert.match(phase3Source, /const phase2Complete = route\.length === BOOTH_SESSIONS\.length/);
   assert.match(phase3Source, /!phase2Complete && schedule\.phase !== "ended"/);
   assert.match(phase3Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/done\/index\.html"\)/);
   assert.doesNotMatch(phase3Source, /id="detail-email"|id="detail-comment"|class="star-row"/);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
+  assert.match(doneSource, /AttendeePortal\.continueAs\("phase3"\)/);
+  assert.match(doneSource, /AttendeeMenu\.mount\("done-attendee-menu"/);
+  assert.doesNotMatch(doneSource, /Identity\.clear\(\)/);
   assert.match(doneSource, /id="done-loading"/);
   assert.match(doneSource, /id="done-content" style="display:none;"/);
   assert.match(doneSource, /EventAPI\.mySignupSelections\(identity\.attendeeId\)/);
@@ -984,6 +1266,9 @@ async function runFrontendContractRegression() {
   assert.match(doneSource, /Don't go yet/);
   assert.match(doneSource, /4:10 PM/);
   assert.match(doneSource, /EventSchedule\.remainingUntilEventEnd\(\)/);
+  assert.match(organizerDirectorySource, /Overall Organizer/);
+  assert.match(organizerDirectorySource, /CONNECTOR_BOOTHS\.map/);
+  assert.match(organizerDirectorySource, /booth\.staffPage/);
 
   assert.equal(boothConfigs.length, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.page)).size, 5);
@@ -1035,6 +1320,7 @@ async function runFrontendContractRegression() {
   assert.equal(eventSchedule.currentBooth("blue", atExperienceEnd), null);
   assert.equal(eventSchedule.formatCountdown(20 * 60 * 1000), "20:00");
   assert.equal(eventSchedule.demoTargetIso("before"), "2026-07-18T20:05:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session1-start"), "2026-07-18T20:10:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("session1"), "2026-07-18T20:15:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("session1-final15"), "2026-07-18T20:29:45.000Z");
   assert.equal(eventSchedule.demoTargetIso("session2"), "2026-07-18T20:35:00.000Z");
@@ -1185,17 +1471,82 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventAPI\.boothDashboardData/);
   assert.match(boothStaffCommon, /EventAPI\.updateBoothPresentation/);
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
+  assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
   ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
     assert.match(source, /id="staff-settings"/);
   });
+  const newSongStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "newsong.html"), "utf8");
+  assert.match(newSongStaffSource, /id="staff-song-vote-table"/);
 
   const gasSource = fs.readFileSync(path.join(__dirname, "..", "..", "apps-script", "Code.gs"), "utf8");
   assert.equal((gasSource.match(/LockService\.getScriptLock\(\)/g) || []).length, 1);
   assert.match(gasSource, /nextRaffleNumber\(lock\)/);
   assert.doesNotMatch(gasSource, /function nextRaffleNumber\(\)/);
+}
+
+function runBoothDraftPersistenceRegression() {
+  const values = new Map();
+  const storage = {
+    getItem(key) { return values.has(key) ? values.get(key) : null; },
+    setItem(key, value) { values.set(key, String(value)); },
+    removeItem(key) { values.delete(key); },
+  };
+  let activeAttendeeId = "draft-attendee-a";
+  const context = {
+    localStorage: storage,
+    Identity: { peek: () => ({ attendeeId: activeAttendeeId }) },
+  };
+  vm.createContext(context);
+  const journeySource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "shared", "journey-state.js"),
+    "utf8"
+  );
+  vm.runInContext(`${journeySource}\nthis.__journeyState = JourneyState;`, context);
+  const journey = context.__journeyState;
+
+  assert.equal(journey.save("booth.art.activity", { index: 2, drafts: { reflect: "Hope" } }), true);
+  let loaded = journey.load("booth.art.activity", {});
+  assert.equal(loaded.index, 2);
+  assert.equal(loaded.drafts.reflect, "Hope");
+  loaded.drafts.reflect = "mutated outside the store";
+  assert.equal(journey.load("booth.art.activity", {}).drafts.reflect, "Hope");
+
+  activeAttendeeId = "draft-attendee-b";
+  assert.equal(journey.load("booth.art.activity", null), null);
+  journey.save("booth.art.activity", { index: 1, drafts: { reflect: "Joy" } });
+  activeAttendeeId = "draft-attendee-a";
+  assert.equal(journey.load("booth.art.activity", {}).index, 2);
+  journey.remove("booth.art.activity");
+  assert.equal(journey.load("booth.art.activity", null), null);
+
+  const boothCommonSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"),
+    "utf8"
+  );
+  assert.match(boothCommonSource, /JourneyState\.load\(boothFooterDraftScope/);
+  assert.match(boothCommonSource, /JourneyState\.save\(boothFooterDraftScope/);
+  assert.match(boothCommonSource, /note\.addEventListener\("input"/);
+  assert.match(boothCommonSource, /rating: _boothStars/);
+
+  ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
+      "utf8"
+    );
+    const identityScript = source.indexOf('src="../shared/identity.js"');
+    const journeyScript = source.indexOf('src="../shared/journey-state.js"');
+    const portalScript = source.indexOf('src="../shared/attendee-portal.js"');
+    const menuScript = source.indexOf('src="../shared/attendee-menu.js"');
+    assert.ok(identityScript >= 0 && identityScript < journeyScript);
+    assert.ok(journeyScript < portalScript && portalScript < menuScript);
+    assert.match(source, /_DRAFT_SCOPE = `booth\.\$\{BOOTH_ID\}\.activity`/);
+    assert.match(source, /JourneyState\.load\(/);
+    assert.match(source, /JourneyState\.save\(/);
+    assert.match(source, /renderBoothFooter\(BOOTH_ID\)/);
+  });
 }
 
 function runAppsScriptRegression() {
@@ -1276,6 +1627,7 @@ function runAppsScriptRegression() {
     actionAttendeePortalSession,
     actionFindOrRegisterByPhone,
     actionBoothCheckin,
+    actionSaveSongVote,
     actionSubmitSignup,
     actionSaveSignupSelections,
     actionConfirmSignupInPerson,
@@ -1457,6 +1809,12 @@ function runAppsScriptRegression() {
     checkedInBy: "staff-kiosk",
     organizerKey: "gas-organizer-key",
   });
+  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Way Maker" });
+  assert.equal(result.votes, 1);
+  assert.equal(result.totalVotes, 1);
+  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Way Maker" });
+  assert.equal(result.votes, 1);
+  assert.equal(result.totalVotes, 1);
   result = gas.actionMySignupSelections({ attendeeId: kioskId });
   assert.deepEqual(Array.from(result.optionIds), []);
   assert.equal(result.completedAt, null);
@@ -1491,6 +1849,10 @@ function runAppsScriptRegression() {
   const checkinHeaders = checkinSheet.rows[0];
   const attendeeIdColumn = checkinHeaders.indexOf("attendeeId");
   assert.equal(checkinSheet.rows[1][attendeeIdColumn], "gas-entry-c");
+  const songVoteSheet = spreadsheet.getSheetByName("SongVotes");
+  const songVoteAttendeeIdColumn = songVoteSheet.rows[0].indexOf("attendeeId");
+  assert.equal(songVoteSheet.rows.length, 2);
+  assert.equal(songVoteSheet.rows[1][songVoteAttendeeIdColumn], "gas-entry-c");
   const originalNewsongCheckinId = checkinSheet.rows[1][checkinHeaders.indexOf("id")];
   const checkedInAtColumn = checkinHeaders.indexOf("checkedInAt");
   const originalNewsongCheckedInAt = "2026-07-18T20:10:00.000Z";
@@ -1592,6 +1954,7 @@ function runAppsScriptRegression() {
   result = gas.actionBoothDashboardData({ boothId: "newsong", organizerKey: "gas-organizer-key" });
   assert.equal(result.totalCheckins, 1);
   assert.deepEqual(Array.from(result.recentCheckins, (checkin) => checkin.name), ["Casey"]);
+  assert.deepEqual(Array.from(result.songVotes, (entry) => ({ ...entry })), [{ title: "Way Maker", votes: 1 }]);
   assert.equal("phone" in result.recentCheckins[0], false);
   assert.equal("signups" in result, false);
   assert.equal(result.presentation.boothId, "newsong");
@@ -1609,6 +1972,19 @@ function runAppsScriptRegression() {
   const gasDashboard = gas.actionDashboardData({ organizerKey: "gas-organizer-key" });
   assert.equal(gasDashboard.totals.registered, 2);
   assert.equal(gasDashboard.signups[0].optionId, "formula-test");
+  assert.deepEqual(Array.from(gasDashboard.songVotes, (entry) => ({ ...entry })), [{ title: "Way Maker", votes: 1 }]);
+  assertIsoTimestamp(gasDashboard.eventState.serverNow, "Apps Script dashboard serverNow");
+  assert.equal(gasDashboard.wristbandGroups.length, 5);
+  const gasBlueGroup = gasDashboard.wristbandGroups.find((group) => group.colorId === "blue");
+  assert.equal(gasBlueGroup.count, 1);
+  assert.equal(gasBlueGroup.attendees.length, 1);
+  assert.equal(gasBlueGroup.attendees[0].name, "Avery");
+  assert.equal(gasBlueGroup.attendees[0].raffleNumber, "1001");
+  assert.equal(gasBlueGroup.attendees[0].completedStops, 0);
+  assert.equal(gasBlueGroup.attendees[0].totalStops, 3);
+  assert.equal(gasBlueGroup.attendees[0].phase3Completed, true);
+  assert.equal("attendeeId" in gasBlueGroup.attendees[0], false);
+  assert.equal("phone" in gasBlueGroup.attendees[0], false);
   assert.throws(
     () => gas.nextRaffleNumber(null),
     (error) => error.code === "LOCK_REQUIRED"
@@ -1633,6 +2009,7 @@ function runAppsScriptRegression() {
   }
   assert.equal(post("registerAttendee", { attendeeId: "gas-http-entry", name: "HTTP" }).raffleNumber, "1004");
   assert.equal(post("loginAttendee", { name: "HTTP", raffleNumber: "1004", portal: "phase3" }).attendeeId, "gas-http-entry");
+  assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Firm Foundation" }).songTitle, "Firm Foundation");
   assert.equal(post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt, null);
   const httpPhase3Finish = post("saveSignupSelections", { attendeeId: "gas-http-entry", optionIds: [] });
   assertIsoTimestamp(httpPhase3Finish.completedAt, "Apps Script HTTP Phase 3 completedAt");
@@ -1668,7 +2045,9 @@ async function main() {
     await once(server, "listening");
     const port = server.address().port;
     await runApiRegression(port);
+    await runCapacityRegression(port);
     await runFrontendContractRegression();
+    runBoothDraftPersistenceRegression();
     runAppsScriptRegression();
     console.log("All event app regression tests passed.");
   } finally {
@@ -1677,6 +2056,7 @@ async function main() {
       await once(server, "close");
     }
     fs.rmSync(testDb, { force: true });
+    fs.rmSync(`${testDb}.bak`, { force: true });
   }
 }
 

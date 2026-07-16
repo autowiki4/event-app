@@ -7,6 +7,7 @@ const EventSchedule = (() => {
   const DEMO_CLOCK_MODES = new Set([
     "live",
     "before",
+    "session1-start",
     "session1",
     "session2",
     "session3",
@@ -27,6 +28,7 @@ const EventSchedule = (() => {
   let demoClockPollTimer = null;
   let demoClockRequest = null;
   let demoClockFirstSync = null;
+  let demoClockVisibilityBound = false;
 
   function sync(serverNow, requestStartedMs, responseReceivedMs, options) {
     // Once the organizer has selected a shared demo mode, only the versioned
@@ -84,6 +86,7 @@ const EventSchedule = (() => {
     const lastEndMs = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
     let targetMs = NaN;
     if (mode === "before") targetMs = firstStartMs - (5 * 60 * 1000);
+    if (mode === "session1-start") targetMs = firstStartMs;
     if (mode === "ended") targetMs = lastEndMs + (60 * 1000);
 
     const sessionMatch = /^session([123])(-final15)?$/.exec(mode);
@@ -147,16 +150,28 @@ const EventSchedule = (() => {
     return request;
   }
 
-  function startDemoClockSync(intervalMs = 1000) {
+  function startDemoClockSync(intervalMs = 5000) {
     if (!demoBackendAvailable()) return Promise.resolve(demoClockState());
     const requestedInterval = Number(intervalMs);
     const pollingInterval = Number.isFinite(requestedInterval)
-      ? Math.max(250, requestedInterval)
-      : 1000;
+      ? Math.max(1000, requestedInterval)
+      : 5000;
     if (demoClockPollTimer === null && typeof setInterval === "function") {
+      // The displayed countdown advances locally between samples, so five
+      // second network syncs remain precise while avoiding 150 phones hitting
+      // the backend every second. Per-browser jitter prevents a QR-code wave
+      // from turning into a synchronized request spike.
+      const jitteredInterval = Math.round(pollingInterval * (0.85 + Math.random() * 0.3));
       demoClockPollTimer = setInterval(() => {
+        if (typeof document !== "undefined" && document.hidden) return;
         refreshDemoClock().catch(() => {});
-      }, pollingInterval);
+      }, jitteredInterval);
+    }
+    if (!demoClockVisibilityBound && typeof document !== "undefined" && document.addEventListener) {
+      demoClockVisibilityBound = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) refreshDemoClock().catch(() => {});
+      });
     }
     if (!demoClockFirstSync) {
       demoClockFirstSync = refreshDemoClock();
@@ -365,5 +380,5 @@ const EventSchedule = (() => {
 // Every local-demo page joins the server-shared clock automatically. Apps
 // Script and other API bases never call these demo-only endpoints.
 if (typeof window !== "undefined") {
-  EventSchedule.startDemoClockSync(1000).catch(() => {});
+  EventSchedule.startDemoClockSync(5000).catch(() => {});
 }

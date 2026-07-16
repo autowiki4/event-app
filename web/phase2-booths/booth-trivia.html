@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Bible Bowl — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
@@ -56,8 +56,11 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/journey-state.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
@@ -68,6 +71,7 @@
 const BOOTH_ID = "trivia";
 const BOOTH_NAME = "Bible Bowl";
 const BOOTH_ROOM_NAME = "Bible Bowl";
+const TRIVIA_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
 
 function renderProgress() {
   const el = document.getElementById("progress");
@@ -81,8 +85,35 @@ function renderProgress() {
 renderProgress();
 
 const triviaState = { index: 0, score: 0, selected: null };
+let triviaStateOwner = "";
+
+function restoreTriviaState() {
+  const owner = String((Identity.peek() || {}).attendeeId || "");
+  if (!owner || triviaStateOwner === owner) return;
+  const saved = JourneyState.load(TRIVIA_DRAFT_SCOPE, {}) || {};
+  const index = Number(saved.index);
+  const score = Number(saved.score);
+  triviaState.index = Number.isInteger(index) ? Math.min(TRIVIA_QUESTIONS.length, Math.max(0, index)) : 0;
+  const maximumScore = TRIVIA_QUESTIONS.reduce((total, question) => total + Number(question.points || 0), 0);
+  triviaState.score = Number.isFinite(score) ? Math.min(maximumScore, Math.max(0, score)) : 0;
+  const choiceCount = triviaState.index < TRIVIA_QUESTIONS.length
+    ? TRIVIA_QUESTIONS[triviaState.index].choices.length
+    : 0;
+  const selected = Number(saved.selected);
+  triviaState.selected = Number.isInteger(selected) && selected >= 0 && selected < choiceCount ? selected : null;
+  triviaStateOwner = owner;
+}
+
+function saveTriviaState() {
+  JourneyState.save(TRIVIA_DRAFT_SCOPE, {
+    index: triviaState.index,
+    score: triviaState.score,
+    selected: triviaState.selected,
+  });
+}
 
 function renderTrivia() {
+  restoreTriviaState();
   const wrap = document.getElementById("booth-content");
   if (triviaState.index >= TRIVIA_QUESTIONS.length) {
     wrap.innerHTML = `
@@ -95,6 +126,7 @@ function renderTrivia() {
     `;
     document.getElementById("btn-trivia-restart").addEventListener("click", () => {
       triviaState.index = 0; triviaState.score = 0; triviaState.selected = null;
+      saveTriviaState();
       renderTrivia();
     });
     return;
@@ -120,6 +152,7 @@ function renderTrivia() {
       if (triviaState.selected !== null) return;
       triviaState.selected = i;
       if (i === q.correct) triviaState.score += q.points;
+      saveTriviaState();
       renderTrivia();
     });
     cWrap.appendChild(btn);
@@ -128,6 +161,7 @@ function renderTrivia() {
   if (nextBtn) nextBtn.addEventListener("click", () => {
     triviaState.index++;
     triviaState.selected = null;
+    saveTriviaState();
     renderTrivia();
   });
 }
@@ -135,7 +169,7 @@ function renderTrivia() {
 window.getBoothExtraData = () => ({ score: triviaState.score, questionsSeen: triviaState.index });
 
 initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderTrivia });
-renderBoothFooter();
+renderBoothFooter(BOOTH_ID);
 document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>
 </body>

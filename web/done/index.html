@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>You're all set — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>:root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }</style>
@@ -11,9 +11,17 @@
 <div class="phone">
   <div class="progress" id="progress"></div>
   <section class="screen" id="done-loading">
+    <div class="attendee-banner" id="done-loading-attendee" style="display:none;">
+      <div>
+        <span class="attendee-label">Attendee</span>
+        <strong id="done-loading-name">Guest</strong>
+        <span class="attendee-raffle" id="done-loading-raffle">Raffle #----</span>
+      </div>
+      <div class="attendee-banner-actions"><div id="done-loading-menu"></div></div>
+    </div>
     <p class="eyebrow">Checking your journey</p>
     <h1 class="display">Loading your <em>saved progress…</em></h1>
-    <p class="lede">This page only opens after you finish Phase 3.</p>
+    <p class="lede" id="done-loading-copy">This page only opens after you finish Phase 3.</p>
   </section>
   <section class="screen" id="done-content" style="display:none;">
     <div class="attendee-banner">
@@ -22,7 +30,10 @@
         <strong id="done-attendee-name">Guest</strong>
         <span class="attendee-raffle" id="done-attendee-raffle">Raffle #----</span>
       </div>
-      <div class="attendee-banner-actions"><span class="wristband-chip" id="done-wristband">Registered</span></div>
+      <div class="attendee-banner-actions">
+        <span class="wristband-chip" id="done-wristband">Registered</span>
+        <div id="done-attendee-menu"></div>
+      </div>
     </div>
     <div class="done-badge">✓</div>
     <p class="eyebrow" id="done-eyebrow" style="text-align:center;">Phase 3 saved</p>
@@ -45,7 +56,6 @@
       <h2>Your raffle number stays with you.</h2>
       <p style="margin-bottom:0;">Keep it handy for the live drawing and watch the countdown above for the main message.</p>
     </div>
-    <button class="btn btn-ghost" id="btn-restart" style="margin-top:16px;">Switch attendee</button>
   </section>
 </div>
 
@@ -56,6 +66,7 @@
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script>
 function renderProgress(phase2Complete) {
   const el = document.getElementById("progress");
@@ -73,7 +84,7 @@ let chosen = [];
 
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
 const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
-  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
 
 function renderMessageState() {
@@ -111,6 +122,10 @@ async function render() {
   const chip = document.getElementById("done-wristband");
   chip.textContent = color ? `${color.label} wristband` : "Registered";
   chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+  AttendeeMenu.mount("done-attendee-menu", {
+    identity,
+    logoutUrl: EventSchedule.linkWithPreview("../phase1-entry/index.html"),
+  });
 
   let boothIds = [];
   let signupState = null;
@@ -122,9 +137,9 @@ async function render() {
     boothIds = checkins.boothIds || [];
     signupState = selections;
   } catch (error) {
-    if (Identity.restartIfMissing(error, "../phase3-signup/index.html")) return;
     console.warn(error);
-    toast("Couldn't confirm your saved progress yet — trying again.");
+    document.getElementById("done-loading-copy").textContent = "You're still signed in on this phone. We couldn't confirm the live record yet, so we'll keep trying without losing your place.";
+    toast("Still signed in — reconnecting to your saved progress.");
     window.setTimeout(render, 3000);
     return;
   }
@@ -166,23 +181,30 @@ async function render() {
   renderMessageState();
 }
 
-document.getElementById("btn-restart").addEventListener("click", () => {
-  AttendeePortal.signOut("../phase1-entry/index.html");
-});
-
 async function initCompletePage() {
   await demoClockReady;
-  if (!AttendeePortal.hasAccess("phase3")) {
+  const cachedIdentity = Identity.peek();
+  if (!cachedIdentity.attendeeId) {
     window.location.replace("../phase3-signup/index.html");
     return;
   }
+  document.getElementById("done-loading-attendee").style.display = "flex";
+  document.getElementById("done-loading-name").textContent = cachedIdentity.name || "Guest";
+  document.getElementById("done-loading-raffle").textContent = `Raffle #${cachedIdentity.raffleNumber || "----"}`;
+  AttendeeMenu.mount("done-loading-menu", {
+    identity: cachedIdentity,
+    logoutUrl: EventSchedule.linkWithPreview("../phase1-entry/index.html"),
+  });
   try {
-    identity = await AttendeePortal.restore("phase3");
+    identity = AttendeePortal.hasAccess("phase3")
+      ? await AttendeePortal.restore("phase3")
+      : await AttendeePortal.continueAs("phase3");
     render();
   } catch (error) {
     console.error(error);
-    Identity.clear();
-    window.location.replace("../phase3-signup/index.html");
+    identity = cachedIdentity;
+    document.getElementById("done-loading-copy").textContent = "You're still signed in on this phone. Reconnecting to your saved Phase 3 progress…";
+    window.setTimeout(initCompletePage, 3000);
   }
 }
 

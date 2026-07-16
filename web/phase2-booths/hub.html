@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>My Booth Schedule — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>:root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }</style>
@@ -37,7 +37,7 @@
       </div>
       <div class="attendee-banner-actions">
         <span class="wristband-chip" id="attendee-wristband">Wristband</span>
-        <button class="btn-link" id="btn-phase2-signout">Switch</button>
+        <div id="phase2-attendee-menu"></div>
       </div>
     </div>
 
@@ -56,6 +56,14 @@
     <div class="sync-note" id="sync-note" style="display:none;"></div>
 
     <div id="current-experience">
+      <div class="waiting-lobby-card" id="waiting-lobby" style="display:none;" role="status" aria-live="polite">
+        <div class="waiting-lobby-icon" aria-hidden="true">☀️</div>
+        <div>
+          <span class="status-pill waiting">Waiting lobby</span>
+          <h2>You're checked in and in the right place.</h2>
+          <p id="waiting-lobby-copy">Keep this page open. Your first booth will unlock automatically when the organizer starts the experience.</p>
+        </div>
+      </div>
       <p class="eyebrow" id="current-kicker">Your experience</p>
       <h1 class="display" id="current-heading">Your route is loading…</h1>
       <p class="lede" id="current-copy"></p>
@@ -68,14 +76,28 @@
             <h2 id="current-booth-name">Booth</h2>
           </div>
         </div>
-        <div class="leader-screen" id="leader-screen">
-          <span class="leader-screen-kicker" id="leader-step-label">Booth leader screen</span>
-          <h3 id="leader-step-title">You're in the right place.</h3>
-          <p id="leader-step-body">Your booth leader will begin soon.</p>
-          <div class="leader-message" id="leader-message" style="display:none;"></div>
+        <div class="placeholder-note" id="first-booth-phone-gate" style="display:none; margin-bottom:14px;">
+          <strong>One-time event check-in</strong>
+          <p style="margin:6px 0 12px;">Enter your phone number once at your first booth. It stays connected to the name and raffle number above for the rest of the event.</p>
+          <div class="field" style="margin-bottom:10px;">
+            <label for="first-booth-phone">Your phone number</label>
+            <input id="first-booth-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
+            <div class="err" id="first-booth-phone-error"></div>
+          </div>
+          <button class="btn btn-primary" id="btn-link-first-booth-phone">Check in &amp; open this booth →</button>
+          <button class="btn btn-ghost" id="btn-skip-first-booth-phone" style="margin-top:10px;">I don't have my own number — use my raffle entry</button>
         </div>
-        <button class="btn btn-primary" id="btn-complete-booth">Mark this booth complete ✓</button>
-        <p class="top-note" id="presentation-updated"></p>
+        <div id="booth-live-content">
+          <a class="btn btn-primary" id="btn-open-booth-activity" href="#" style="display:block; text-decoration:none; margin-bottom:12px;">Open this booth activity →</a>
+          <div class="leader-screen" id="leader-screen">
+            <span class="leader-screen-kicker" id="leader-step-label">Booth leader screen</span>
+            <h3 id="leader-step-title">You're in the right place.</h3>
+            <p id="leader-step-body">Your booth leader will begin soon.</p>
+            <div class="leader-message" id="leader-message" style="display:none;"></div>
+          </div>
+          <button class="btn btn-ghost" id="btn-complete-booth">Mark this booth complete ✓</button>
+          <p class="top-note" id="presentation-updated"></p>
+        </div>
       </div>
 
       <div id="phase3-ready" style="display:none; margin-top:14px;">
@@ -92,9 +114,12 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
+<script src="../shared/phone.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
 <script>
@@ -105,11 +130,25 @@ let activeBoothId = "";
 let presentation = null;
 let presentationBusy = false;
 let progressRefreshBusy = false;
+let pendingRetryBusy = false;
 let routeRenderSignature = "";
+const presentationPollMs = Math.round(5000 * (0.85 + Math.random() * 0.3));
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
 const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
-  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
+const firstBoothPhoneInput = document.getElementById("first-booth-phone");
+Phone.bind(firstBoothPhoneInput);
+
+function hasLinkedPhone() {
+  return Boolean(identity && (identity.phone || identity.phoneLinked || identity.phoneSkipped));
+}
+
+function renderFirstBoothPhoneGate() {
+  const needsPhone = !hasLinkedPhone();
+  document.getElementById("first-booth-phone-gate").style.display = needsPhone ? "block" : "none";
+  document.getElementById("booth-live-content").style.display = needsPhone ? "none" : "block";
+}
 
 function routeIsComplete() {
   const route = identity ? EventSchedule.route(identity.wristbandColor) : [];
@@ -144,6 +183,10 @@ function showPortal() {
   const chip = document.getElementById("attendee-wristband");
   chip.textContent = `${color ? color.label : "Unknown"} wristband`;
   chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+  AttendeeMenu.mount("phase2-attendee-menu", {
+    identity,
+    logoutUrl: EventSchedule.linkWithPreview("../phase1-entry/index.html"),
+  });
   renderSchedule();
 }
 
@@ -169,6 +212,32 @@ async function refreshCompletedBooths() {
     return false;
   } finally {
     progressRefreshBusy = false;
+  }
+}
+
+function applyPendingCompletionResult(result) {
+  const newlyCompleted = (result.completedBoothIds || []).filter((boothId) => !completedBooths.has(boothId));
+  newlyCompleted.forEach((boothId) => completedBooths.add(boothId));
+  if (newlyCompleted.length) {
+    routeRenderSignature = "";
+    renderSchedule();
+    toast("Your booth completion finished saving.");
+  }
+  return newlyCompleted.length > 0;
+}
+
+async function retryPendingCompletions() {
+  if (!identity || !identity.attendeeId || pendingRetryBusy) return false;
+  pendingRetryBusy = true;
+  try {
+    const result = await PendingCheckins.flush(identity.attendeeId);
+    const changed = applyPendingCompletionResult(result);
+    if (result.attendeePendingCount > 0) {
+      PendingCheckins.retry(identity.attendeeId, applyPendingCompletionResult);
+    }
+    return changed;
+  } finally {
+    pendingRetryBusy = false;
   }
 }
 
@@ -304,6 +373,7 @@ function renderSchedule() {
   if (!identity) return;
   const snapshot = EventSchedule.current();
   const card = document.getElementById("current-booth-card");
+  const waitingLobby = document.getElementById("waiting-lobby");
   const phase3Ready = document.getElementById("phase3-ready");
   const phase3 = document.getElementById("btn-phase3");
   const phase3Note = document.getElementById("phase3-note");
@@ -324,14 +394,17 @@ function renderSchedule() {
   renderRoute(snapshot);
   phase3.href = EventSchedule.linkWithPreview("../phase3-signup/index.html");
   phase3Ready.style.display = "none";
+  waitingLobby.style.display = "none";
 
   if (snapshot.phase === "before") {
     document.getElementById("clock-kicker").textContent = "Booths begin at 3:10 PM";
     document.getElementById("clock-title").textContent = "Get ready for Session 1";
     document.getElementById("countdown-label").textContent = "Until your first session";
+    waitingLobby.style.display = "flex";
+    document.getElementById("waiting-lobby-copy").textContent = `Keep this page open. ${currentBooth ? currentBooth.title : "Your first booth"} will unlock automatically when the organizer starts the experience or at 3:10 PM.`;
     document.getElementById("current-kicker").textContent = "Your first experience";
     document.getElementById("current-heading").innerHTML = `You will start at <em>${escapeHtml(currentBooth ? currentBooth.title : "your first booth")}</em>`;
-    document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} wristband · Session 1 · ${BOOTH_SESSIONS[0].label}. Head there before the timer reaches zero.`;
+    document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} wristband · Session 1 · ${BOOTH_SESSIONS[0].label}. You do not need to refresh this page.`;
     card.style.display = "none";
     activeBoothId = "";
   } else if (snapshot.phase === "active") {
@@ -342,10 +415,16 @@ function renderSchedule() {
     document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
     document.getElementById("current-copy").textContent = "This screen follows your booth leader. Keep it open while the group moves through the activity.";
     card.style.display = "block";
+    renderFirstBoothPhoneGate();
     if (currentBooth) {
       document.getElementById("current-booth-icon").textContent = currentBooth.icon;
       document.getElementById("current-booth-name").textContent = currentBooth.title;
       const completeButton = document.getElementById("btn-complete-booth");
+      const activityButton = document.getElementById("btn-open-booth-activity");
+      activityButton.href = EventSchedule.linkWithPreview(currentBooth.page);
+      activityButton.textContent = completedBooths.has(currentBooth.id)
+        ? `Reopen ${currentBooth.title} activity →`
+        : `Open ${currentBooth.title} activity →`;
       const alreadyComplete = completedBooths.has(currentBooth.id);
       completeButton.disabled = alreadyComplete;
       completeButton.textContent = alreadyComplete ? "Completed ✓ · Open until session ends" : "Mark this booth complete ✓";
@@ -395,9 +474,18 @@ document.getElementById("attendee-route").addEventListener("click", (event) => {
   card.scrollIntoView({ behavior: "smooth", block: "start" });
   card.classList.remove("focus-pulse");
   window.requestAnimationFrame(() => card.classList.add("focus-pulse"));
+  if (hasLinkedPhone()) {
+    window.setTimeout(() => document.getElementById("btn-open-booth-activity").focus({ preventScroll: true }), 350);
+  }
 });
 
 document.getElementById("btn-complete-booth").addEventListener("click", async () => {
+  if (!hasLinkedPhone()) {
+    renderFirstBoothPhoneGate();
+    firstBoothPhoneInput.focus();
+    toast("Check in once with a phone number, or continue with your raffle entry.");
+    return;
+  }
   const snapshot = EventSchedule.current();
   const booth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
   if (!booth || snapshot.phase !== "active" || activeBoothId !== booth.id) {
@@ -408,19 +496,22 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
   const button = document.getElementById("btn-complete-booth");
   button.disabled = true;
   button.textContent = "Saving…";
+  const completion = {
+    attendeeId: identity.attendeeId,
+    phone: identity.phone || "",
+    boothId: booth.id,
+    boothName: booth.title,
+    checkedInBy: "scheduled-attendee",
+    extraData: {
+      sessionNumber: snapshot.session.number,
+      sessionId: snapshot.session.id,
+      wristbandColor: identity.wristbandColor,
+    },
+  };
+  const pendingQueueId = PendingCheckins.stage(completion);
   try {
-    await EventAPI.boothCheckin({
-      attendeeId: identity.attendeeId,
-      phone: identity.phone || "",
-      boothId: booth.id,
-      boothName: booth.title,
-      checkedInBy: "scheduled-attendee",
-      extraData: {
-        sessionNumber: snapshot.session.number,
-        sessionId: snapshot.session.id,
-        wristbandColor: identity.wristbandColor,
-      },
-    });
+    await EventAPI.boothCheckin(completion);
+    PendingCheckins.remove(completion, pendingQueueId);
     completedBooths.add(booth.id);
     toast(`${booth.title} marked complete.`);
     renderSchedule();
@@ -430,7 +521,54 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
     toast("Couldn't save this booth yet — try again.");
     button.disabled = false;
     button.textContent = "Mark this booth complete ✓";
+    PendingCheckins.retry(identity.attendeeId, applyPendingCompletionResult);
   }
+});
+
+document.getElementById("btn-link-first-booth-phone").addEventListener("click", async () => {
+  const error = document.getElementById("first-booth-phone-error");
+  const button = document.getElementById("btn-link-first-booth-phone");
+  const digits = Phone.digits(firstBoothPhoneInput);
+  error.textContent = "Enter a 10-digit phone number.";
+  if (!Phone.isValid(firstBoothPhoneInput)) {
+    error.style.display = "block";
+    return;
+  }
+  error.style.display = "none";
+  button.disabled = true;
+  button.textContent = "Checking in…";
+  try {
+    const result = await EventAPI.findOrRegisterByPhone(identity.attendeeId, digits, identity.name);
+    identity = Identity.set({
+      attendeeId: result.attendeeId || identity.attendeeId,
+      phone: digits,
+      phoneLinked: true,
+      phoneSkipped: false,
+      name: result.name || identity.name,
+      raffleNumber: result.raffleNumber || identity.raffleNumber,
+      wristbandColor: result.wristbandColor || identity.wristbandColor,
+    });
+    renderFirstBoothPhoneGate();
+    toast("Checked in — you won't be asked again.");
+  } catch (linkError) {
+    console.error(linkError);
+    if (linkError.code === "PHONE_ALREADY_LINKED") {
+      error.textContent = "That number is already connected to another registration. Ask an organizer to pair it safely.";
+      error.style.display = "block";
+    } else if (!Identity.restartIfMissing(linkError, "../phase1-entry/index.html")) {
+      error.textContent = "Couldn't save that number. Check the connection and try again.";
+      error.style.display = "block";
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = "Check in & open this booth →";
+  }
+});
+
+document.getElementById("btn-skip-first-booth-phone").addEventListener("click", () => {
+  identity = Identity.set({ phoneSkipped: true });
+  renderFirstBoothPhoneGate();
+  toast("Continuing with your name and raffle number.");
 });
 
 document.getElementById("btn-phase2-login").addEventListener("click", async () => {
@@ -452,6 +590,7 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
     completedBooths = new Set(checkins.boothIds || []);
     showPortal();
+    retryPendingCompletions();
   } catch (error) {
     console.error(error);
     showLogin(error.message || "We couldn't find that registration.");
@@ -461,12 +600,14 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
   }
 });
 
-document.getElementById("btn-phase2-signout").addEventListener("click", () => {
-  AttendeePortal.signOut("hub.html");
-});
-
 async function initPortal() {
   await demoClockReady;
+  const cachedIdentity = Identity.peek();
+  const canResumeFromDevice = Boolean(cachedIdentity.attendeeId && cachedIdentity.wristbandColor);
+  if (canResumeFromDevice) {
+    identity = cachedIdentity;
+    showPortal();
+  }
   try {
     identity = AttendeePortal.hasAccess(PORTAL)
       ? await AttendeePortal.restore(PORTAL)
@@ -478,9 +619,14 @@ async function initPortal() {
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
     completedBooths = new Set(checkins.boothIds || []);
     showPortal();
+    retryPendingCompletions();
   } catch (error) {
     console.error(error);
-    if (error.code === "PHASE1_INCOMPLETE") {
+    if (canResumeFromDevice) {
+      const note = document.getElementById("sync-note");
+      note.textContent = "You're still signed in on this phone. Live saving is reconnecting; keep this page open and tap your name only if you choose to log out.";
+      note.style.display = "block";
+    } else if (error.code === "PHASE1_INCOMPLETE") {
       showLogin("Finish Phase 1 and receive a wristband before opening your booth route.");
     } else {
       showLogin();
@@ -490,16 +636,20 @@ async function initPortal() {
 
 setInterval(renderSchedule, 1000);
 setInterval(() => {
-  if (activeBoothId) loadPresentation(activeBoothId);
-}, 5000);
+  if (!document.hidden && activeBoothId) loadPresentation(activeBoothId);
+}, presentationPollMs);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     renderSchedule();
     refreshCompletedBooths();
+    retryPendingCompletions();
     if (activeBoothId) loadPresentation(activeBoothId);
   }
 });
-window.addEventListener("focus", refreshCompletedBooths);
+window.addEventListener("focus", () => {
+  refreshCompletedBooths();
+  retryPendingCompletions();
+});
 
 initPortal();
 </script>

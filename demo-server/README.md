@@ -24,8 +24,7 @@ Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
   Attendee booth route: http://localhost:3000/phase2-booths/hub.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
-  Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
-  Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
+  Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
   Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
   Local organizer key:  demo
@@ -54,7 +53,9 @@ The local default is `demo`. To use another rehearsal value:
 EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
 ```
 
-The organizer dashboard, booth-leader updates, kiosk actions, sign-up
+The organizer portal is the single staff starting link; choose the overall
+dashboard or one of the five booth-leader pages from it. The organizer
+dashboard, booth-leader updates, kiosk actions, sign-up
 confirmation, and reset endpoints require this key. All five booth-leader
 pages share it. API responses are scoped to the requested booth, but the key
 itself is not a booth-level role: its holder can access any staff page. Do not
@@ -62,14 +63,16 @@ reuse the local default or this shared-key model for production.
 
 ## Shared rehearsal clock
 
-Unlock the organizer dashboard with the local organizer key and use its
+Open the organizer portal, choose **Overall Organizer**, unlock the dashboard
+with the local organizer key, and use its
 **Demo only · Shared event time** panel. The presets cover live time, before
-the event, each session midpoint, each session's final 15 seconds, and the
+the event, the exact start of Session 1, each session midpoint, each session's final 15 seconds, and the
 post-booth message state.
 
 The selected clock is held in memory by this Node process. Attendee and staff
-pages poll it every second, so regular and incognito windows connected to the
-same demo server move together. The public clock read contains time state only;
+pages sample it about every five seconds with per-browser jitter, while their
+visible countdown advances locally every second. Hidden tabs stop polling and
+resynchronize when visible. The public clock read contains time state only;
 changing it still requires the organizer key. Restarting the server returns
 the rehearsal clock to its default state; resetting attendee data leaves the
 selected clock in place so a rehearsal can continue at the same moment.
@@ -112,13 +115,25 @@ The server creates `db.json` on first write. It contains:
   Phase 3 completion time;
 - booth check-ins, including scheduled visits created by attendee completion
   taps;
+- New Song votes saved as soon as an attendee taps a song;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
 - one current presentation state per booth; and
 - the raffle counter.
 
-The file is ignored by Git and safe to delete between rehearsals. Older demo
-files are normalized when read so missing wristband colors or booth
-presentation state do not crash the server.
+The file is ignored by Git. Use the protected reset action between rehearsals;
+if you stop the server and reset manually, delete both `db.json` and
+`db.json.bak` together. Writes are
+flushed to a temporary file and atomically renamed; the previous good version
+is retained beside it as `db.json.bak`. A malformed primary file is recovered
+from that backup instead of being interpreted as an empty event. If neither
+copy is readable, API requests return `503` and refuse to report a false empty
+database. Older files are normalized when read so missing fields do not crash
+the server.
+
+For a hosted event, mount persistent storage and set an absolute path, for
+example `EVENT_APP_DB_PATH=/var/data/event-app-db.json`. Keep exactly one Node
+instance because both the in-memory rehearsal clock and JSON write ownership
+are process-local. Use `GET /api/health` as the host health-check path.
 
 To reset through the protected API:
 
@@ -144,8 +159,13 @@ wristband-color validation and persistence, Phase 2 eligibility, tap-backed
 booth check-ins and deduplication, public booth presentation reads, protected
 leader updates, booth-scoped staff results, Phase 3 selections and persisted
 completion (including **No thanks**), preview propagation, reset behavior,
-error payloads, and inline page-script syntax. It does not replace a
-real-device, network, accessibility, or multi-staff rehearsal.
+error payloads, reset/backup recovery, the two-minute completion retry,
+inline page-script syntax, and a concurrent 150-attendee representative load
+check with balanced wristbands, 90 live song votes, and 450 booth completions.
+Around 150 is a planning estimate, not an application cap. The protected
+overall dashboard also verifies each color's current scheduled booth and
+expandable attendee progress roster. It does not replace a
+real-device, venue-network, accessibility, or multi-staff rehearsal.
 
 ## API parity
 
@@ -158,6 +178,7 @@ The current primary attendee actions are:
 - `myCheckins`
 - `boothPresentation`
 - `boothCheckin`
+- `saveSongVote` (persists a New Song choice immediately for the live tally)
 - `saveSignupSelections` (reconciles selections and persists Phase 3 completion)
 - `mySignupSelections` (returns selections plus the saved completion time)
 - `submitSignup` (legacy single-option compatibility)

@@ -9,7 +9,7 @@ hub, which keeps the same identity through all three 20-minute sessions, Phase
 
 1. **Attendee entry · Start here** → `phase1-entry/index.html`
 2. **Attendee booth schedule · Return link** → `phase2-booths/hub.html`
-3. **Booth leaders · Staff only** → `phase2-staff/index.html`
+3. **Organizer portal · Staff only** → `organizer/index.html`
 
 It loads its QR-rendering library from a CDN, so the generator needs internet
 access when the library is not already cached.
@@ -32,11 +32,13 @@ Phase 1 name and raffle number, then restores the correct color route. The
 active route row can be reopened from the hub until its session ends, including
 after that visit has been marked complete.
 
-### Booth-leader code
+### Organizer code
 
 Keep this card in staff materials rather than public attendee signage. It
-opens the directory for the five booth portals; the leader still has to enter
-the organizer key. The key is not embedded in the QR or URL.
+opens one directory with the overall organizer dashboard and all five booth
+portals. Staff choose their role, then enter the organizer key on the selected
+page. The key is not embedded in the QR or URL. The previous
+`phase2-staff/index.html` address redirects to this directory for compatibility.
 
 All staff portals currently share one organizer key, so possession of that key
 is broader than one booth. A final production plan should replace this with
@@ -69,7 +71,7 @@ event team deliberately switches to the fallback operating model.
 5. Scan every printed code with at least one iPhone and one Android phone.
 6. Complete a full test: Phase 1 → direct hub continuation → three completion
    taps → reopen the active row → Phase 3 → early **DON'T GO YET** countdown →
-   4:10 PM main message, plus the missed-tap fallback and staff directory
+   4:10 PM main message, plus the missed-tap fallback and organizer directory
    authentication.
 7. Print only after the URL and routes are frozen.
 

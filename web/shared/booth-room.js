@@ -6,7 +6,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   const portal = `phase2.${boothId}`;
   const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
   const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
-    ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+    ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
     : Promise.resolve();
   const phone = document.getElementById("phone");
   const room = document.getElementById("booth-room-content");
@@ -19,7 +19,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   login.innerHTML = `
     <p class="eyebrow">Phase 2 · Booth room</p>
     <h1 class="display">Welcome to the <em id="booth-login-room-name"></em> room.</h1>
-    <p class="lede">Enter the name and raffle number from Phase 1. This room will open only during your assigned 20-minute session.</p>
+    <p class="lede">On a new device or direct link, enter the name and raffle number from Phase 1. Opening this room from your schedule skips this step.</p>
     <div class="field">
       <label for="booth-login-name">Name used in Phase 1</label>
       <input id="booth-login-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
@@ -27,7 +27,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     <div class="field">
       <label for="booth-login-raffle">Raffle number</label>
       <input id="booth-login-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
-      <div class="hint">Both fields are required and start blank at every booth.</div>
+      <div class="hint">Both fields are required when the room cannot restore your event sign-in.</div>
       <div class="err" id="booth-login-error"></div>
     </div>
     <button class="btn btn-primary" id="btn-booth-login"></button>
@@ -43,6 +43,10 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   locked.id = "booth-room-locked";
   locked.style.display = "none";
   locked.innerHTML = `
+    <div class="attendee-banner">
+      <div><span class="attendee-label">Attendee</span><strong id="booth-locked-attendee-name">Guest</strong><span class="attendee-raffle" id="booth-locked-attendee-raffle">Raffle #----</span></div>
+      <div class="attendee-banner-actions"><div id="booth-locked-attendee-menu"></div></div>
+    </div>
     <div class="booth-lock-card">
       <div class="booth-lock-icon" aria-hidden="true">🔒</div>
       <p class="eyebrow" id="booth-lock-kicker">Timed booth access</p>
@@ -51,7 +55,6 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       <div class="booth-lock-time" id="booth-lock-time" style="display:none;"></div>
     </div>
     <a class="btn btn-primary" id="btn-booth-route" href="hub.html" style="display:block; text-decoration:none;">View my booth schedule →</a>
-    <button class="btn-link booth-lock-switch" id="btn-booth-locked-switch">Switch attendee</button>
   `;
   phone.insertBefore(locked, room);
 
@@ -59,11 +62,14 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   welcome.className = "screen booth-room-welcome";
   welcome.id = "booth-room-welcome";
   welcome.innerHTML = `
-    <div class="staff-toolbar"><button class="btn-link" id="btn-booth-switch">Switch attendee</button></div>
+    <div class="attendee-banner">
+      <div><span class="attendee-label">Attendee</span><strong id="booth-room-attendee-name">Guest</strong><span class="attendee-raffle" id="booth-room-attendee-raffle">Raffle #----</span></div>
+      <div class="attendee-banner-actions"><div id="booth-room-attendee-menu"></div></div>
+    </div>
     <div class="booth-guide">
       <div class="g-kicker">Your active booth · Open now</div>
       <div class="g-loc" id="booth-welcome-title"></div>
-      <div class="g-detail">This room stays available until the current 20-minute session ends.</div>
+      <div class="g-detail"><span id="booth-welcome-raffle"></span> · This room stays available until the current 20-minute session ends.</div>
     </div>
   `;
   room.insertBefore(welcome, phoneGate);
@@ -85,6 +91,10 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   complete.id = "booth-room-complete";
   complete.style.display = "none";
   complete.innerHTML = `
+    <div class="attendee-banner">
+      <div><span class="attendee-label">Attendee</span><strong id="booth-complete-attendee-name">Guest</strong><span class="attendee-raffle" id="booth-complete-attendee-raffle">Raffle #----</span></div>
+      <div class="attendee-banner-actions"><div id="booth-complete-attendee-menu"></div></div>
+    </div>
     <div class="done-badge booth-visited-badge">✓</div>
     <p class="eyebrow" style="text-align:center;">Visit saved</p>
     <h1 class="display" style="text-align:center;">Thank you for visiting <em id="booth-complete-name"></em></h1>
@@ -105,6 +115,22 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   let roomStarted = false;
   let roomCompleted = false;
   let visibleView = "";
+
+  function renderAttendeeIdentity() {
+    if (!currentIdentity) return;
+    ["booth-locked-attendee-name", "booth-room-attendee-name", "booth-complete-attendee-name"].forEach((id) => {
+      const target = document.getElementById(id);
+      if (target) target.textContent = currentIdentity.name || "Guest";
+    });
+    ["booth-locked-attendee-raffle", "booth-room-attendee-raffle", "booth-complete-attendee-raffle"].forEach((id) => {
+      const target = document.getElementById(id);
+      if (target) target.textContent = `Raffle #${currentIdentity.raffleNumber || "----"}`;
+    });
+    const logoutUrl = EventSchedule.linkWithPreview("../phase1-entry/index.html");
+    ["booth-locked-attendee-menu", "booth-room-attendee-menu", "booth-complete-attendee-menu"].forEach((id) => {
+      AttendeeMenu.mount(id, { identity: currentIdentity, logoutUrl });
+    });
+  }
 
   function boothAccess(identity, snapshot) {
     if (!identity || !identity.wristbandColor) return false;
@@ -178,6 +204,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   function showRoom(identity, snapshot) {
     showOnly("room");
     document.getElementById("booth-welcome-title").textContent = `Welcome, ${identity.name || "friend"}, to the ${roomName} room.`;
+    document.getElementById("booth-welcome-raffle").textContent = `Raffle #${identity.raffleNumber || "----"}`;
     if (!roomStarted) {
       roomStarted = true;
       initBoothGate({ boothId, boothName, onReady, identity });
@@ -211,9 +238,14 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   async function restoreRoomState(identity) {
     currentIdentity = identity;
+    renderAttendeeIdentity();
     try {
       const checkins = await EventAPI.myCheckins(identity.attendeeId);
-      roomCompleted = (checkins.boothIds || []).includes(boothId);
+      // Startup can validate the cached device identity and the refreshed
+      // backend session concurrently. Completion is append-only, so a slower
+      // stale response must never turn a restored completed visit back into
+      // an unfinished room.
+      roomCompleted = roomCompleted || (checkins.boothIds || []).includes(boothId);
     } catch (error) {
       // Access can still render from the signed-in identity. The booth gate
       // will retry its normal backend verification before showing activity.
@@ -247,17 +279,10 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     }
   }
 
-  function switchAttendee() {
-    AttendeePortal.clearAccess(portal);
-    window.location.reload();
-  }
-
   loginButton.addEventListener("click", submitLogin);
   [nameInput, raffleInput].forEach((input) => input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") submitLogin();
   }));
-  document.getElementById("btn-booth-switch").addEventListener("click", switchAttendee);
-  document.getElementById("btn-booth-locked-switch").addEventListener("click", switchAttendee);
   document.getElementById("btn-booth-reopen").addEventListener("click", () => {
     roomCompleted = false;
     refreshBoothRoomAccess();
@@ -286,19 +311,29 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   });
 
   demoClockReady.then(() => {
-    if (!AttendeePortal.hasAccess(portal)) {
+    const savedIdentity = Identity.peek();
+    const hasRoomAccess = AttendeePortal.hasAccess(portal);
+    if (!savedIdentity.attendeeId) {
       showLogin("", true);
       return;
     }
-    AttendeePortal.restore(portal)
+    if (savedIdentity.wristbandColor) restoreRoomState(savedIdentity);
+    const restoreIdentity = hasRoomAccess
+      ? AttendeePortal.restore(portal)
+      : AttendeePortal.continueAs(portal);
+    restoreIdentity
       .then(restoreRoomState)
       .catch((error) => {
         console.error(error);
-        AttendeePortal.clearAccess(portal);
-        const message = error.code === "PHASE1_INCOMPLETE"
-          ? error.message
-          : `Log in to check your ${roomName} session.`;
-        showLogin(message, true);
+        if (savedIdentity.wristbandColor) {
+          toast("You're still signed in. Live progress is reconnecting.");
+          refreshBoothRoomAccess();
+        } else {
+          const message = error.code === "PHASE1_INCOMPLETE"
+            ? error.message
+            : `We couldn't restore ${roomName} yet. Check the connection and retry.`;
+          showLogin(message, false);
+        }
       });
   });
 }

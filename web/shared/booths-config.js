@@ -14,8 +14,9 @@ const CONNECTOR_BOOTHS = [
     staffPage: "heaven.html",
     leaderSteps: [
       { title: "Welcome to Draw Heaven", body: "Find a seat, pick up your materials, and get ready to imagine Revelation 21 together." },
-      { title: "Listen and imagine", body: "Listen as the booth leader reads. Notice the colors, places, and feelings that come to mind." },
-      { title: "Create your picture", body: "Draw what you picture when you think about heaven. There is no right or wrong way to show it." },
+      { title: "Listen and imagine", body: "Read Revelation 21:10 together. Notice the colors, places, and feelings that come to mind." },
+      { title: "Explore the details", body: "Walk through the gates of pearl, streets of gold, river and tree of life, freedom from pain, and God's light." },
+      { title: "Create your picture", body: "Draw the New Jerusalem you picture from those details. There is no right or wrong way to show it." },
       { title: "Share what stood out", body: "If you would like, share one detail from your picture with the people near you." },
       { title: "Wrap up", body: "Finish your last detail, thank your group, and mark this booth complete before moving on." },
     ],
@@ -63,11 +64,11 @@ const CONNECTOR_BOOTHS = [
     staffPage: "art.html",
     kioskPage: "../phase2-booths/kiosk-art.html",
     leaderSteps: [
-      { title: "Welcome and settle in", body: "Take a seat, choose your materials, and listen to the opening prompt. · Minutes 0–3" },
-      { title: "Choose a starting shape", body: "Draw a triangle or another simple shape as the foundation for your picture. · Minutes 3–6" },
-      { title: "Create freely", body: "Build out your drawing without judging it. Follow the booth leader's prompt. · Minutes 6–13" },
-      { title: "Quiet reflection", body: "Pause and notice what your drawing brings to mind. · Minutes 13–15" },
-      { title: "Connect and wrap up", body: "Share only what feels comfortable, then mark this booth complete. · Minutes 15–20" },
+      { title: "Art reveals what words can't", body: "Welcome the group and introduce Proverbs 4:23. · Minutes 0–3" },
+      { title: "The triangle", body: "Use three points to explore how I see myself, how others see me, and how I relate to the world. · Minutes 3–6" },
+      { title: "Draw your heart", body: "Give the group quiet time to create from the reflection prompts without judging their work. · Minutes 6–13" },
+      { title: "Look at what you made", body: "Pause for a word or phrase about what stands out, then read Philippians 4:7. · Minutes 13–15" },
+      { title: "This is just the beginning", body: "Invite an optional next-step reflection, then mark the booth complete. · Minutes 15–20" },
     ],
   },
   {
@@ -80,11 +81,10 @@ const CONNECTOR_BOOTHS = [
     staffPage: "newsong.html",
     kioskPage: "../phase2-booths/kiosk-newsong.html",
     leaderSteps: [
-      { title: "Welcome to New Song", body: "Join the group and listen for the idea of a song that belongs to a shared experience." },
-      { title: "Listen together", body: "Listen to today's selection and notice the line or sound that stays with you." },
-      { title: "Cast your vote", body: "Choose what the group should hear next when the booth leader opens voting." },
-      { title: "Reflect", body: "What can a song communicate that ordinary words sometimes cannot?" },
-      { title: "Wrap up", body: "See the group result, mark this booth complete, and prepare for your next stop." },
+      { title: "Pick our song", body: "Invite each guest to vote once for what the venue should sing together. · Minutes 0–4" },
+      { title: "Design your CD", body: "While the group praises together, invite guests to decorate a CD from the table. · Minutes 4–9" },
+      { title: "There's one more new song", body: "Ask who they think the song is by, then connect the reveal to Revelation 14:3. · Minutes 9–15" },
+      { title: "Connect and wrap up", body: "Invite anyone who wants to learn more or make music with the group to speak with a leader, then mark the booth complete." },
     ],
   },
 ];
@@ -135,16 +135,30 @@ function wristbandForBoothSession(boothId, sessionIndex) {
   return match || null;
 }
 
+/* ---- Can You Draw Heaven? (Revelation 21) ---- */
+const HEAVEN_DETAILS = [
+  { id: "gates", text: "12 gates, each a single pearl" },
+  { id: "streets", text: "Streets of gold, clear as glass" },
+  { id: "river", text: "The river of life flowing from the throne" },
+  { id: "tree", text: "The tree of life, bearing fruit every month" },
+  { id: "nomore", text: "No more tears, death, or pain" },
+  { id: "light", text: "No sun or moon needed — God's glory is the light" },
+];
+
 /* ---- Bible Bowl trivia questions ---- */
 const TRIVIA_QUESTIONS = [
-  { id: "t1", category: "Genesis", points: 100, q: "On which day did God rest after creating the world?", choices: ["5th", "6th", "7th", "8th"], correct: 2 },
-  { id: "t2", category: "Gospels", points: 100, q: "Which Gospel opens with “In the beginning was the Word”?", choices: ["Matthew", "Mark", "Luke", "John"], correct: 3 },
-  { id: "t3", category: "Numbers", points: 200, q: "How many days and nights did it rain during the flood?", choices: ["7", "40", "100", "150"], correct: 1 },
-  { id: "t4", category: "Miracles", points: 200, q: "How many loaves and fish fed the 5,000?", choices: ["5 loaves, 2 fish", "2 loaves, 5 fish", "7 loaves, 3 fish", "3 loaves, 7 fish"], correct: 0 },
-  { id: "t5", category: "Kings", points: 300, q: "Which king asked God for wisdom above riches or long life?", choices: ["David", "Saul", "Solomon", "Hezekiah"], correct: 2 },
-  { id: "t6", category: "Parables", points: 300, q: "In the Parable of the Sower, what does the seed represent?", choices: ["Money", "The word of God", "Faith", "The Holy Spirit"], correct: 1 },
-  { id: "t7", category: "Revelation", points: 400, q: "How many gates does the New Jerusalem have in Revelation 21?", choices: ["7", "10", "12", "24"], correct: 2 },
-  { id: "t8", category: "Disciples", points: 400, q: "How many disciples did Jesus choose as His closest followers?", choices: ["10", "12", "7", "70"], correct: 1 },
+  { id: "t1", category: "Genesis", points: 100, q: "Who built the ark?", choices: ["Moses", "Noah", "Abraham", "David"], correct: 1 },
+  { id: "t2", category: "Genesis", points: 100, q: "How many days and nights did it rain during the flood?", choices: ["7", "30", "40", "100"], correct: 2 },
+  { id: "t3", category: "Prophets", points: 100, q: "Who was swallowed by a great fish?", choices: ["Jonah", "Peter", "Elijah", "Samuel"], correct: 0 },
+  { id: "t4", category: "Exodus", points: 100, q: "Who led the Israelites out of Egypt?", choices: ["Joseph", "Joshua", "Moses", "Aaron"], correct: 2 },
+  { id: "t5", category: "Kings", points: 200, q: "What did David use to defeat Goliath?", choices: ["A spear", "A sword", "A slingshot and a stone", "A bow and arrow"], correct: 2 },
+  { id: "t6", category: "Gospels", points: 200, q: "In which city was Jesus born?", choices: ["Nazareth", "Jerusalem", "Bethlehem", "Jericho"], correct: 2 },
+  { id: "t7", category: "Gospels", points: 200, q: "Who baptized Jesus?", choices: ["Peter", "John the Baptist", "Andrew", "James"], correct: 1 },
+  { id: "t8", category: "Disciples", points: 200, q: "How many disciples did Jesus choose?", choices: ["10", "11", "12", "13"], correct: 2 },
+  { id: "t9", category: "Gospels", points: 300, q: "Who denied Jesus three times before the rooster crowed?", choices: ["Judas", "Thomas", "Peter", "John"], correct: 2 },
+  { id: "t10", category: "Genesis", points: 300, q: "Who interpreted Pharaoh's dreams in Egypt?", choices: ["Daniel", "Joseph", "Jacob", "Isaac"], correct: 1 },
+  { id: "t11", category: "Acts", points: 300, q: "Who was the first Christian martyr recorded in the Book of Acts?", choices: ["James", "Stephen", "Barnabas", "Philip"], correct: 1 },
+  { id: "t12", category: "Epistles", points: 400, q: "Which of these New Testament books was not written from prison?", choices: ["Philemon", "Philippians", "Ephesians", "Galatians"], correct: 3 },
 ];
 
 /* ---- The Sower, Live (Matthew 13) ---- */
@@ -157,7 +171,7 @@ const STORY_BEATS = [
   { id: "b6", text: "Jesus often taught in parables — stories that revealed truth to those who were really listening. Take a second to sit with what stood out to you today." },
 ];
 
-/* ---- Art Therapy Table (kiosk) ---- */
+/* ---- Art Therapy Table ---- */
 const ART_PROMPTS = [
   "Draw what peace feels like to you right now.",
   "Draw a moment from this year you want to remember.",
@@ -166,11 +180,88 @@ const ART_PROMPTS = [
   "Draw something you're thankful for.",
 ];
 
-/* ---- The New Song in Nashville (kiosk) ---- */
+const ART_BEATS = [
+  {
+    id: "intro",
+    time: "0–3 min · Intro",
+    text: "Art reveals what words can't.",
+    verse: { ref: "Proverbs 4:23", text: "Above all else, guard your heart, for everything you do flows from it." },
+  },
+  {
+    id: "triangle",
+    time: "3–6 min · The triangle",
+    text: "Three points. Three parts of you.",
+    points: [
+      { title: "How I see myself", sub: "Emotions & identity" },
+      { title: "How others see me", sub: "The image I show" },
+      { title: "How I relate to the world", sub: "Relationships & responses" },
+    ],
+    verse: { ref: "1 Samuel 16:7", text: "People look at the outward appearance, but the Lord looks at the heart." },
+  },
+  {
+    id: "drawing",
+    time: "6–13 min · Draw",
+    text: "Draw a triangle for your heart.",
+    quiet: "Quiet time to create — take it slow.",
+    chips: ["What do others not see?", "What's hard to express?", "Who shaped who you are?", "What needs God's peace?"],
+  },
+  {
+    id: "reflection",
+    time: "13–15 min · Reflect",
+    text: "Look at what you made.",
+    prompt: "What stands out to you?",
+    placeholder: "A word or phrase…",
+    verse: { ref: "Philippians 4:7", text: "The peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus." },
+  },
+  {
+    id: "connection",
+    time: "15–20 min · What's next",
+    text: "This is just the beginning.",
+    prompt: "What would you want to explore more?",
+    placeholder: "Optional…",
+    optional: true,
+  },
+];
+
+/* ---- The New Song in Nashville ---- */
 const SONG_LIST = [
   "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life",
   "Reckless Love", "King of Kings", "Living Hope", "Graves Into Gardens",
   "Raise a Hallelujah", "The Blessing", "O Come to the Altar", "Do It Again",
+  "House of the Lord", "Same God", "Great Things", "Battle Belongs",
+  "Jireh", "Yes I Will", "Firm Foundation", "Champion",
+];
+
+const NEWSONG_BEATS = [
+  {
+    id: "vote",
+    time: "0–4 min · Vote",
+    headline: "Pick our song!",
+    lede: "Tap a song to vote — one tap, one vote. The winner is what this whole venue sings together, right now.",
+    type: "vote",
+    footNote: "🎨 While we sing, swing by the table — grab a CD and a marker and design your own.",
+  },
+  {
+    id: "create",
+    time: "4–9 min · Create",
+    headline: "Design your CD",
+    lede: "While we praise together, grab a CD and a marker from the table and make it yours — no rules, just have fun with it.",
+    type: "note",
+  },
+  {
+    id: "reveal",
+    time: "9–15 min · The New Song",
+    headline: "There's one more new song",
+    lede: "Out of everything releasing this year, there's another new song — one so good even someone who's lived 100 years would want to sing it. Any guesses who it's by?",
+    type: "reveal",
+    prompt: "Your guess (optional)",
+    placeholder: "Artist or song title…",
+    verse: {
+      ref: "Revelation 14:3",
+      text: "And they sang a new song before the throne… no one could learn that song except the redeemed from the earth.",
+    },
+    closing: "Want to know more about this new song — or just want to make music with our group? Let's connect. Tell the booth leader, or leave a note below before you head out.",
+  },
 ];
 
 /* ---- Phase 3 sign-up options ---- */

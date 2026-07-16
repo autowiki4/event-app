@@ -14,9 +14,10 @@ The attendee journey is now one continuous flow:
    continues directly into Phase 2 with the same attendee identity.
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
-   the booth leader's live instructions. Each wristband visits three of the
-   five booths. A visit counts as complete only after the attendee taps to mark
-   it; the current route row can be reopened until that session ends.
+   the booth leader's live instructions. Its active button opens the correct
+   timed booth activity without another sign-in. Each wristband visits three
+   of the five booths. A visit counts as complete only after the attendee taps
+   to mark it; the current route row can be reopened until that session ends.
 3. **Phase 3 — tick and go:** select any next-step options and finish. There
    are no ratings, comments, or extra attendee questions. Phase 3 becomes
    available after all three completion taps are saved, or at 4:10 PM even if
@@ -24,8 +25,8 @@ The attendee journey is now one continuous flow:
    Phase 3 completion. Anyone who finishes early sees the original-style
    **DON'T GO YET** countdown until the 4:10 PM main message.
 
-The older direct booth-room pages remain available as optional fallbacks, but
-they are no longer the primary attendee experience.
+The Art Therapy and New Song kiosk pages remain optional staff-assistance
+fallbacks; the attendee booth-room pages are linked from the timed hub.
 
 ## Wristband routes
 
@@ -70,8 +71,7 @@ Event app demo server running: http://localhost:3000
   Phase 1 entry:        http://localhost:3000/phase1-entry/index.html
   Attendee booth route: http://localhost:3000/phase2-booths/hub.html
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
-  Phase 2 staff hub:    http://localhost:3000/phase2-staff/index.html
-  Organizer dashboard:  http://localhost:3000/organizer/dashboard.html
+  Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
   Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
   Local organizer key:  demo
@@ -81,29 +81,56 @@ Start at Phase 1. Confirming the wristband continues directly into the hub,
 and Phase 3 reuses that same saved attendee identity. On another device, the
 attendee enters their Phase 1 name and raffle number once to recover the same
 route. The name and raffle number stay visible at the top of the hub and Phase
-3 as a reminder.
+3 as a reminder. Refreshing or reopening the same phone restores the attendee,
+the schedule's current timed stop, and unfinished booth/Phase 3 choices. The
+attendee stays signed in until they tap their name at the top-right and choose
+**Log out on this device**.
 
 Press `Ctrl+C` in the terminal to stop the server.
 
 ### Rehearse with the shared demo clock
 
-Open the organizer dashboard, unlock it with the local key (`demo` by
-default), and use the **Demo only · Shared event time** panel. It can place all
+Open the organizer portal, choose **Overall Organizer**, unlock it with the
+local key (`demo` by default), and use the **Demo only · Shared event time**
+panel. It can place all
 attendee, booth-leader, Phase 3, and final-message screens connected to that
 Node demo server at:
 
-- live time or before the event;
+- live time, before the event, or the exact start of Session 1;
 - the midpoint or final 15 seconds of Sessions 1, 2, and 3; or
 - after the booths.
 
-Screens poll the same public, PII-free demo clock every second, so a change in
-the organizer window also reaches a separate incognito attendee window. The
-setting is an in-memory rehearsal override: it is local to the running demo
-server and is not a production show-control feature.
+Screens sample the same public, PII-free demo clock about every five seconds,
+with randomized staggering, while their visible countdown continues locally
+every second. Hidden tabs pause network polling and resynchronize when opened.
+The setting is an in-memory rehearsal override: it is local to the running
+demo server and is not a production show-control feature.
 
 The panel appears only when `API_BASE_URL` is the local `/api` backend. It is
 not available in the Apps Script adapter, and it does not change live event
 time. Apps Script pages continue to use the real synchronized clock.
+
+Before Session 1, every registered attendee sees a waiting lobby and their
+first booth, but no booth can be opened. The lobby changes automatically at
+3:10 PM; during a Node-backed rehearsal, the overall organizer can use
+**Start Session 1 now** to move every connected screen to that exact start.
+
+### Planning for around 150 attendees
+
+About 150 is a planning estimate, not a registration limit. If turnout lands
+near that number, the five wristband routes are roughly balanced at 30 people
+per color. The organizer dashboard recommends the least-used next color and
+shows the live spread without blocking or labelling guests above 150 as over
+capacity. Each color expands to its attendee roster, current scheduled booth,
+raffle numbers, and booth-progress status.
+
+For the event, use exactly one always-on Node process with `EVENT_APP_DB_PATH`
+on a persistent disk. Database writes use a flushed temporary file, atomic
+rename, and last-known-good `.bak`; `/api/health` confirms that the store can be
+loaded. A staged booth-completion tap also retries for two minutes if venue
+Wi-Fi drops at a session boundary. The regression suite uses a concurrent
+150-attendee journey as a representative load check, with 90 live New Song
+votes and 450 booth completions; that test number is not an application cap.
 
 ### Per-page preview fallback
 
@@ -132,8 +159,11 @@ over a query preview. The query override is ignored on non-local hosts.
 
 ## Booth-leader portals
 
-`web/phase2-staff/index.html` links to one staff portal per booth. After
-unlocking a booth page, its leader can publish:
+`web/organizer/index.html` is the single staff starting link. It offers the
+overall organizer dashboard plus one portal for each of the five booths. The
+older `web/phase2-staff/index.html` URL redirects there so saved links and
+previously printed codes still work. After choosing and unlocking a booth
+page, its leader can publish:
 
 - a status: waiting, live, paused, wrap up, or complete;
 - the current booth-specific activity step; and
@@ -156,10 +186,10 @@ event-app/
 ├── web/
 │   ├── phase1-entry/       registration + raffle + wristband assignment
 │   ├── phase2-booths/      unified hub + optional legacy booth/kiosk pages
-│   ├── phase2-staff/       booth-leader directory and five scoped portals
+│   ├── phase2-staff/       compatibility redirect and five scoped portals
 │   ├── phase3-signup/      checkbox-only next steps + saved completion
 │   ├── done/               early-finish countdown + 4:10 message state
-│   ├── organizer/          event-wide dashboard and unified-flow QR utility
+│   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            local Node backend using a throwaway JSON file
 ├── apps-script/            Google Sheets + Apps Script parity backend
@@ -206,8 +236,9 @@ curl -X POST -H "Content-Type: application/json" \
 
 - Name plus raffle number is convenient record recovery, not strong identity
   verification.
-- The synchronized experience needs working network access; there is no
-  offline queue.
+- The synchronized experience still needs working network access. Booth
+  completion taps have a narrow two-minute retry queue, but registration,
+  leader controls, live voting, and Phase 3 remain online-only.
 - Phase 3 eligibility is enforced by the browser from saved check-ins and the
   shared clock, not as an authentication or authorization boundary at the API.
 - Booth leaders share one organizer key, and their controls are one current

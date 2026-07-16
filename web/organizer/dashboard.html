@@ -21,6 +21,37 @@
   .demo-clock-presets button[aria-pressed="true"]{ border-color:#6f4bd8; background:#6f4bd8; color:#fff; box-shadow:0 5px 14px rgba(111,75,216,.22); }
   .demo-clock-presets button:disabled{ cursor:wait; opacity:.55; }
   .demo-clock-state{ min-height:18px; margin-top:10px !important; }
+  .capacity-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; margin:10px 0 8px; }
+  .capacity-card{ position:relative; overflow:hidden; padding:13px 10px; border:1px solid rgba(78,72,112,.14); border-radius:14px; background:#fff; text-align:center; }
+  .capacity-card::before{ content:""; position:absolute; inset:0 0 auto; height:5px; background:var(--wristband-color,#8b97b8); }
+  .capacity-card strong{ display:block; margin-top:3px; color:var(--ink); font-size:24px; }
+  .capacity-card span{ display:block; color:var(--ink-soft); font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+  .capacity-card.near-guide{ border-color:#d9a814; background:#fff9df; }
+  .capacity-guidance{ margin:7px 0 20px; color:var(--ink-soft); font-size:12px; line-height:1.45; }
+  .capacity-guidance strong{ color:var(--ink); }
+  .wristband-context{ margin:7px 0 12px; padding:11px 13px; border-radius:12px; background:#f4f1fb; color:var(--ink); font-size:12px; font-weight:700; line-height:1.45; }
+  .wristband-live-groups{ display:grid; gap:10px; margin-bottom:22px; }
+  .wristband-group{ overflow:hidden; border:1px solid rgba(78,72,112,.15); border-radius:15px; background:#fff; box-shadow:0 7px 18px rgba(43,36,74,.05); }
+  .wristband-group summary{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:14px; cursor:pointer; list-style:none; border-left:6px solid var(--wristband-color,#8b97b8); }
+  .wristband-group summary::-webkit-details-marker{ display:none; }
+  .wristband-group summary::after{ content:"Show " attr(data-count) " people ▾"; color:var(--ink-soft); font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+  .wristband-group[open] summary::after{ content:"Hide roster ▴"; }
+  .wristband-name{ display:flex; align-items:center; gap:8px; color:var(--ink); font-size:15px; font-weight:900; }
+  .wristband-dot{ width:11px; height:11px; flex:0 0 auto; border-radius:50%; background:var(--wristband-color,#8b97b8); box-shadow:0 0 0 3px color-mix(in srgb,var(--wristband-color,#8b97b8) 18%,transparent); }
+  .wristband-location{ display:block; margin-top:4px; color:var(--ink-soft); font-size:11px; line-height:1.4; }
+  .wristband-location strong{ color:var(--ink); }
+  .wristband-roster{ border-top:1px solid rgba(78,72,112,.1); }
+  .wristband-person{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:11px 14px; border-bottom:1px solid rgba(78,72,112,.08); }
+  .wristband-person:last-child{ border-bottom:0; }
+  .wristband-person strong{ display:block; color:var(--ink); font-size:12px; }
+  .wristband-person span{ display:block; margin-top:3px; color:var(--ink-soft); font-size:10px; }
+  .wristband-progress{ text-align:right; }
+  .wristband-progress b{ display:block; color:var(--ink); font-size:11px; }
+  .wristband-progress em{ display:inline-block; margin-top:4px; padding:4px 7px; border-radius:999px; background:#f0edf7; color:var(--ink-soft); font-size:9px; font-style:normal; font-weight:800; }
+  .wristband-progress em.complete{ background:#e4f5e9; color:#257246; }
+  .wristband-empty{ padding:14px; color:var(--ink-soft); font-size:11px; text-align:center; }
+  @media (max-width:700px){ .capacity-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:470px){ .wristband-group summary{ grid-template-columns:1fr; gap:7px; } .wristband-group summary::after{ justify-self:start; } .wristband-person{ align-items:start; } }
   @media (max-width:520px){ .demo-clock-head{ display:block; } .demo-clock-badge{ margin-top:10px; } .demo-clock-readout{ grid-template-columns:1fr; } }
 </style>
 </head>
@@ -29,6 +60,7 @@
 <div class="phone dash-wrap" id="phone">
   <div class="device-tag organizer">Organizer view</div>
   <section class="screen">
+    <a class="btn-link" href="index.html">← All organizer portals</a>
     <p class="eyebrow">Live · updates every 4s</p>
     <h1 class="display">Event dashboard</h1>
     <p class="lede">Everything below reads straight from the shared backend — the same data every attendee phone and staff kiosk is writing to.</p>
@@ -46,7 +78,7 @@
     </div>
 
     <div id="organizer-content" style="display:none;">
-    <div class="staff-toolbar" style="gap:18px;"><a class="btn-link" href="../phase2-staff/index.html">Phase 2 booth staff hub</a><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
+    <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock staff view</button></div>
 
     <section class="demo-clock-panel" id="demo-clock-panel" style="display:none;" aria-labelledby="demo-clock-title">
       <div class="demo-clock-head">
@@ -65,6 +97,7 @@
       <div class="demo-clock-presets" id="demo-clock-presets" role="group" aria-label="Set shared demo event time">
         <button type="button" data-demo-clock-mode="live">Live clock</button>
         <button type="button" data-demo-clock-mode="before">Before event</button>
+        <button type="button" data-demo-clock-mode="session1-start">Start Session 1 now</button>
         <button type="button" data-demo-clock-mode="session1">Session 1 · midpoint</button>
         <button type="button" data-demo-clock-mode="session1-final15">Session 1 · final 15s</button>
         <button type="button" data-demo-clock-mode="session2">Session 2 · midpoint</button>
@@ -77,6 +110,15 @@
     </section>
 
     <div class="dash-grid" id="totals-grid"></div>
+
+    <div class="section-title">Wristband distribution · planning around 150</div>
+    <p class="lede" style="margin-top:-4px;">About 150 is a planning estimate, not a registration cap. If turnout is near that number, an even split is roughly 30 per color.</p>
+    <div class="capacity-grid" id="wristband-capacity-grid"></div>
+    <p class="capacity-guidance" id="wristband-capacity-guidance"></p>
+
+    <div class="section-title">Where each wristband is now</div>
+    <p class="wristband-context" id="wristband-event-context">Checking the current session…</p>
+    <div class="wristband-live-groups" id="wristband-live-groups"></div>
 
     <div class="section-title">Booth check-ins</div>
     <table class="dash-table" id="booth-table">
@@ -120,11 +162,14 @@ let demoClockSyncStarted = false;
 let demoClockReady = null;
 let demoClockRequestInFlight = false;
 let latestDemoClockMode = "live";
+const planningAttendeeEstimate = 150;
+const planningPerColorGuide = Math.round(planningAttendeeEstimate / WRISTBAND_COLORS.length);
 
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
 const demoClockLabels = {
   live: "Live clock",
   before: "Before event",
+  "session1-start": "Session 1 · just started",
   session1: "Session 1 · midpoint",
   "session1-final15": "Session 1 · final 15s",
   session2: "Session 2 · midpoint",
@@ -177,7 +222,7 @@ function startSharedDemoClock() {
   if (demoClockSyncStarted) return demoClockReady || Promise.resolve();
   demoClockSyncStarted = true;
   if (typeof EventSchedule.startDemoClockSync === "function") {
-    const started = EventSchedule.startDemoClockSync(1000);
+    const started = EventSchedule.startDemoClockSync(5000);
     demoClockReady = started && typeof started.then === "function"
       ? started.catch((error) => console.warn("Demo clock sync unavailable", error))
       : Promise.resolve();
@@ -257,8 +302,77 @@ function groupSignupsByOption(signups) {
   });
 }
 
+function wristbandEventContext(eventState) {
+  if (!eventState || !eventState.phase) return "The current booth-session location is unavailable.";
+  if (eventState.phase === "before") return "Waiting lobby is active. Wristband groups move when Session 1 starts.";
+  if (eventState.phase === "ended") return "All three booth sessions have ended. Attendees can continue to the closing message and Phase 3.";
+  return `Session ${eventState.sessionNumber} is active · ${eventState.sessionLabel || "current session"}.`;
+}
+
+function wristbandLocation(group, eventState) {
+  if (!eventState || eventState.phase === "before") {
+    return { title: "Waiting lobby", detail: "Opens when Session 1 starts" };
+  }
+  if (eventState.phase === "ended") {
+    return { title: "Booth sessions ended", detail: "Closing message and Phase 3" };
+  }
+  if (!group.currentBooth) return { title: "Route unavailable", detail: "Check the wristband schedule" };
+  return {
+    title: group.currentBooth.boothName,
+    detail: `Session ${eventState.sessionNumber} · ${eventState.sessionLabel || "in progress"}`,
+  };
+}
+
+function attendeeProgressStatus(attendee, eventState) {
+  if (!eventState || eventState.phase === "before") return { label: "Waiting lobby", complete: false };
+  if (eventState.phase === "active") {
+    return attendee.currentStopCompleted
+      ? { label: "Current stop done", complete: true }
+      : { label: "Current stop pending", complete: false };
+  }
+  if (attendee.phase3Completed) return { label: "Phase 3 done", complete: true };
+  return attendee.completedStops >= attendee.totalStops
+    ? { label: "Booths complete", complete: true }
+    : { label: "Booth time ended", complete: false };
+}
+
+function renderWristbandGroups(data) {
+  const container = document.getElementById("wristband-live-groups");
+  const openColors = new Set(Array.from(container.querySelectorAll("details[open]"), (details) => details.dataset.colorId));
+  const eventState = data.eventState || null;
+  document.getElementById("wristband-event-context").textContent = wristbandEventContext(eventState);
+  const groupsByColor = new Map((data.wristbandGroups || []).map((group) => [group.colorId, group]));
+
+  container.innerHTML = WRISTBAND_COLORS.map((color) => {
+    const group = groupsByColor.get(color.id) || { colorId: color.id, count: 0, attendees: [], currentBooth: null };
+    const location = wristbandLocation(group, eventState);
+    const attendees = Array.isArray(group.attendees) ? group.attendees : [];
+    return `<details class="wristband-group" data-color-id="${esc(color.id)}" style="--wristband-color:${esc(color.hex)}"${openColors.has(color.id) ? " open" : ""}>
+      <summary data-count="${attendees.length}">
+        <div>
+          <span class="wristband-name"><i class="wristband-dot" aria-hidden="true"></i>${esc(color.label)} wristband · ${attendees.length}</span>
+          <span class="wristband-location"><strong>${esc(location.title)}</strong> · ${esc(location.detail)}</span>
+        </div>
+      </summary>
+      <div class="wristband-roster">
+        ${attendees.length ? attendees.map((attendee) => {
+          const status = attendeeProgressStatus(attendee, eventState);
+          return `<div class="wristband-person">
+            <div><strong>${esc(attendee.name || "Guest")}</strong><span>Raffle #${esc(attendee.raffleNumber || "----")}</span></div>
+            <div class="wristband-progress"><b>${Number(attendee.completedStops) || 0}/${Number(attendee.totalStops) || 3} booths visited</b><em class="${status.complete ? "complete" : ""}">${esc(status.label)}</em></div>
+          </div>`;
+        }).join("") : `<div class="wristband-empty">No attendees assigned to this color yet.</div>`}
+      </div>
+    </details>`;
+  }).join("");
+}
+
 function clearDashboard() {
   document.getElementById("totals-grid").innerHTML = "";
+  document.getElementById("wristband-capacity-grid").innerHTML = "";
+  document.getElementById("wristband-capacity-guidance").textContent = "";
+  document.getElementById("wristband-event-context").textContent = "Checking the current session…";
+  document.getElementById("wristband-live-groups").innerHTML = "";
   document.querySelector("#booth-table tbody").innerHTML = "";
   document.querySelector("#trivia-table tbody").innerHTML = "";
   document.querySelector("#song-table tbody").innerHTML = "";
@@ -284,6 +398,33 @@ async function refresh() {
     <div class="dash-card"><div class="num">${data.totals.wristbandsConfirmed}</div><div class="lbl">Wristbands confirmed</div></div>
     <div class="dash-card"><div class="num">${data.totals.raffleEntries}</div><div class="lbl">Raffle entries</div></div>
   `;
+
+  const countsByColor = new Map((data.wristbandCounts || []).map((entry) => [entry.colorId, Number(entry.count) || 0]));
+  const distribution = WRISTBAND_COLORS.map((color) => ({
+    ...color,
+    count: countsByColor.get(color.id) || 0,
+  }));
+  document.getElementById("wristband-capacity-grid").innerHTML = distribution.map((color) => {
+    const distanceFromGuide = color.count - planningPerColorGuide;
+    const stateClass = Math.abs(distanceFromGuide) <= 2 ? " near-guide" : "";
+    const guideLabel = distanceFromGuide === 0
+      ? `Near ≈${planningPerColorGuide} guide`
+      : `${Math.abs(distanceFromGuide)} ${distanceFromGuide > 0 ? "above" : "below"} guide`;
+    return `<div class="capacity-card${stateClass}" style="--wristband-color:${esc(color.hex)}">
+      <span>${esc(color.label)}</span>
+      <strong>${color.count}</strong>
+      <span>${esc(guideLabel)}</span>
+    </div>`;
+  }).join("");
+  const lowestCount = Math.min(...distribution.map((color) => color.count));
+  const suggested = distribution.filter((color) => color.count === lowestCount).map((color) => color.label);
+  const highestCount = Math.max(...distribution.map((color) => color.count));
+  const spread = highestCount - lowestCount;
+  document.getElementById("wristband-capacity-guidance").innerHTML =
+    `<strong>Suggested next:</strong> ${esc(suggested.join(" or "))}. `
+      + `The current group spread is ${spread}; keep colors reasonably even as actual turnout changes. The ≈${planningPerColorGuide} figure is only the around-${planningAttendeeEstimate} planning guide.`;
+
+  renderWristbandGroups(data);
 
   const boothBody = document.querySelector("#booth-table tbody");
   boothBody.innerHTML = data.boothCounts.length

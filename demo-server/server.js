@@ -19,17 +19,39 @@ const path = require("path");
 const crypto = require("crypto");
 
 const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json");
+const DB_BACKUP_PATH = `${DB_PATH}.bak`;
 const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
 const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
+const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
 const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
+const BOOTH_NAMES = Object.freeze({
+  heaven: "Can You Draw Heaven?",
+  trivia: "Bible Bowl",
+  story: "The Sower, Live",
+  art: "Art Therapy Table",
+  newsong: "The New Song in Nashville",
+});
+const WRISTBAND_ROUTES = Object.freeze({
+  blue: ["heaven", "trivia", "story"],
+  red: ["trivia", "heaven", "art"],
+  orange: ["art", "story", "newsong"],
+  green: ["newsong", "art", "heaven"],
+  yellow: ["story", "newsong", "trivia"],
+});
+const BOOTH_SESSIONS = Object.freeze([
+  { number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
+  { number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
+  { number: 3, startsAt: "2026-07-18T15:50:00-05:00", endsAt: "2026-07-18T16:10:00-05:00", label: "3:50–4:10 PM" },
+]);
 const BOOTH_PRESENTATION_STATUSES = new Set(["waiting", "live", "paused", "wrap", "complete"]);
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
 const DEMO_CLOCK_MODES = new Set([
   "live",
   "before",
+  "session1-start",
   "session1",
   "session2",
   "session3",
@@ -44,6 +66,28 @@ const FINAL_SIGNUP_OPTIONS = new Map([
   ["course", "The 8-month course"],
   ["art", "Art therapy"],
   ["friend", "Help me invite a friend"],
+]);
+const NEW_SONG_CHOICES = new Set([
+  "Great Are You Lord",
+  "Way Maker",
+  "Goodness of God",
+  "Build My Life",
+  "Reckless Love",
+  "King of Kings",
+  "Living Hope",
+  "Graves Into Gardens",
+  "Raise a Hallelujah",
+  "The Blessing",
+  "O Come to the Altar",
+  "Do It Again",
+  "House of the Lord",
+  "Same God",
+  "Great Things",
+  "Battle Belongs",
+  "Jireh",
+  "Yes I Will",
+  "Firm Foundation",
+  "Champion",
 ]);
 
 const MIME = {
@@ -80,6 +124,41 @@ function eventNowIso() {
   return new Date(effectiveNowMs()).toISOString();
 }
 
+function eventSessionState(nowMs = effectiveNowMs()) {
+  const sessions = BOOTH_SESSIONS.map((session, index) => ({
+    ...session,
+    index,
+    startMs: Date.parse(session.startsAt),
+    endMs: Date.parse(session.endsAt),
+  }));
+  const active = sessions.find((session) => nowMs >= session.startMs && nowMs < session.endMs);
+  if (active) {
+    return {
+      phase: "active",
+      serverNow: new Date(nowMs).toISOString(),
+      sessionIndex: active.index,
+      sessionNumber: active.number,
+      sessionLabel: active.label,
+    };
+  }
+  if (nowMs < sessions[0].startMs) {
+    return {
+      phase: "before",
+      serverNow: new Date(nowMs).toISOString(),
+      sessionIndex: null,
+      sessionNumber: null,
+      sessionLabel: null,
+    };
+  }
+  return {
+    phase: "ended",
+    serverNow: new Date(nowMs).toISOString(),
+    sessionIndex: null,
+    sessionNumber: null,
+    sessionLabel: null,
+  };
+}
+
 function nextDemoClockUpdatedAt(realNowMs) {
   const previousMs = Date.parse(demoClock.updatedAt);
   const nextMs = Number.isFinite(previousMs) ? Math.max(realNowMs, previousMs + 1) : realNowMs;
@@ -103,6 +182,7 @@ function emptyDb() {
   return {
     attendees: [],
     boothCheckins: [],
+    songVotes: [],
     signups: [],
     boothPresentations: {},
     raffleCounter: 1000,
@@ -116,6 +196,9 @@ function normalizeDb(raw) {
     : [];
   db.boothCheckins = Array.isArray(source.boothCheckins)
     ? source.boothCheckins.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+    : [];
+  db.songVotes = Array.isArray(source.songVotes)
+    ? source.songVotes.filter((row) => row && typeof row === "object" && !Array.isArray(row))
     : [];
   db.signups = Array.isArray(source.signups)
     ? source.signups.filter((row) => row && typeof row === "object" && !Array.isArray(row))
@@ -141,16 +224,119 @@ function normalizeDb(raw) {
   );
   return db;
 }
-function readDb() {
-  if (!fs.existsSync(DB_PATH)) return emptyDb();
+let dbCache = null;
+let dbCacheFingerprint = null;
+
+function databaseUnavailable(message, cause) {
+  const error = new Error(message);
+  error.code = "DATABASE_UNAVAILABLE";
+  error.status = 503;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function cloneDb(db) {
+  return JSON.parse(JSON.stringify(db));
+}
+
+function fileFingerprint(filename) {
   try {
-    return normalizeDb(JSON.parse(fs.readFileSync(DB_PATH, "utf8")));
-  } catch (e) {
-    return emptyDb();
+    const stat = fs.statSync(filename);
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch (error) {
+    if (error && error.code === "ENOENT") return null;
+    throw databaseUnavailable("The event database cannot be inspected.", error);
   }
 }
-function writeDb(db) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+
+function parseDbFile(filename) {
+  try {
+    return normalizeDb(JSON.parse(fs.readFileSync(filename, "utf8")));
+  } catch (error) {
+    throw databaseUnavailable(`The event database file is unreadable: ${path.basename(filename)}.`, error);
+  }
+}
+
+function writeFileDurably(filename, contents) {
+  const fd = fs.openSync(filename, "w", 0o600);
+  try {
+    fs.writeFileSync(fd, contents, "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function restoreBackup(primaryError) {
+  if (!fileFingerprint(DB_BACKUP_PATH)) throw primaryError;
+  let recovered;
+  try {
+    recovered = parseDbFile(DB_BACKUP_PATH);
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    const recoveryPath = `${DB_PATH}.${process.pid}.recovering`;
+    writeFileDurably(recoveryPath, JSON.stringify(recovered, null, 2));
+    fs.renameSync(recoveryPath, DB_PATH);
+  } catch (backupError) {
+    throw databaseUnavailable("The event database and its backup are both unavailable.", backupError);
+  }
+  console.error(`Recovered event data from ${DB_BACKUP_PATH} after the primary database became unreadable.`);
+  dbCache = recovered;
+  dbCacheFingerprint = fileFingerprint(DB_PATH);
+  return cloneDb(recovered);
+}
+
+function readDb() {
+  const fingerprint = fileFingerprint(DB_PATH);
+  if (!fingerprint) {
+    if (dbCache) {
+      // A mounted disk can briefly disappear during infrastructure events.
+      // Recreate the primary file from the last known-good in-memory state
+      // instead of silently treating every attendee as deleted.
+      writeDb(dbCache);
+      return cloneDb(dbCache);
+    }
+    if (fileFingerprint(DB_BACKUP_PATH)) {
+      return restoreBackup(databaseUnavailable("The primary event database is missing."));
+    }
+    dbCache = emptyDb();
+    dbCacheFingerprint = null;
+    return cloneDb(dbCache);
+  }
+  if (dbCache && fingerprint === dbCacheFingerprint) return cloneDb(dbCache);
+  try {
+    dbCache = parseDbFile(DB_PATH);
+    dbCacheFingerprint = fingerprint;
+    return cloneDb(dbCache);
+  } catch (primaryError) {
+    return restoreBackup(primaryError);
+  }
+}
+
+function writeDb(db, options = {}) {
+  const normalized = normalizeDb(db);
+  const serialized = JSON.stringify(normalized, null, 2);
+  const tempPath = `${DB_PATH}.${process.pid}.tmp`;
+  const backupTempPath = `${DB_BACKUP_PATH}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    writeFileDurably(tempPath, serialized);
+    if (options.replaceBackup) {
+      // A protected reset is a deletion boundary. Replace the recovery copy
+      // before replacing the primary so pre-reset attendee data cannot be
+      // resurrected by later corruption or a missing mounted file.
+      writeFileDurably(backupTempPath, serialized);
+      fs.renameSync(backupTempPath, DB_BACKUP_PATH);
+    } else if (fileFingerprint(DB_PATH)) {
+      fs.copyFileSync(DB_PATH, DB_BACKUP_PATH);
+    }
+    fs.renameSync(tempPath, DB_PATH);
+    dbCache = normalized;
+    dbCacheFingerprint = fileFingerprint(DB_PATH);
+  } catch (error) {
+    try { fs.rmSync(tempPath, { force: true }); } catch (cleanupError) { /* best effort */ }
+    try { fs.rmSync(backupTempPath, { force: true }); } catch (cleanupError) { /* best effort */ }
+    throw databaseUnavailable("The event database could not be saved. No in-memory success was reported.", error);
+  }
 }
 function id() {
   return crypto.randomUUID();
@@ -299,7 +485,7 @@ function mergeAttendees(db, canonical, duplicate, phone) {
     canonical.registeredAt = duplicate.registeredAt;
   }
 
-  [db.boothCheckins, db.signups].forEach((rows) => {
+  [db.boothCheckins, db.songVotes, db.signups].forEach((rows) => {
     rows.forEach((row) => {
       if (!duplicateIds.has(row.attendeeId)) return;
       row.attendeeId = canonical.attendeeId;
@@ -583,6 +769,69 @@ function boothCheckin(body) {
   return { status: 200, body: { ok: true, checkinId: row.id } };
 }
 
+function songVoteCounts(db) {
+  // Dedicated votes are saved at tap time so the leader can choose a winner
+  // during the opening four-minute beat. Older completed check-ins still
+  // count when a database predates the dedicated vote collection.
+  const voteByAttendee = new Map();
+  db.boothCheckins
+    .filter((checkin) => (
+      checkin.boothId === "newsong"
+      && checkin.extraData
+      && NEW_SONG_CHOICES.has(checkin.extraData.votedFor)
+    ))
+    .forEach((checkin) => voteByAttendee.set(checkin.attendeeId, checkin.extraData.votedFor));
+  db.songVotes
+    .filter((vote) => NEW_SONG_CHOICES.has(vote.songTitle))
+    .forEach((vote) => voteByAttendee.set(vote.attendeeId, vote.songTitle));
+
+  const totals = new Map();
+  voteByAttendee.forEach((songTitle) => totals.set(songTitle, (totals.get(songTitle) || 0) + 1));
+  return Array.from(totals.entries())
+    .map(([title, votes]) => ({ title, votes }))
+    .sort((a, b) => b.votes - a.votes || a.title.localeCompare(b.title));
+}
+
+function saveSongVote(body) {
+  const attendeeId = body && body.attendeeId;
+  const songTitle = String((body && body.songTitle) || "").trim();
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
+  if (!NEW_SONG_CHOICES.has(songTitle)) {
+    return errorResult(400, "Choose a valid New Song option.", "INVALID_SONG_CHOICE");
+  }
+
+  const db = readDb();
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  const previous = db.songVotes.find((vote) => vote.attendeeId === attendee.attendeeId);
+  const now = eventNowIso();
+  if (previous) {
+    previous.songTitle = songTitle;
+    previous.name = attendee.name;
+    previous.votedAt = now;
+  } else {
+    db.songVotes.push({
+      id: id(),
+      attendeeId: attendee.attendeeId,
+      name: attendee.name,
+      songTitle,
+      votedAt: now,
+    });
+  }
+  writeDb(db);
+  const votes = songVoteCounts(db);
+  const selected = votes.find((entry) => entry.title === songTitle);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      songTitle,
+      votes: selected ? selected.votes : 1,
+      totalVotes: db.songVotes.length,
+    },
+  };
+}
+
 function submitSignup(body) {
   const { attendeeId, phone, optionId, optionTitle, email, stars, comment } = body;
   if (!optionId) return { status: 400, body: { error: "optionId required" } };
@@ -722,15 +971,63 @@ function mySignupSelections(body) {
   return { status: 200, body: { optionIds, completedAt: attendee.phase3CompletedAt || null } };
 }
 
+function wristbandGroupsForDashboard(db, eventState) {
+  return Array.from(WRISTBAND_COLORS).map((colorId) => {
+    const route = WRISTBAND_ROUTES[colorId] || [];
+    const currentBoothId = eventState.phase === "active"
+      ? route[eventState.sessionIndex] || null
+      : null;
+    const attendees = db.attendees
+      .filter((attendee) => (
+        attendee.wristbandConfirmedAt && normalizeWristbandColor(attendee.wristbandColor) === colorId
+      ))
+      .map((attendee) => {
+        const attendeeIds = new Set([attendee.attendeeId, ...(attendee.aliasIds || [])].map(String));
+        const completedSet = new Set(db.boothCheckins
+          .filter((checkin) => (
+            attendeeIds.has(String(checkin.attendeeId))
+              || (attendee.phone && checkin.phone === attendee.phone)
+          ))
+          .map((checkin) => checkin.boothId));
+        const completedBoothIds = route.filter((boothId) => completedSet.has(boothId));
+        return {
+          name: attendee.name || "Guest",
+          raffleNumber: attendee.raffleNumber || "",
+          completedBoothIds,
+          completedStops: completedBoothIds.length,
+          totalStops: route.length,
+          currentStopCompleted: currentBoothId ? completedSet.has(currentBoothId) : null,
+          phase3Completed: !!attendee.phase3CompletedAt,
+        };
+      })
+      .sort((a, b) => (
+        String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+          || a.name.localeCompare(b.name)
+      ));
+    return {
+      colorId,
+      count: attendees.length,
+      route: route.map((boothId) => ({ boothId, boothName: BOOTH_NAMES[boothId] || boothId })),
+      currentBooth: currentBoothId
+        ? { boothId: currentBoothId, boothName: BOOTH_NAMES[currentBoothId] || currentBoothId }
+        : null,
+      attendees,
+    };
+  });
+}
+
 function dashboardData(body) {
   const authError = requireOrganizer(body);
   if (authError) return authError;
   const db = readDb();
+  const eventState = eventSessionState();
   const totals = {
     registered: db.attendees.length,
     wristbandsConfirmed: db.attendees.filter((a) => a.wristbandConfirmedAt).length,
     raffleEntries: db.attendees.length,
   };
+  const wristbandGroups = wristbandGroupsForDashboard(db, eventState);
+  const wristbandCounts = wristbandGroups.map(({ colorId, count }) => ({ colorId, count }));
 
   const boothCountsMap = {};
   db.boothCheckins.forEach((c) => {
@@ -745,13 +1042,7 @@ function dashboardData(body) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 
-  const songVotesMap = {};
-  db.boothCheckins
-    .filter((c) => c.boothId === "newsong" && c.extraData && c.extraData.votedFor)
-    .forEach((c) => { songVotesMap[c.extraData.votedFor] = (songVotesMap[c.extraData.votedFor] || 0) + 1; });
-  const songVotes = Object.entries(songVotesMap)
-    .map(([title, votes]) => ({ title, votes }))
-    .sort((a, b) => b.votes - a.votes);
+  const songVotes = songVoteCounts(db);
 
   const signups = db.signups
     .slice()
@@ -766,7 +1057,19 @@ function dashboardData(body) {
       };
     });
 
-  return { status: 200, body: { totals, boothCounts, triviaLeaderboard, songVotes, signups } };
+  return {
+    status: 200,
+    body: {
+      totals,
+      eventState,
+      wristbandCounts,
+      wristbandGroups,
+      boothCounts,
+      triviaLeaderboard,
+      songVotes,
+      signups,
+    },
+  };
 }
 
 function boothPresentation(body) {
@@ -853,6 +1156,7 @@ function boothDashboardData(body) {
       presentation: boothPresentationFromDb(db, boothId),
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
+      songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
       recentCheckins: checkins.slice(0, 50).map((checkin) => ({
         id: checkin.id,
         name: checkin.name || "Guest",
@@ -910,7 +1214,7 @@ function setDemoClock(body) {
 function resetDemo(body) {
   const authError = requireOrganizer(body);
   if (authError) return authError;
-  writeDb(emptyDb());
+  writeDb(emptyDb(), { replaceBackup: true });
   return { status: 200, body: { ok: true } };
 }
 
@@ -920,13 +1224,26 @@ function verifyOrganizer(body) {
   return { status: 200, body: { ok: true } };
 }
 
+function health() {
+  const db = readDb();
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      database: "ready",
+      registered: db.attendees.length,
+      serverNow: eventNowIso(),
+    },
+  };
+}
+
 const POST_ACTIONS = {
   registerAttendee, confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
-  boothCheckin, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
+  boothCheckin, saveSongVote, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
   myCheckins, mySignupSelections, eventClock, setDemoClock,
 };
-const GET_ACTIONS = { eventClock };
+const GET_ACTIONS = { eventClock, health };
 
 // ---------- tiny static file server + router ----------
 function serveStatic(req, res, pathname) {
@@ -942,9 +1259,34 @@ function serveStatic(req, res, pathname) {
 }
 
 function sendJson(res, status, obj) {
+  if (res.headersSent || res.writableEnded) return;
   const body = JSON.stringify(obj);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store",
+  });
   res.end(body);
+}
+
+function sendApiFailure(res, error) {
+  const status = Number(error && error.status) || 500;
+  if (status >= 500) console.error(error);
+  sendJson(res, status, {
+    error: status === 503
+      ? "Event data is temporarily unavailable. Please try again shortly."
+      : "The event service hit an unexpected error.",
+    code: error && error.code ? error.code : "INTERNAL_ERROR",
+  });
+}
+
+function runApiHandler(res, handler, payload) {
+  try {
+    const result = handler(payload);
+    sendJson(res, result.status, result.body);
+  } catch (error) {
+    sendApiFailure(res, error);
+  }
 }
 
 const server = http.createServer((req, res) => {
@@ -957,20 +1299,39 @@ const server = http.createServer((req, res) => {
     if (req.method === "GET") {
       const handler = GET_ACTIONS[action];
       if (!handler) return sendJson(res, 404, { error: "unknown action: " + action });
-      const result = handler(Object.fromEntries(parsed.searchParams));
-      return sendJson(res, result.status, result.body);
+      return runApiHandler(res, handler, Object.fromEntries(parsed.searchParams));
     }
 
     if (req.method === "POST") {
       const handler = POST_ACTIONS[action];
       if (!handler) return sendJson(res, 404, { error: "unknown action: " + action });
       let chunks = "";
-      req.on("data", (c) => (chunks += c));
+      let bodyBytes = 0;
+      let bodyTooLarge = false;
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => {
+        if (bodyTooLarge) return;
+        bodyBytes += Buffer.byteLength(chunk);
+        if (bodyBytes > MAX_REQUEST_BODY_BYTES) {
+          bodyTooLarge = true;
+          chunks = "";
+          return;
+        }
+        chunks += chunk;
+      });
       req.on("end", () => {
+        if (bodyTooLarge) {
+          sendJson(res, 413, { error: "request body is too large", code: "REQUEST_TOO_LARGE" });
+          return;
+        }
         let body = {};
-        try { body = chunks ? JSON.parse(chunks) : {}; } catch (e) { /* leave as {} */ }
-        const result = handler(body);
-        sendJson(res, result.status, result.body);
+        try {
+          body = chunks ? JSON.parse(chunks) : {};
+        } catch (error) {
+          sendJson(res, 400, { error: "request body must be valid JSON", code: "INVALID_JSON" });
+          return;
+        }
+        runApiHandler(res, handler, body);
       });
       return;
     }
@@ -989,8 +1350,7 @@ function startServer(port = PORT) {
     console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
     console.log(`  Attendee booth route: http://localhost:${actualPort}/phase2-booths/hub.html`);
     console.log(`  Phase 3 attendee:     http://localhost:${actualPort}/phase3-signup/index.html`);
-    console.log(`  Phase 2 staff hub:    http://localhost:${actualPort}/phase2-staff/index.html`);
-    console.log(`  Organizer dashboard:  http://localhost:${actualPort}/organizer/dashboard.html`);
+    console.log(`  Organizer portal:     http://localhost:${actualPort}/organizer/index.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
     console.log("  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL");
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {

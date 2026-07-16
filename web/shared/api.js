@@ -50,6 +50,7 @@ const EventAPI = (function () {
       ...(options || {}),
     }),
     boothCheckin: (data) => call("boothCheckin", data),
+    saveSongVote: (attendeeId, songTitle) => call("saveSongVote", { attendeeId, songTitle }),
     submitSignup: (data) => call("submitSignup", data),
     saveSignupSelections: (attendeeId, optionIds) => call("saveSignupSelections", { attendeeId, optionIds }),
     confirmSignupInPerson: (signupId, confirmedBy, organizerKey) => call("confirmSignupInPerson", {

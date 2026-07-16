@@ -4,6 +4,12 @@
    instead, see identity.lookupByPhone() usage in kiosk-*.html. */
 const Identity = (function () {
   const KEY = "eventapp.identity";
+  let memoryIdentity = {};
+  let storageWritable = null;
+
+  function copy(data) {
+    return Object.assign({}, data || {});
+  }
 
   function uuid() {
     if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -13,14 +19,24 @@ const Identity = (function () {
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : {};
+      if (!raw) return copy(memoryIdentity);
+      memoryIdentity = JSON.parse(raw);
+      storageWritable = true;
+      return copy(memoryIdentity);
     } catch (e) {
-      return {};
+      storageWritable = false;
+      return copy(memoryIdentity);
     }
   }
 
   function save(data) {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    memoryIdentity = copy(data);
+    try {
+      localStorage.setItem(KEY, JSON.stringify(memoryIdentity));
+      storageWritable = true;
+    } catch (e) {
+      storageWritable = false;
+    }
   }
 
   function get() {
@@ -49,7 +65,20 @@ const Identity = (function () {
   }
 
   function clear() {
-    localStorage.removeItem(KEY);
+    const current = load();
+    const journeyPrefix = current.attendeeId
+      ? `eventapp.journey.v1.${encodeURIComponent(String(current.attendeeId))}.`
+      : "";
+    if (journeyPrefix) {
+      try {
+        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+          const storageKey = localStorage.key(index);
+          if (storageKey && storageKey.startsWith(journeyPrefix)) localStorage.removeItem(storageKey);
+        }
+      } catch (e) { /* storage may be unavailable in an embedded QR browser */ }
+    }
+    try { localStorage.removeItem(KEY); } catch (e) { /* best effort on restricted browsers */ }
+    memoryIdentity = {};
     try {
       sessionStorage.removeItem("eventapp.portal.phase2");
       ["heaven", "trivia", "story", "art", "newsong"].forEach((boothId) => {
@@ -61,12 +90,19 @@ const Identity = (function () {
   }
 
   function restartIfMissing(error, entryUrl) {
-    if (!error || error.code !== "ATTENDEE_NOT_FOUND") return false;
-    clear();
-    try { sessionStorage.removeItem("eventapp.chosen"); } catch (e) { /* optional recap state */ }
-    window.location.href = entryUrl;
-    return true;
+    // Kept as a compatibility helper for existing catch blocks. A missing
+    // backend record can be caused by a brief outage or an unmounted Render
+    // disk, so it must never erase the attendee's saved phone identity. Only
+    // the explicit profile-menu logout path calls clear().
+    if (error && error.code === "ATTENDEE_NOT_FOUND") {
+      console.warn("Attendee record is temporarily unavailable; retaining device identity.", entryUrl || "");
+    }
+    return false;
   }
 
-  return { get, peek, set, replace, clear, restartIfMissing };
+  function isPersistent() {
+    return storageWritable !== false;
+  }
+
+  return { get, peek, set, replace, clear, restartIfMissing, isPersistent };
 })();

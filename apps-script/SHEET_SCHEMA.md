@@ -1,6 +1,6 @@
 # Sheet schema
 
-Reference for the five tabs `Code.gs` creates automatically — you don't
+Reference for the six tabs `Code.gs` creates automatically — you don't
 need to make any of these by hand. For how to actually deploy `Code.gs`
 and get this Sheet up and running, see `README.md` in this same folder.
 
@@ -32,6 +32,15 @@ and get this Sheet up and running, see `README.md` in this same folder.
 - One row per booth visit.
 - `checkedInBy`: `"self"` (attendee's own phone) or `"staff-kiosk"`.
 - `extraData`: JSON string, shape depends on the booth (e.g. `{"score":300}` for trivia, `{"votedFor":"Way Maker"}` for the song booth, `{"answers":{...}}` for the story booth).
+
+## SongVotes
+| id | attendeeId | name | songTitle | votedAt |
+|---|---|---|---|---|
+
+- One row per attendee, saved immediately when they tap a New Song choice.
+- The row is updated instead of duplicated if a retry repeats the same vote.
+- This separate tab lets the booth leader see the opening vote before the
+  attendee finishes the full booth activity.
 
 ## SignUps
 | id | attendeeId | phone | name | optionId | optionTitle | email | stars | comment | submittedAt | confirmedInPerson | confirmedBy | confirmedAt |

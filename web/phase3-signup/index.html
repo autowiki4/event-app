@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Phase 3 · Sign up — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>:root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }</style>
@@ -36,7 +36,7 @@
       </div>
       <div class="attendee-banner-actions">
         <span class="wristband-chip" id="phase3-wristband">Registered</span>
-        <button class="btn-link" id="btn-phase3-signout">Switch</button>
+        <div id="phase3-attendee-menu"></div>
       </div>
     </div>
 
@@ -55,10 +55,12 @@
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/journey-state.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script>
 function renderProgress(phase2Complete) {
   const el = document.getElementById("progress");
@@ -84,7 +86,7 @@ let portalReady = false;
 
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
 const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
-  ? Promise.resolve(EventSchedule.startDemoClockSync(1000)).catch((error) => console.warn("Demo clock sync unavailable", error))
+  ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
 
 function reevaluateScheduleAccess() {
@@ -128,6 +130,7 @@ function renderOptions() {
       const optionId = card.dataset.optionId;
       if (selected.has(optionId)) selected.delete(optionId);
       else selected.add(optionId);
+      JourneyState.save("phase3.draft", { optionIds: Array.from(selected) });
       renderOptions();
     });
   });
@@ -159,7 +162,11 @@ async function showPortal(attendeeIdentity) {
   }
   portalReady = true;
   selected.clear();
-  (signupState.optionIds || []).forEach((optionId) => selected.add(optionId));
+  const validOptionIds = new Set(FINAL_OPTIONS.map((option) => option.id));
+  const draft = signupState.completedAt
+    ? { optionIds: signupState.optionIds || [] }
+    : JourneyState.load("phase3.draft", { optionIds: signupState.optionIds || [] });
+  (draft.optionIds || []).filter((optionId) => validOptionIds.has(optionId)).forEach((optionId) => selected.add(optionId));
   renderProgress(phase2Complete);
   document.getElementById("phase3-login").style.display = "none";
   document.getElementById("phase3-content").style.display = "block";
@@ -169,6 +176,10 @@ async function showPortal(attendeeIdentity) {
   const chip = document.getElementById("phase3-wristband");
   chip.textContent = color ? `${color.label} wristband` : "Registered";
   chip.style.setProperty("--wristband-color", color ? color.hex : "#8b97b8");
+  AttendeeMenu.mount("phase3-attendee-menu", {
+    identity,
+    logoutUrl: EventSchedule.linkWithPreview("../phase1-entry/index.html"),
+  });
   const returnButton = document.getElementById("btn-return-phase2");
   returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
   returnButton.style.display = schedule.phase === "active" ? "block" : "none";
@@ -183,6 +194,7 @@ async function finish(chosen) {
   saveButton.textContent = "Saving…";
   try {
     const saved = await EventAPI.saveSignupSelections(identity.attendeeId, chosen.map((option) => option.id));
+    JourneyState.remove("phase3.draft");
     sessionStorage.setItem("eventapp.chosen", JSON.stringify(saved.optionIds || chosen.map((option) => option.id)));
     window.location.href = EventSchedule.linkWithPreview("../done/index.html");
   } catch (error) {
@@ -221,11 +233,8 @@ document.getElementById("btn-phase3-login").addEventListener("click", async () =
   }
 });
 
-document.getElementById("btn-phase3-signout").addEventListener("click", () => {
-  AttendeePortal.signOut("index.html");
-});
-
 async function initPortal() {
+  const cachedIdentity = Identity.peek();
   try {
     const attendeeIdentity = AttendeePortal.hasAccess("phase3")
       ? await AttendeePortal.restore("phase3")
@@ -233,7 +242,12 @@ async function initPortal() {
     await showPortal(attendeeIdentity);
   } catch (error) {
     console.error(error);
-    showLogin();
+    if (cachedIdentity.attendeeId && cachedIdentity.wristbandColor) {
+      await showPortal(cachedIdentity);
+      toast("You're still signed in. Live progress is reconnecting.");
+    } else {
+      showLogin();
+    }
   }
 }
 

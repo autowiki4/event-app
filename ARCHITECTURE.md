@@ -43,9 +43,17 @@ color against that record.
 The attendee's own browser stores the current identity in `localStorage`.
 After wristband confirmation, Phase 1 navigates directly to the hub; Phase 2,
 Phase 3, and the final screen continue with that same identity. A tab-level
-`sessionStorage` marker records access to the unified Phase 2 portal or Phase
-3. On a different device, name plus raffle number reopens the same backend
-record and stores it locally on that device.
+`sessionStorage` marker is only an optional fast-path hint: refresh, a reopened
+mobile tab, or a direct booth QR restores from the persistent identity even if
+that marker has disappeared. On a different device, name plus raffle number
+reopens the same backend record and stores it locally on that device.
+
+`web/shared/journey-state.js` stores unfinished booth steps, typed answers,
+ratings/notes, and unsubmitted Phase 3 ticks under an attendee-scoped key.
+Backend check-ins and Phase 3 completion remain canonical. A transient API
+failure or missing backend record does not erase the phone identity; the UI
+keeps the attendee in place and retries. This makes a mounted persistent data
+path mandatory for a hosted Node process.
 
 Phase 2 requires a confirmed wristband. Before 4:10 PM, Phase 3 requires all
 three route check-ins. At 4:10 PM it becomes available even when one or more
@@ -58,10 +66,10 @@ but an unauthenticated call cannot switch the attendee to another group. A
 correction requires the organizer key at the API boundary; the mock does not
 yet include a dedicated correction screen.
 
-The hub and Phase 3 display the attendee's name and raffle number in a top
-banner. This is both a reminder and a quick way to notice that a shared device
-is showing the wrong person's session. The **Switch** action clears the local
-identity and portal markers.
+Every attendee stage displays the attendee's name and raffle number in a top
+banner. Tapping the name opens the explicit **Log out on this device** action;
+that is the normal path that clears the identity, portal markers, and that
+attendee's local drafts. Refreshing and ordinary recovery never log them out.
 
 Name plus raffle number is record lookup, not strong authentication. Both can
 be shared or observed. Do not treat this as an account-security boundary; a
@@ -105,8 +113,10 @@ that offset between refreshes. The attendee timer renders every second, while
 the current booth presentation is refreshed periodically.
 
 This reduces ordinary phone-clock drift but is not precision show control. A
-bad network connection can delay leader updates, and there is no offline
-queue. The hub shows an offline note and continues from its last clock sync.
+bad network connection can delay leader updates. Booth completion taps are
+staged locally for two minutes and retried because a venue-wide burst is most
+likely during each session's final seconds; other requests remain online-only.
+The hub shows an offline note and continues from its last clock sync.
 
 For deterministic local rehearsals, `event-schedule.js` recognizes
 `?preview=before|1|2|3|ended` only on `localhost`, `127.0.0.1`, or `::1`.
@@ -115,13 +125,16 @@ Preview mode freezes the selected state; it does not simulate a ticking
 1 through the hub, Phase 3, and the final waiting/message screen.
 
 The Node demo adds a second, shared rehearsal layer. After organizer
-authentication, the dashboard can select live time, before-event, each
-session midpoint, each session's final 15 seconds, or the post-booth state.
+authentication, the dashboard can select live time, before-event, the exact
+start of Session 1, each session midpoint, each session's final 15 seconds, or
+the post-booth state.
 The protected `setDemoClock` action changes an in-memory override, while the
 public `eventClock` action returns only the current clock state and no attendee
-data. Attendee, completion, and booth-staff pages poll that state every second,
-so separate browsers connected to the same process stay in sync. An active
-organizer-controlled mode takes precedence over a page's query preview.
+data. Attendee, completion, and booth-staff pages sample that state about every
+five seconds with randomized staggering and pause polling while hidden. Their
+countdowns still update locally every second, and separate browsers connected
+to the same process stay in sync. An active organizer-controlled mode takes
+precedence over a page's query preview.
 
 This shared override deliberately exists only in `demo-server`. The Apps
 Script adapter exposes neither action, the organizer controls are hidden for
@@ -137,11 +150,15 @@ demo-clock presets are a rehearsal convenience, not resilient show control.
 2. loads the wristband's three-stop route and completed check-ins;
 3. shows the shared session label and countdown;
 4. resolves the correct booth for the current color and session;
-5. polls that booth's public presentation state;
-6. records completion only when the attendee taps **Mark this booth complete**;
-7. keeps the active route row reopenable, even after that tap, until the
+5. asks once for a personal phone number, with a raffle-only path for guests
+   who do not have a unique number;
+6. polls that booth's public presentation state and links the active card to
+   the matching timed activity page without another sign-in;
+7. records completion only when the attendee taps **Finish** in the activity
+   or **Mark this booth complete** in the hub;
+8. keeps the active route row reopenable, even after that tap, until the
    session ends; and
-8. reveals Phase 3 when all three taps are saved, or at 4:10 PM with any
+9. reveals Phase 3 when all three taps are saved, or at 4:10 PM with any
    untapped visits still visibly unmarked.
 
 A scheduled check-in includes the booth, attendee, session number/ID, and
@@ -150,15 +167,18 @@ existing check-in instead of inflating the booth count or changing the
 original completion time. The clock changes the active booth and eventually
 closes booth access; it never manufactures completion.
 
-The five `booth-*.html` pages and the Art Therapy/New Song kiosk pages remain
-as optional compatibility or staff-assistance fallbacks. They are not part of
-the normal color-routed journey and should not be printed as the default booth
-links.
+The five `booth-*.html` pages provide the detailed activity reached from the
+active hub card. Their own route checks still reject early, late, or
+wrong-wristband access. The Art Therapy/New Song kiosk pages remain optional
+staff-assistance fallbacks and should not be printed as attendee links.
 
 ## Booth-leader control flow
 
-There is one staff page per booth under `web/phase2-staff/`. Each uses the
-same shared module but loads only that booth's metadata and API data.
+`web/organizer/index.html` is the canonical staff entry point. It links to the
+overall organizer dashboard and one staff page per booth under
+`web/phase2-staff/`. The former `web/phase2-staff/index.html` directory remains
+as a compatibility redirect. Each booth page uses the same shared module but
+loads only that booth's metadata and API data.
 
 A booth leader chooses:
 
@@ -215,6 +235,8 @@ The local JSON object and Google Sheet tabs represent the same concepts:
   completion time.
 - **BoothCheckins:** attendee, booth, time, method, and optional booth/session
   metadata.
+- **SongVotes:** one immediate, idempotent New Song choice per attendee so the
+  opening vote is available before the full booth check-in is finished.
 - **SignUps:** one row per selected next-step option plus staff confirmation
   fields.
 - **BoothControls:** one current status, step, message, timestamps, and version
@@ -227,8 +249,8 @@ See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
 The main attendee actions are `registerAttendee`, `confirmWristband`,
 `loginAttendee`, `attendeePortalSession`, `myCheckins`, `mySignupSelections`,
-`boothPresentation`, `boothCheckin`, `saveSignupSelections`, and the legacy
-`submitSignup` action. `saveSignupSelections` records Phase 3 completion for
+`boothPresentation`, `boothCheckin`, `saveSongVote`, `saveSignupSelections`,
+and the legacy `submitSignup` action. `saveSignupSelections` records Phase 3 completion for
 both selected options and the empty **No thanks** path; reads return that
 completion state so the final page cannot be reached by merely opening Phase
 3.
@@ -251,6 +273,10 @@ dashboard data.
 - Replace the shared organizer key with appropriate staff authentication and
   authorization.
 - Test venue Wi-Fi capacity and define an offline/manual fallback.
+- Treat around 150 as a planning estimate rather than a registration cap. If
+  turnout is near that estimate, keep wristband colors reasonably close to 30
+  each. The protected organizer dashboard exposes the live distribution,
+  current scheduled booth, and attendee progress roster under each color.
 - Decide attendee-data consent, access, retention, export, and deletion rules.
 - Update and validate the final QR plan after a stable public URL exists.
 - Test real devices, accessibility, staff handoff, and recovery from late or

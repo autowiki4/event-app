@@ -1,6 +1,6 @@
-/* The unified Phase 2 experience and Phase 3 keep tab-level sign-in markers
- * while sharing one canonical attendee identity across the journey. Legacy
- * booth pages may still use phase2.<boothId> markers as fallback links. */
+/* The unified journey shares one persistent attendee identity. Tab-level
+ * markers are optional fast-path hints only; refresh/reopen recovery uses the
+ * saved identity even when sessionStorage was cleared by a mobile browser. */
 const AttendeePortal = (() => {
   function markerKey(portal) {
     return `eventapp.portal.${portal}`;
@@ -43,6 +43,7 @@ const AttendeePortal = (() => {
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
       phone: sameAttendee ? previous.phone || "" : "",
       phoneLinked: !!result.phoneLinked,
+      phoneSkipped: result.phoneLinked ? false : sameAttendee ? !!previous.phoneSkipped : false,
       email: sameAttendee ? previous.email || "" : "",
     });
   }

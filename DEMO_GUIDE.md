@@ -34,12 +34,14 @@ Open these windows:
 | Window | URL | Role |
 |---|---|---|
 | A | `http://localhost:3000/phase1-entry/index.html` | Attendee phone |
-| B | `http://localhost:3000/phase2-staff/index.html` | Booth leader directory |
-| C | `http://localhost:3000/organizer/dashboard.html` | Overall organizer |
+| B | `http://localhost:3000/organizer/index.html` | Choose a booth leader view |
+| C | `http://localhost:3000/organizer/index.html` | Choose Overall Organizer |
 
 Use a private/incognito window for A so a previous attendee identity is not
-reused. Unlock B's selected booth page and C with `demo`. Staff access is kept
-in the current page's memory, so a reload may ask for the key again.
+reused. The same organizer URL is used in B and C: choose the relevant booth
+in B and **Overall Organizer** in C, then unlock each selected page with
+`demo`. Staff access is kept in the current page's memory, so a reload may ask
+for the key again.
 
 In Window C, find **Demo only · Shared event time**. Its presets affect every
 attendee and booth-leader page connected to this Node demo server, including
@@ -75,19 +77,25 @@ Point out:
 
 - Jordan's name and raffle number remain visible at the top;
 - the Blue wristband and full three-stop route are visible;
+- the waiting lobby keeps every booth locked and says it will open without a refresh;
 - the page names the first booth before the session starts; and
 - the countdown is shared from the event schedule.
+
+Refresh Window A while it is in the lobby. It should return as Jordan instead
+of showing registration again. In Window C, choose **Start Session 1 now** and
+show that the lobby unlocks the first booth on every connected screen. Jordan
+remains signed in until the name menu at the top-right is used to log out.
 
 Switching back to **Live clock** returns all demo screens to actual synchronized
 time.
 
 ## 4. Let the booth leader control Session 1
 
-In Window C, select **Session 1 · midpoint**. From Window B, open **Can You Draw
-Heaven?** and unlock it with `demo`. The page should show that Blue wristbands
-are scheduled there in Session 1. Set the presentation to **Live**, choose an
-activity step, optionally add a short announcement, and choose **Save to
-attendee screen**.
+In Window C, select **Session 1 · midpoint**. From the organizer directory in
+Window B, open **Can You Draw Heaven?** and unlock it with `demo`. The page
+should show that Blue wristbands are scheduled there in Session 1. Set the
+presentation to **Live**, choose an activity step, optionally add a short
+announcement, and choose **Save to attendee screen**.
 
 Within the next refresh, the attendee card shows the leader's status, selected
 step, and announcement. Point out the Session 1 label, the 3:10–3:30 time, the

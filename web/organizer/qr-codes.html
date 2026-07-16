@@ -21,14 +21,15 @@
 <div class="phone dash-wrap" id="phone">
   <div class="device-tag organizer">Organizer view</div>
   <section class="screen">
+    <a class="btn-link no-print" href="index.html">← All organizer portals</a>
     <p class="eyebrow">Print these before the event</p>
     <h1 class="display">QR codes</h1>
-    <p class="lede">The attendee journey now uses one shared route instead of a different public link at every booth. Print the entry code at the door and the return-to-schedule code as a recovery option.</p>
+    <p class="lede">The attendee journey uses one shared route, and staff use one organizer link for the overall dashboard and all five booth-leader pages. Print the entry code at the door and the return-to-schedule code as a recovery option.</p>
 
     <div class="field no-print">
       <label for="base-url">Base URL (edit before printing for the real event)</label>
       <input id="base-url" type="text">
-      <div class="hint">Defaults to wherever this page is running right now. For the actual event, replace with your public URL (e.g. from Netlify/GitHub Pages/Vercel) once deployed — QR codes pointing at localhost only work on the same machine/network.</div>
+      <div class="hint">Defaults to wherever this page is running now. For the event, use the public URL of the connected Node service (for example, the Render service URL). QR codes pointing at localhost work only on the same machine/network.</div>
     </div>
     <button class="btn btn-primary no-print" id="btn-regen" style="margin-bottom:10px;">Regenerate codes</button>
 
@@ -48,7 +49,7 @@ function targets(base) {
   const list = [
     { name: "Attendee entry · Start here", path: "/phase1-entry/index.html" },
     { name: "Attendee booth schedule · Return link", path: "/phase2-booths/hub.html" },
-    { name: "Booth leaders · Staff only", path: "/phase2-staff/index.html" },
+    { name: "Organizer portal · Staff only", path: "/organizer/index.html" },
   ];
   return list.map((t) => ({ name: t.name, url: base.replace(/\/$/, "") + t.path }));
 }

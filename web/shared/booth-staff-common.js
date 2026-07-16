@@ -265,6 +265,8 @@ function initBoothStaff(boothId) {
     document.getElementById("staff-total").textContent = "0";
     document.getElementById("staff-last-updated").textContent = "";
     document.querySelector("#staff-roster tbody").innerHTML = "";
+    const songVoteBody = document.querySelector("#staff-song-vote-table tbody");
+    if (songVoteBody) songVoteBody.innerHTML = "";
     dirty = false;
     published = normalizePresentation(null);
     draft = { ...published };
@@ -332,7 +334,7 @@ function initBoothStaff(boothId) {
       || typeof EventSchedule.startDemoClockSync !== "function") return;
     demoClockSyncStarted = true;
     try {
-      await EventSchedule.startDemoClockSync(1000);
+      await EventSchedule.startDemoClockSync(5000);
     } catch (error) {
       console.warn("Demo clock sync unavailable", error);
     }
@@ -366,6 +368,19 @@ function initBoothStaff(boothId) {
             </tr>
           `).join("")
         : `<tr><td colspan="3" style="color:var(--ink-soft);">No check-ins at this booth yet.</td></tr>`;
+
+      const songVoteBody = document.querySelector("#staff-song-vote-table tbody");
+      if (songVoteBody) {
+        const songVotes = Array.isArray(data.songVotes) ? data.songVotes : [];
+        songVoteBody.innerHTML = songVotes.length
+          ? songVotes.map((entry) => `
+              <tr>
+                <td>${escapeHtml(entry.title)}</td>
+                <td>${Number(entry.votes) || 0}</td>
+              </tr>
+            `).join("")
+          : `<tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr>`;
+      }
 
       if (!dirty && expectedPresentationEpoch === presentationEpoch) {
         published = normalizePresentation(data.presentation);

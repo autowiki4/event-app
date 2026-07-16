@@ -91,12 +91,16 @@ API_BASE_URL: "https://script.google.com/macros/s/YOUR_ID_HERE/exec",
 using the URL you copied. Save the file.
 
 **10. Test it through the app.**
-Serve or host the `web/` folder, open `organizer/dashboard.html`, and enter the
-organizer key from step 5. A successful unlock proves the protected POST API
+Serve or host the `web/` folder, open `organizer/index.html`, choose **Overall
+Organizer**, and enter the organizer key from step 5. A successful unlock
+proves the protected POST API
 and Script Property are both working. Then register one throwaway attendee and
 confirm that the dashboard total changes. The dashboard is intentionally not
 testable through a public `/dashboardData` browser URL anymore; that endpoint
-contains names and phone numbers and now requires an authenticated POST body.
+contains protected attendee information and now requires an authenticated POST
+body. Its wristband groups include each color's current scheduled booth plus an
+expandable name, raffle-number, and booth-progress roster; attendee phone
+numbers are not included in that roster.
 
 For a full parity check, complete the attendee journey as well. Phase 1 should
 continue directly into Phase 2 with the same identity. Booth visits should be
@@ -145,7 +149,7 @@ thanks** and therefore has no option row.
   the authorization in step 6 didn't complete, or you're using a
   different Google account than the one that authorized it. Redo step 6.
 - **Attendee data isn't showing up in the Sheet's visible tabs** — the
-  tabs (`Attendees`, `BoothCheckins`, `SignUps`, `BoothControls`, `Meta`) are created
+  tabs (`Attendees`, `BoothCheckins`, `SongVotes`, `SignUps`, `BoothControls`, `Meta`) are created
   automatically the first time each one is used, not when you first
   deploy. If you unlocked the dashboard before anyone registered, you may
   only see some tabs at first — that's expected.

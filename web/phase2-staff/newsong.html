@@ -16,7 +16,7 @@
   <div class="phone dash-wrap">
     <div class="device-tag organizer">Booth leader</div>
     <section class="screen">
-      <a class="btn-link" href="index.html">← Phase 2 staff hub</a>
+      <a class="btn-link" href="../organizer/index.html">← All organizer portals</a>
       <p class="eyebrow" id="staff-booth-mode">Booth</p>
       <h1 class="display" id="staff-booth-name">Booth controls</h1>
       <p class="lede" id="staff-booth-description"></p>
@@ -45,6 +45,16 @@
         </div>
         <div id="staff-room-launch"></div>
         <div id="staff-kiosk-launch"></div>
+        <div id="staff-song-votes">
+          <div class="section-title">Live song vote</div>
+          <p class="top-note" style="color:var(--ink-soft); text-align:left; margin:6px 0 12px;">Updates as attendees tap a song; they do not need to finish the booth first.</p>
+          <div style="overflow-x:auto;">
+            <table class="dash-table" id="staff-song-vote-table" aria-live="polite">
+              <thead><tr><th>Song</th><th>Votes</th></tr></thead>
+              <tbody><tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
         <div class="section-title">Attendee screen controls</div>
         <div id="staff-settings"></div>
         <div class="section-title">Recent check-ins</div>

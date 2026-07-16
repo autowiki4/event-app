@@ -2,12 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>The New Song in Nashville — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
   :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
   .song-choice.selected{ background:var(--teal); color:#fff; border-color:var(--teal); }
+  .song-choice:disabled{ opacity:1; cursor:default; }
+  .beat-time{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--coral); text-transform:uppercase; margin-bottom:8px; }
+  .beat-headline{ font-family:'Fraunces',serif; font-size:30px; line-height:1.08; margin:0 0 10px; }
+  .song-list-scroll{ max-height:390px; overflow:auto; padding:2px 3px 2px 0; margin:14px 0; overscroll-behavior:contain; }
+  .song-list-scroll .poll-opt{ margin-bottom:8px; }
+  .song-vote-status{ border-radius:14px; padding:13px 14px; background:rgba(29,122,120,.11); border:1px solid rgba(29,122,120,.22); color:var(--teal-deep); font-weight:800; margin:14px 0; }
+  .quiet-note{ border-radius:14px; padding:13px 14px; background:#fff8df; border:1px solid rgba(229,183,47,.35); font-weight:700; margin:14px 0; line-height:1.45; }
+  .create-card{ border-radius:20px; padding:24px 20px; text-align:center; background:linear-gradient(145deg, rgba(47,111,237,.10), rgba(217,74,67,.10)); border:1px solid var(--line); margin:16px 0; }
+  .verse-box{ border-left:4px solid var(--sun-deep); background:#fff9e9; border-radius:0 14px 14px 0; padding:16px; margin:16px 0; }
+  .verse-box p{ font-family:'Fraunces',serif; font-style:italic; line-height:1.5; margin:0 0 8px; }
+  .verse-ref{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:var(--coral-deep); text-transform:uppercase; letter-spacing:.06em; }
 </style>
 </head>
 <body>
@@ -54,8 +65,11 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
+<script src="../shared/journey-state.js"></script>
 <script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
@@ -66,7 +80,32 @@
 const BOOTH_ID = "newsong";
 const BOOTH_NAME = "The New Song in Nashville";
 const BOOTH_ROOM_NAME = "New Song";
-let votedFor = "";
+const NEWSONG_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
+const newSongState = { index: 0, votedFor: "", voteSaving: false, voteSaved: false, guess: "" };
+let newSongStateOwner = "";
+
+function restoreNewSongState() {
+  const owner = String((Identity.peek() || {}).attendeeId || "");
+  if (!owner || newSongStateOwner === owner) return;
+  const saved = JourneyState.load(NEWSONG_DRAFT_SCOPE, {}) || {};
+  const index = Number(saved.index);
+  const votedFor = saved.voteSaved && SONG_LIST.includes(saved.votedFor) ? saved.votedFor : "";
+  newSongState.index = Number.isInteger(index) ? Math.min(NEWSONG_BEATS.length - 1, Math.max(0, index)) : 0;
+  newSongState.votedFor = votedFor;
+  newSongState.voteSaving = false;
+  newSongState.voteSaved = Boolean(votedFor);
+  newSongState.guess = typeof saved.guess === "string" ? saved.guess.slice(0, 80) : "";
+  newSongStateOwner = owner;
+}
+
+function saveNewSongState() {
+  JourneyState.save(NEWSONG_DRAFT_SCOPE, {
+    index: newSongState.index,
+    votedFor: newSongState.voteSaved ? newSongState.votedFor : "",
+    voteSaved: newSongState.voteSaved,
+    guess: newSongState.guess,
+  });
+}
 
 function renderProgress() {
   const el = document.getElementById("progress");
@@ -80,28 +119,150 @@ function renderProgress() {
 renderProgress();
 
 function renderSongRoom() {
-  document.getElementById("booth-content").innerHTML = `
-    <p class="poll-q">What should play next?</p>
-    <div id="song-choices"></div>
-    <div class="placeholder-note">${votedFor ? `Your current choice is <strong>${escapeHtml(votedFor)}</strong>.` : "Choose one song before you finish, or leave it blank if you only want to listen."}</div>
+  restoreNewSongState();
+  const beat = NEWSONG_BEATS[newSongState.index];
+  let content = `
+    <div class="beat-time">${escapeHtml(beat.time)}</div>
+    <h2 class="beat-headline">${escapeHtml(beat.headline)}</h2>
+    <p class="lede">${escapeHtml(beat.lede)}</p>
   `;
+
+  if (beat.type === "vote") {
+    content += `<div class="hint" style="margin-top:12px;">Scroll to see all ${SONG_LIST.length} song choices.</div><div id="song-choices" class="song-list-scroll"></div>`;
+    if (newSongState.votedFor) {
+      content += `<div class="song-vote-status">${newSongState.voteSaving ? "Saving your vote…" : "✓ Vote counted:"} ${escapeHtml(newSongState.votedFor)}</div>`;
+    }
+    content += `<div class="quiet-note">${escapeHtml(beat.footNote)}</div>`;
+  }
+
+  if (beat.type === "note") {
+    content += `
+      <div class="create-card">
+        <div style="font-size:46px; margin-bottom:9px;">💿🖊️</div>
+        <strong style="display:block; font-size:18px; margin-bottom:6px;">Grab a CD and a marker</strong>
+        <span style="color:var(--ink-soft); line-height:1.45;">Use this time to create while the room sings together.</span>
+      </div>
+    `;
+  }
+
+  if (beat.type === "reveal") {
+    content += `
+      <div class="field">
+        <label for="newsong-guess-input">${escapeHtml(beat.prompt)}</label>
+        <input id="newsong-guess-input" type="text" maxlength="80" placeholder="${escapeHtml(beat.placeholder)}">
+      </div>
+      <div class="verse-box">
+        <p>“${escapeHtml(beat.verse.text)}”</p>
+        <div class="verse-ref">${escapeHtml(beat.verse.ref)}</div>
+      </div>
+      <p class="lede" style="margin-bottom:0;">${escapeHtml(beat.closing)}</p>
+    `;
+  }
+
+  content += `
+    <div class="poll-nav" style="margin-top:16px;">
+      <button class="btn btn-ghost" id="btn-newsong-prev"${newSongState.index === 0 ? " style=\"visibility:hidden;\"" : ""}>← Back</button>
+      <button class="btn btn-primary" id="btn-newsong-next">${newSongState.index === NEWSONG_BEATS.length - 1 ? "Continue to finish ↓" : "Next →"}</button>
+    </div>
+  `;
+
+  document.getElementById("booth-content").innerHTML = content;
+
+  if (beat.type === "vote") renderSongChoices();
+  const guessInput = document.getElementById("newsong-guess-input");
+  if (guessInput) {
+    guessInput.value = newSongState.guess;
+    guessInput.addEventListener("input", () => {
+      newSongState.guess = guessInput.value;
+      saveNewSongState();
+    });
+  }
+
+  document.getElementById("btn-newsong-prev").addEventListener("click", () => {
+    saveSongGuess();
+    if (newSongState.index > 0) {
+      newSongState.index--;
+      saveNewSongState();
+      renderSongRoom();
+    }
+  });
+  document.getElementById("btn-newsong-next").addEventListener("click", () => {
+    if (newSongState.voteSaving) {
+      toast("Your vote is still saving — one moment.");
+      return;
+    }
+    if (beat.type === "vote" && !newSongState.votedFor) {
+      const choices = document.getElementById("song-choices");
+      if (choices) choices.scrollIntoView({ behavior: "smooth", block: "center" });
+      toast("Choose one song to cast your vote.");
+      return;
+    }
+    saveSongGuess();
+    if (newSongState.index < NEWSONG_BEATS.length - 1) {
+      newSongState.index++;
+      saveNewSongState();
+      renderSongRoom();
+      return;
+    }
+    document.getElementById("btn-booth-done").scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+function renderSongChoices() {
   const choices = document.getElementById("song-choices");
+  if (!choices) return;
   SONG_LIST.forEach((song) => {
     const button = document.createElement("button");
-    button.className = "poll-opt song-choice" + (votedFor === song ? " selected" : "");
-    button.textContent = song;
-    button.addEventListener("click", () => {
-      votedFor = song;
+    button.type = "button";
+    button.className = "poll-opt song-choice" + (newSongState.votedFor === song ? " selected" : "");
+    button.textContent = song + (newSongState.votedFor === song ? "  ✓" : "");
+    button.disabled = Boolean(newSongState.votedFor) || newSongState.voteSaving;
+    button.addEventListener("click", async () => {
+      if (newSongState.votedFor || newSongState.voteSaving) return;
+      newSongState.votedFor = song;
+      newSongState.voteSaving = true;
       renderSongRoom();
+      try {
+        const attendee = typeof window.getCurrentBoothIdentity === "function"
+          ? window.getCurrentBoothIdentity()
+          : Identity.peek();
+        await EventAPI.saveSongVote(attendee.attendeeId, song);
+        newSongState.voteSaving = false;
+        newSongState.voteSaved = true;
+        saveNewSongState();
+        renderSongRoom();
+        toast("Vote counted for the booth leader.");
+      } catch (error) {
+        console.error(error);
+        newSongState.votedFor = "";
+        newSongState.voteSaving = false;
+        newSongState.voteSaved = false;
+        saveNewSongState();
+        renderSongRoom();
+        if (!Identity.restartIfMissing(error, currentBoothRoomUrl())) {
+          toast("Couldn't save that vote — check the connection and tap again.");
+        }
+      }
     });
     choices.appendChild(button);
   });
 }
 
-window.getBoothExtraData = () => votedFor ? { votedFor } : null;
+function saveSongGuess() {
+  const input = document.getElementById("newsong-guess-input");
+  if (input) newSongState.guess = input.value.trim();
+  saveNewSongState();
+}
+
+window.getBoothExtraData = () => ({
+  votedFor: newSongState.votedFor || null,
+  voteSavedAtSelection: newSongState.voteSaved,
+  guess: newSongState.guess || null,
+  reachedBeat: NEWSONG_BEATS[newSongState.index].id,
+});
 
 initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderSongRoom });
-renderBoothFooter();
+renderBoothFooter(BOOTH_ID);
 document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>
 </body>

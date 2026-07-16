@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Phase 1 · Entry — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
@@ -31,6 +31,14 @@
   </section>
 
   <section class="screen" id="s-pass" style="display:none;">
+    <div class="attendee-banner">
+      <div>
+        <span class="attendee-label">Attendee</span>
+        <strong id="phase1-attendee-name">Guest</strong>
+        <span class="attendee-raffle" id="phase1-attendee-raffle">Raffle #----</span>
+      </div>
+      <div class="attendee-banner-actions"><div id="phase1-attendee-menu"></div></div>
+    </div>
     <p class="eyebrow">You're registered</p>
     <div class="ticket-hero">
       <div class="kicker">Sunshine Raffle</div>
@@ -69,6 +77,8 @@
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
 <script src="../shared/event-schedule.js"></script>
+<script src="../shared/attendee-portal.js"></script>
+<script src="../shared/attendee-menu.js"></script>
 <script>
 function renderProgress(phaseIndex) {
   const el = document.getElementById("progress");
@@ -96,6 +106,25 @@ function updateWristbandConfirmation() {
   document.getElementById("btn-enter-gym").disabled = !(handedOver && selectedWristbandColor);
 }
 
+function showRegistration(attendeeIdentity) {
+  const saved = attendeeIdentity || Identity.peek();
+  if (!saved.attendeeId || !saved.name || !saved.raffleNumber) return false;
+  document.getElementById("ticket-name").textContent = "Hey, " + saved.name + ".";
+  document.getElementById("ticket-number").textContent = "#" + saved.raffleNumber;
+  document.getElementById("phase1-attendee-name").textContent = saved.name;
+  document.getElementById("phase1-attendee-raffle").textContent = `Raffle #${saved.raffleNumber}`;
+  document.getElementById("s-welcome").style.display = "none";
+  document.getElementById("s-pass").style.display = "block";
+  AttendeeMenu.mount("phase1-attendee-menu", {
+    identity: saved,
+    logoutUrl: EventSchedule.linkWithPreview("index.html"),
+  });
+  if (Identity.isPersistent && !Identity.isPersistent()) {
+    toast("Open this link in Safari or Chrome so this phone can keep your place after closing.");
+  }
+  return true;
+}
+
 wristbandPicker.querySelectorAll('input[name="wristband-color"]').forEach((input) => {
   input.addEventListener("change", (event) => {
     selectedWristbandColor = event.target.value;
@@ -115,8 +144,7 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
   try {
     const identity = Identity.get();
     const result = await EventAPI.registerAttendee(identity.attendeeId, val);
-    Identity.clear();
-    Identity.replace({
+    const savedIdentity = Identity.replace({
       attendeeId: result.attendeeId || identity.attendeeId,
       name: val,
       raffleNumber: result.raffleNumber,
@@ -125,10 +153,11 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
       phoneLinked: result.isNew ? false : !!(identity.phone || identity.phoneLinked),
       email: result.isNew ? "" : identity.email || "",
     });
-    document.getElementById("ticket-name").textContent = "Hey, " + val + ".";
-    document.getElementById("ticket-number").textContent = "#" + result.raffleNumber;
-    document.getElementById("s-welcome").style.display = "none";
-    document.getElementById("s-pass").style.display = "block";
+    if (savedIdentity.wristbandColor) {
+      window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+      return;
+    }
+    showRegistration(savedIdentity);
   } catch (e) {
     console.error(e);
     toast("Couldn't register — check the connection and try again.");
@@ -160,6 +189,18 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
     btn.disabled = false; btn.textContent = "Complete Phase 1 & continue →";
   }
 });
+
+function resumeSavedAttendee() {
+  const saved = Identity.peek();
+  if (!saved.attendeeId || !saved.name || !saved.raffleNumber) return;
+  if (saved.wristbandColor) {
+    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    return;
+  }
+  showRegistration(saved);
+}
+
+resumeSavedAttendee();
 </script>
 </body>
 </html>
