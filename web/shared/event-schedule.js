@@ -6,6 +6,7 @@
 const EventSchedule = (() => {
   const DEMO_CLOCK_MODES = new Set([
     "live",
+    "custom",
     "before",
     "session1-start",
     "session1",
@@ -24,6 +25,7 @@ const EventSchedule = (() => {
     mode: "live",
     targetIso: null,
     updatedAt: null,
+    dataResetAt: "initial",
   };
   let demoClockPollTimer = null;
   let demoClockRequest = null;
@@ -74,7 +76,7 @@ const EventSchedule = (() => {
     return typeof EventAPI !== "undefined" && EventAPI && typeof EventAPI.eventClock === "function";
   }
 
-  function demoTargetIso(modeValue) {
+  function demoTargetIso(modeValue, customValue) {
     const mode = String(modeValue || "").trim().toLowerCase();
     if (!DEMO_CLOCK_MODES.has(mode)) return null;
     if (mode === "live") return null;
@@ -84,6 +86,16 @@ const EventSchedule = (() => {
 
     const firstStartMs = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
     const lastEndMs = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
+    if (mode === "custom") {
+      const customMs = customValue instanceof Date
+        ? customValue.getTime()
+        : typeof customValue === "number"
+          ? customValue
+          : Date.parse(customValue);
+      return Number.isFinite(customMs) && customMs >= firstStartMs && customMs <= lastEndMs
+        ? new Date(customMs).toISOString()
+        : null;
+    }
     let targetMs = NaN;
     if (mode === "before") targetMs = firstStartMs - (5 * 60 * 1000);
     if (mode === "session1-start") targetMs = firstStartMs;
@@ -115,13 +127,28 @@ const EventSchedule = (() => {
     const mode = String(data.mode || "").trim().toLowerCase();
     if (!DEMO_CLOCK_MODES.has(mode) || incomingClockIsOlder(data)) return false;
     if (!sync(data.serverNow, requestStartedMs, responseReceivedMs, { demoClock: true })) return false;
+    const dataResetAt = typeof data.dataResetAt === "string" && data.dataResetAt.trim()
+      ? data.dataResetAt.trim()
+      : "initial";
+    const resetChanged = remoteDemoClock.dataResetAt !== dataResetAt;
     remoteDemoClock = {
       available: true,
       controlled: data.controlled === true,
       mode,
       targetIso: data.targetIso || null,
       updatedAt: data.updatedAt || null,
+      dataResetAt,
     };
+    if (
+      typeof window !== "undefined"
+      && window
+      && typeof window.dispatchEvent === "function"
+      && typeof CustomEvent === "function"
+    ) {
+      window.dispatchEvent(new CustomEvent("eventapp:data-reset", {
+        detail: { dataResetAt, changed: resetChanged },
+      }));
+    }
     return true;
   }
 
@@ -328,6 +355,11 @@ const EventSchedule = (() => {
     return last ? new Date(last.endsAt).getTime() : NaN;
   }
 
+  function eventStartsAtMs() {
+    const first = BOOTH_SESSIONS[0];
+    return first ? new Date(first.startsAt).getTime() : NaN;
+  }
+
   function remainingUntilEventEnd() {
     const targetMs = eventEndsAtMs();
     return Number.isFinite(targetMs) ? Math.max(0, targetMs - nowMs()) : 0;
@@ -363,6 +395,7 @@ const EventSchedule = (() => {
     groupForBooth,
     formatCountdown,
     formattedTime,
+    eventStartsAtMs,
     eventEndsAtMs,
     remainingUntilEventEnd,
     linkWithPreview,
@@ -377,8 +410,8 @@ const EventSchedule = (() => {
   };
 })();
 
-// Every local-demo page joins the server-shared clock automatically. Apps
-// Script and other API bases never call these demo-only endpoints.
+// Every same-origin Node page joins the server-shared rehearsal clock
+// automatically, locally or on Render. Apps Script API bases never call it.
 if (typeof window !== "undefined") {
   EventSchedule.startDemoClockSync(5000).catch(() => {});
 }

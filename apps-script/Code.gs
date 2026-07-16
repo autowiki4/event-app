@@ -1,8 +1,9 @@
 /**
  * Event app production backend — Google Apps Script Web App bound to a
- * Google Sheet ("EventDB"). Implements the exact same actions as
- * demo-server/server.js so web/shared/api.js works unchanged against
- * either backend — only web/shared/config.js's API_BASE_URL differs.
+ * Google Sheet ("EventDB"). Implements the core attendee and booth-staff
+ * actions used by web/shared/api.js. The Node-only resetDemo, setDemoClock,
+ * and eventClock actions are intentionally absent; selecting this adapter is
+ * otherwise controlled by web/shared/config.js's API_BASE_URL.
  *
  * For full step-by-step deployment instructions (including the "Google
  * hasn't verified this app" prompt you'll hit the first time, and how to

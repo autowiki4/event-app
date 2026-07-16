@@ -1,8 +1,9 @@
 # Demo server
 
-This zero-dependency Node server runs the event app mock locally. It serves the
-static files under `../web/`, implements the shared attendee/staff API plus the
-local-only rehearsal clock, and stores throwaway data in `db.json`.
+This zero-dependency Node service runs the event app mock locally or behind a
+same-origin Render URL. It serves the static files under `../web/`, implements
+the shared attendee/staff API plus protected rehearsal clock and reset
+features, and stores event data in `db.json`.
 
 It is for development and event-flow rehearsal, not a hardened production
 service.
@@ -64,22 +65,27 @@ reuse the local default or this shared-key model for production.
 ## Shared rehearsal clock
 
 Open the organizer portal, choose **Overall Organizer**, unlock the dashboard
-with the local organizer key, and use its
-**Demo only · Shared event time** panel. The presets cover live time, before
-the event, the exact start of Session 1, each session midpoint, each session's final 15 seconds, and the
-post-booth message state.
+with the organizer key, and use its **Demo only · Shared event time** panel.
+The continuous timeline accepts any exact second from **3:10:00 through
+4:10:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
+3:10, 3:30, 3:50, and 4:10 boundary shortcuts, then choose **Apply simulated
+time**. **Show waiting lobby** provides the pre-session state, and **Use live
+CDT clock** restores actual Chicago time.
 
-The selected clock is held in memory by this Node process. Attendee and staff
-pages sample it about every five seconds with per-browser jitter, while their
-visible countdown advances locally every second. Hidden tabs stop polling and
-resynchronize when visible. The public clock read contains time state only;
-changing it still requires the organizer key. Restarting the server returns
-the rehearsal clock to its default state; resetting attendee data leaves the
-selected clock in place so a rehearsal can continue at the same moment.
+The selected mode and anchor are held in memory by this Node process. Simulated
+time ticks normally from that anchor, preserving the three 20-minute booth
+windows. Attendee, overall-organizer, and booth-leader pages sample it about
+every five seconds with per-browser jitter, while their visible countdown
+advances locally every second. Hidden tabs stop polling and resynchronize when
+visible. The public clock read contains time state and a non-PII reset marker;
+changing the clock still requires the organizer key. Restarting the service
+returns the rehearsal clock to its default state; resetting attendee data
+leaves the selected clock in place so a rehearsal can continue at the same
+moment.
 
-This endpoint and its organizer UI are intentionally local-demo-only. They are
-not implemented by the Apps Script adapter and must not be treated as live
-event show control.
+These controls work on the same-origin Node service locally or on Render. They
+are not implemented by the Apps Script adapter and must not be treated as
+resilient live-event show control.
 
 ### Per-page preview fallback
 
@@ -117,8 +123,10 @@ The server creates `db.json` on first write. It contains:
   taps;
 - New Song votes saved as soon as an attendee taps a song;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
-- one current presentation state per booth; and
-- the raffle counter.
+- one current presentation state per booth;
+- the raffle counter; and
+- a durable `dataResetAt` marker used to invalidate attendee browser identity
+  after an organizer starts fresh.
 
 The file is ignored by Git. Use the protected reset action between rehearsals;
 if you stop the server and reset manually, delete both `db.json` and
@@ -143,7 +151,14 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:3000/api/resetDemo
 ```
 
-The organizer dashboard exposes the same reset action.
+The organizer dashboard exposes the same protected action as **Clear all
+attendee data & start fresh**. It deletes attendees and wristbands, booth
+check-ins and scores, New Song votes, Phase 3 sign-ups, all booth presentation
+and control state, and the raffle counter. It replaces `db.json.bak` with the
+same empty state and advances the durable reset marker. On their next sync,
+connected or reopened attendee browsers clear their old identity and return to
+Phase 1. The reset deliberately leaves the current simulated/live clock mode
+unchanged.
 
 ## Tests
 
@@ -167,7 +182,7 @@ overall dashboard also verifies each color's current scheduled booth and
 expandable attendee progress roster. It does not replace a
 real-device, venue-network, accessibility, or multi-staff rehearsal.
 
-## API parity
+## API surface and backend differences
 
 The current primary attendee actions are:
 
@@ -190,16 +205,16 @@ The main protected staff actions are:
 - `boothDashboardData`
 - `dashboardData`
 - `confirmSignupInPerson`
-- `resetDemo`
-- `setDemoClock` (Node demo only)
+- `resetDemo` (Node service only)
+- `setDemoClock` (Node service only)
 
-The Node demo also exposes the public, PII-free `eventClock` read so pages can
-follow the shared rehearsal time. `eventClock` and `setDemoClock` deliberately
-have no Apps Script counterpart.
+The Node service also exposes the public, PII-free `eventClock` read so pages
+can follow the shared rehearsal time and durable reset marker. `resetDemo`,
+`eventClock`, and `setDemoClock` deliberately have no Apps Script counterpart.
 
-Legacy phone/kiosk actions also remain for the optional fallback pages. These
-actions, except for the two demo-clock actions called out above, have matching
-implementations in `../apps-script/Code.gs`.
+Legacy phone/kiosk actions also remain for the optional fallback pages. The
+core attendee and staff journey actions have matching implementations in
+`../apps-script/Code.gs`; the three Node-only actions called out above do not.
 `../web/shared/api.js` calls either backend the same way; moving to Apps Script
 requires changing `API_BASE_URL` in `../web/shared/config.js`.
 

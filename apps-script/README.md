@@ -1,13 +1,13 @@
 # Deploying the production backend
 
 This turns `Code.gs` into a live web address that the app can talk to,
-backed by a real Google Sheet instead of the local demo server's
-`db.json`. You only need a free Google account — no billing, no server to
+backed by a real Google Sheet instead of the Node service's `db.json`. You
+only need a free Google account — no billing, no server to
 rent, no command line required for this part.
 
-Do this once you're happy with how the app behaves against the local demo
-server (`../demo-server/README.md`) and are getting ready for the actual
-event.
+Do this once you're happy with how the app behaves against the Node service
+(`../demo-server/README.md`) and are getting ready to test the Google Sheets
+adapter for the actual event.
 
 ## What you'll end up with
 
@@ -17,6 +17,14 @@ event.
   columns show up.
 - A URL (looks like `https://script.google.com/macros/s/AKfycb.../exec`)
   that the app's pages call instead of `localhost`.
+
+This adapter covers the core attendee and booth-staff journey, but it does not
+implement the Node service's `setDemoClock`, public `eventClock`, or
+`resetDemo` actions. Consequently the Overall Organizer has no shared remote
+timeline, **Show waiting lobby**, **Use live CDT clock**, or protected
+clear-everything action when `API_BASE_URL` points here. Apps Script pages use
+actual synchronized time. Plan Sheet data deletion and retention separately;
+do not assume the Node reset button can clear this backend.
 
 ## Step-by-step
 
@@ -102,7 +110,8 @@ body. Its wristband groups include each color's current scheduled booth plus an
 expandable name, raffle-number, and booth-progress roster; attendee phone
 numbers are not included in that roster.
 
-For a full parity check, complete the attendee journey as well. Phase 1 should
+For a core-journey compatibility check, complete the attendee journey as well.
+Phase 1 should
 continue directly into Phase 2 with the same identity. Booth visits should be
 stored only after the attendee taps to mark them complete. After all three
 taps—or after the 4:10 PM cutoff—finish Phase 3 using either **Save & finish**
@@ -164,7 +173,7 @@ thanks** and therefore has no option row.
 ## See also
 
 - `SHEET_SCHEMA.md` — exact column layout created in each tab.
-- `../demo-server/README.md` — the local equivalent of this backend, used
-  for development and rehearsal.
+- `../demo-server/README.md` — the Node backend used locally or on Render for
+  development and synchronized rehearsal controls.
 - `../README.md` — the full "going from demo to the real event" checklist
   this deployment is one step of.

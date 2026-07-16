@@ -2,7 +2,7 @@
   "name": "event-app-demo-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Local demo backend for the event app — same API shape as the production Apps Script backend, backed by a JSON file instead of a Google Sheet. Zero dependencies (plain Node http), so there's nothing to install.",
+  "description": "Node rehearsal backend for the event app, with a shared clock, protected reset, and JSON persistence. Zero dependencies (plain Node HTTP).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

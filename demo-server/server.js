@@ -1,15 +1,14 @@
-/* Local demo backend — implements the exact same API contract as
- * apps-script/Code.gs, but backed by a plain JSON file instead of a Google
- * Sheet. This is what lets you run the whole multi-device flow on a laptop
- * for a demo/presentation, with no Google account or deployment needed.
+/* Node rehearsal backend — implements the core attendee/staff API from
+ * apps-script/Code.gs plus Node-only shared-clock and full-reset actions,
+ * backed by a plain JSON file instead of a Google Sheet. It runs the whole
+ * multi-device flow locally or as a same-origin service on Render.
  *
  * Deliberately zero npm dependencies (just Node's built-in http/fs) — so
  * there's no "npm install" step, nothing that can fail to fetch on a
  * conference wifi, and no version drift. Just: node server.js.
  *
- * Swapping to the real event: point web/shared/config.js's API_BASE_URL at
- * your deployed Apps Script /exec URL instead of running this server. The
- * frontend code doesn't change either way.
+ * Switching the core journey to Apps Script only changes API_BASE_URL, but
+ * that adapter intentionally has no remote rehearsal clock or resetDemo.
  *
  * Run: node server.js   (serves web/ + the /api/* routes on :3000)
  */
@@ -50,6 +49,7 @@ const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
 const DEMO_CLOCK_MODES = new Set([
   "live",
+  "custom",
   "before",
   "session1-start",
   "session1",
@@ -60,6 +60,8 @@ const DEMO_CLOCK_MODES = new Set([
   "session3-final15",
   "ended",
 ]);
+const EVENT_WINDOW_START_MS = Date.parse(BOOTH_SESSIONS[0].startsAt);
+const EVENT_WINDOW_END_MS = Date.parse(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt);
 const FINAL_SIGNUP_OPTIONS = new Map([
   ["future", "Keep me posted on future events"],
   ["bible", "One-on-one Bible study"],
@@ -166,6 +168,7 @@ function nextDemoClockUpdatedAt(realNowMs) {
 }
 
 function demoClockResult() {
+  const dataResetAt = readDb().dataResetAt;
   return {
     serverNow: eventNowIso(),
     mode: demoClock.mode,
@@ -174,6 +177,7 @@ function demoClockResult() {
       ? new Date(demoClock.targetMs).toISOString()
       : null,
     updatedAt: demoClock.updatedAt,
+    dataResetAt,
   };
 }
 
@@ -186,7 +190,13 @@ function emptyDb() {
     signups: [],
     boothPresentations: {},
     raffleCounter: 1000,
+    dataResetAt: "initial",
   };
+}
+function normalizeDataResetAt(value) {
+  if (value === "initial") return "initial";
+  const valueMs = Date.parse(value);
+  return Number.isFinite(valueMs) ? new Date(valueMs).toISOString() : "initial";
 }
 function normalizeDb(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
@@ -222,6 +232,7 @@ function normalizeDb(raw) {
     highestAssignedRaffle,
     Number.isSafeInteger(storedCounter) ? storedCounter : 1000
   );
+  db.dataResetAt = normalizeDataResetAt(source.dataResetAt);
   return db;
 }
 let dbCache = null;
@@ -526,6 +537,7 @@ function registerAttendee(body) {
       attendeeId: attendee.attendeeId,
       wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
       isNew,
+      dataResetAt: db.dataResetAt,
     },
   };
 }
@@ -564,6 +576,7 @@ function attendeePortalResult(attendee) {
     phoneLinked: !!attendee.phone,
     phase3CompletedAt: attendee.phase3CompletedAt || null,
     serverNow: eventNowIso(),
+    dataResetAt: readDb().dataResetAt,
   };
 }
 
@@ -1201,6 +1214,16 @@ function setDemoClock(body) {
       "INVALID_DEMO_CLOCK_TARGET"
     );
   }
+  if (
+    mode === "custom"
+    && (targetMs < EVENT_WINDOW_START_MS || targetMs > EVENT_WINDOW_END_MS)
+  ) {
+    return errorResult(
+      400,
+      "Custom demo time must be between the event start at 3:10 PM and end at 4:10 PM CDT.",
+      "INVALID_DEMO_CLOCK_TARGET_RANGE"
+    );
+  }
   demoClock = {
     mode,
     controlled: true,
@@ -1214,8 +1237,23 @@ function setDemoClock(body) {
 function resetDemo(body) {
   const authError = requireOrganizer(body);
   if (authError) return authError;
-  writeDb(emptyDb(), { replaceBackup: true });
-  return { status: 200, body: { ok: true } };
+  const previousResetMs = Date.parse(readDb().dataResetAt);
+  const dataResetAt = new Date(Math.max(
+    Date.now(),
+    Number.isFinite(previousResetMs) ? previousResetMs + 1 : 0
+  )).toISOString();
+  const freshDb = emptyDb();
+  freshDb.dataResetAt = dataResetAt;
+  writeDb(freshDb, { replaceBackup: true });
+  // Version the unchanged clock state as well. That makes any eventClock
+  // response created before this reset older than the first post-reset
+  // response, so a delayed network reply cannot roll browsers back to the
+  // previous data-reset marker.
+  demoClock = {
+    ...demoClock,
+    updatedAt: nextDemoClockUpdatedAt(Date.now()),
+  };
+  return { status: 200, body: { ok: true, dataResetAt } };
 }
 
 function verifyOrganizer(body) {

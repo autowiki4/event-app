@@ -1,6 +1,6 @@
-/* Thin fetch wrapper around the backend API. Same shape works against
-   demo-server/server.js (Express + JSON file) or apps-script/Code.gs
-   (Google Apps Script Web App) — only EVENT_APP_CONFIG.API_BASE_URL changes. */
+/* Thin fetch wrapper around the backend API. Core journey actions work with
+   demo-server/server.js (plain Node + JSON) or apps-script/Code.gs; the Node
+   service additionally supplies the shared-clock and reset actions. */
 const EventAPI = (function () {
   function base() {
     return window.EVENT_APP_CONFIG.API_BASE_URL;
@@ -65,6 +65,11 @@ const EventAPI = (function () {
     eventClock: () => call("eventClock", {}),
     setDemoClock: (mode, targetIso, organizerKey) => call("setDemoClock", {
       mode,
+      targetIso: targetIso || null,
+      organizerKey,
+    }),
+    setDemoClockAt: (targetIso, organizerKey) => call("setDemoClock", {
+      mode: "custom",
       targetIso: targetIso || null,
       organizerKey,
     }),

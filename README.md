@@ -88,32 +88,40 @@ attendee stays signed in until they tap their name at the top-right and choose
 
 Press `Ctrl+C` in the terminal to stop the server.
 
-### Rehearse with the shared demo clock
+### Rehearse with the shared Node clock
 
 Open the organizer portal, choose **Overall Organizer**, unlock it with the
 local key (`demo` by default), and use the **Demo only · Shared event time**
-panel. It can place all
-attendee, booth-leader, Phase 3, and final-message screens connected to that
-Node demo server at:
+panel. Its one-hour timeline can start the shared simulated clock at any exact
+second from **3:10:00 through 4:10:00 PM America/Chicago**. Drag the timeline,
+enter a precise time, or use the 3:10, 3:30, 3:50, and 4:10 boundary shortcuts,
+then choose **Apply simulated time**. The chosen point is an anchor rather than
+a frozen preview: it continues ticking normally, so every 20-minute booth
+transition and countdown still happens. **Show waiting lobby** provides the
+pre-session rehearsal state, while **Use live CDT clock** restores actual
+Chicago time for the event day.
 
-- live time, before the event, or the exact start of Session 1;
-- the midpoint or final 15 seconds of Sessions 1, 2, and 3; or
-- after the booths.
+The change applies to all attendee, overall-organizer, booth-leader, Phase 3,
+and final-message screens using the same Node service, whether that service is
+running locally or on Render.
 
 Screens sample the same public, PII-free demo clock about every five seconds,
 with randomized staggering, while their visible countdown continues locally
 every second. Hidden tabs pause network polling and resynchronize when opened.
-The setting is an in-memory rehearsal override: it is local to the running
-demo server and is not a production show-control feature.
+The selected anchor is an in-memory rehearsal override owned by the running
+Node process; it is not resilient production show control.
 
-The panel appears only when `API_BASE_URL` is the local `/api` backend. It is
-not available in the Apps Script adapter, and it does not change live event
-time. Apps Script pages continue to use the real synchronized clock.
+The panel appears when `API_BASE_URL` uses the same-origin Node `/api` backend,
+including a Render deployment of this server. It is not available in the Apps
+Script adapter. Choosing **Use live CDT clock** removes the override rather
+than changing the real clock; Apps Script pages always use synchronized real
+time.
 
 Before Session 1, every registered attendee sees a waiting lobby and their
 first booth, but no booth can be opened. The lobby changes automatically at
 3:10 PM; during a Node-backed rehearsal, the overall organizer can use
-**Start Session 1 now** to move every connected screen to that exact start.
+**Show waiting lobby**, then the **3:10** boundary shortcut and **Apply
+simulated time**, to demonstrate that transition on every connected screen.
 
 ### Planning for around 150 attendees
 
@@ -154,7 +162,7 @@ http://localhost:3000/phase2-staff/heaven.html?preview=1
 
 Query preview holds only that browser journey at a deterministic point and is
 intentionally frozen. Use the organizer control for multi-window rehearsals;
-once the organizer selects a shared preset, that server-controlled state wins
+once the organizer selects a shared time, that server-controlled state wins
 over a query preview. The query override is ignored on non-local hosts.
 
 ## Booth-leader portals
@@ -191,17 +199,18 @@ event-app/
 │   ├── done/               early-finish countdown + 4:10 message state
 │   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
-├── demo-server/            local Node backend using a throwaway JSON file
-├── apps-script/            Google Sheets + Apps Script parity backend
+├── demo-server/            Node rehearsal backend using a JSON data file
+├── apps-script/            Google Sheets + Apps Script core-journey backend
 ├── ARCHITECTURE.md         identity, timing, controls, and data design
 ├── DEMO_GUIDE.md           a short presentation/rehearsal script
 └── qr/QR_PLAN.md           recommended placement and print checklist
 ```
 
-Both backends implement the same attendee and staff data API. The Node version
-writes to `demo-server/db.json` and adds the demo-only shared clock; the Apps
-Script version writes to Google Sheets and deliberately omits that clock
-override. Switching backends is controlled by `API_BASE_URL` in
+Both backends implement the core attendee and staff data API. The Node version
+writes to `demo-server/db.json` and adds the protected rehearsal reset and
+shared-clock controls. The Apps Script version writes to Google Sheets and
+deliberately omits `resetDemo`, `setDemoClock`, and the public `eventClock`
+read. Switching backends is controlled by `API_BASE_URL` in
 `web/shared/config.js`.
 
 The Apps Script implementation is deployment-shaped, not proof that the whole
@@ -224,13 +233,24 @@ protected updates, booth-scoped staff data, duplicate check-in protection,
 persisted Phase 3 completion and sign-ups, organizer authorization, reset
 behavior, and inline JavaScript syntax.
 
-To clear rehearsal data, use the organizer dashboard or run:
+To start a fresh Node-backed rehearsal, unlock **Overall Organizer** and use
+**Clear all attendee data**, or run:
 
 ```bash
 curl -X POST -H "Content-Type: application/json" \
   -d '{"organizerKey":"demo"}' \
   http://localhost:3000/api/resetDemo
 ```
+
+The protected reset deletes attendees and wristband assignments, booth
+check-ins and scores, New Song votes, Phase 3 sign-ups, every booth's current
+presentation/control state, and the raffle counter. It replaces the backup
+with the same empty state. A durable reset marker also tells connected or
+reopened attendee browsers to clear their saved identity and return to Phase 1
+to register again. The selected simulated/live clock is deliberately left in
+place, so reset data separately from choosing the rehearsal time. This reset
+is available on the same-origin Node service locally or on Render; the Apps
+Script adapter does not implement it.
 
 ## Known mock limitations
 
@@ -243,8 +263,9 @@ curl -X POST -H "Content-Type: application/json" \
   shared clock, not as an authentication or authorization boundary at the API.
 - Booth leaders share one organizer key, and their controls are one current
   state per booth rather than a historical show-control system.
-- The shared clock controls are Node-demo-only rehearsal helpers. The Apps
-  Script/live path has no remote time override.
+- The shared clock controls are Node-service rehearsal helpers, available when
+  the site and `/api` share the local or Render origin. The Apps Script path
+  has no remote time override or matching full-data reset.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 
@@ -253,8 +274,8 @@ curl -X POST -H "Content-Type: application/json" \
 | Document | Purpose |
 |---|---|
 | `ARCHITECTURE.md` | How identity, schedule synchronization, routing, and booth controls connect |
-| `DEMO_GUIDE.md` | How to present the unified flow using local preview states |
-| `demo-server/README.md` | Local backend, data file, reset, and API parity |
+| `DEMO_GUIDE.md` | How to present the unified flow using the shared timeline |
+| `demo-server/README.md` | Node backend, data file, reset, and API differences |
 | `apps-script/README.md` | Google Apps Script deployment sketch |
 | `apps-script/SHEET_SCHEMA.md` | Sheet tabs and columns |
 | `qr/QR_PLAN.md` | Unified-flow QR destinations, placement, and print checklist |

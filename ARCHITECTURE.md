@@ -9,14 +9,16 @@ the timed booth experience, booth-leader controls, and Phase 3. For setup, see
 The browser UI is a collection of static HTML, CSS, and JavaScript files under
 `web/`. It can use either of two API implementations:
 
-- `demo-server/server.js`: a zero-dependency local Node server backed by
-  `demo-server/db.json`, with an additional in-memory rehearsal clock;
-- `apps-script/Code.gs`: an API-compatible Google Apps Script implementation
-  backed by a Google Sheet.
+- `demo-server/server.js`: a zero-dependency Node service backed by
+  `demo-server/db.json`, with protected reset and shared rehearsal-clock
+  features; it can run locally or as the same-origin service on Render;
+- `apps-script/Code.gs`: a Google Apps Script implementation of the core
+  attendee and staff journey, backed by a Google Sheet.
 
 `web/shared/config.js` selects the backend. The attendee/staff data flow does
-not change with that URL; demo-clock UI and polling are enabled only for the
-local `/api` backend.
+not change with that URL. The shared clock and full-data reset are Node-only
+extensions enabled when the pages use the same-origin `/api` backend; Apps
+Script implements neither extension.
 
 The primary attendee path is:
 
@@ -71,6 +73,13 @@ banner. Tapping the name opens the explicit **Log out on this device** action;
 that is the normal path that clears the identity, portal markers, and that
 attendee's local drafts. Refreshing and ordinary recovery never log them out.
 
+A protected organizer reset is the deliberate exception. The Node database
+stores a durable `dataResetAt` marker with the empty event state. When an
+attendee browser sees that marker change on its next clock sync, it clears its
+saved identity and returns to Phase 1 to register again. Persisting the marker
+means a phone that was closed during the reset receives the same instruction
+when it is reopened, rather than restoring a deleted attendee record.
+
 Name plus raffle number is record lookup, not strong authentication. Both can
 be shared or observed. Do not treat this as an account-security boundary; a
 production design should use a verified credential if the stored data or
@@ -124,22 +133,27 @@ Preview mode freezes the selected state; it does not simulate a ticking
 20-minute session. Attendee navigation preserves the preview value from Phase
 1 through the hub, Phase 3, and the final waiting/message screen.
 
-The Node demo adds a second, shared rehearsal layer. After organizer
-authentication, the dashboard can select live time, before-event, the exact
-start of Session 1, each session midpoint, each session's final 15 seconds, or
-the post-booth state.
-The protected `setDemoClock` action changes an in-memory override, while the
-public `eventClock` action returns only the current clock state and no attendee
-data. Attendee, completion, and booth-staff pages sample that state about every
-five seconds with randomized staggering and pause polling while hidden. Their
-countdowns still update locally every second, and separate browsers connected
-to the same process stay in sync. An active organizer-controlled mode takes
-precedence over a page's query preview.
+The Node service adds a second, shared rehearsal layer. After organizer
+authentication, the dashboard can anchor the shared clock at any exact second
+from **3:10:00 through 4:10:00 PM America/Chicago**. A continuous slider,
+exact-time field, and 3:10/3:30/3:50/4:10 boundary shortcuts all preserve the
+three 20-minute session windows. A legacy **Show waiting lobby** action anchors
+the clock before Session 1, and **Use live CDT clock** removes the override and
+returns every screen to actual Chicago time.
 
-This shared override deliberately exists only in `demo-server`. The Apps
-Script adapter exposes neither action, the organizer controls are hidden for
-that backend, and live pages continue to use synchronized real time. The
-demo-clock presets are a rehearsal convenience, not resilient show control.
+The protected `setDemoClock` action changes the in-memory mode and anchor. The
+clock ticks normally from that anchor; it is not a frozen preview. The public
+`eventClock` action returns only clock state plus the non-PII reset marker.
+Attendee, overall-organizer, and booth-staff pages sample that state about
+every five seconds with randomized staggering and pause polling while hidden.
+Their countdowns still update locally every second, and separate browsers
+connected to the same Node process stay in sync. An active
+organizer-controlled mode takes precedence over a page's query preview.
+
+This shared override works with the same-origin Node `/api`, locally or on
+Render. The Apps Script adapter exposes neither clock action, its organizer
+controls are hidden, and its pages continue to use synchronized real time.
+The timeline is a rehearsal convenience, not resilient show control.
 
 ## Unified Phase 2 attendee hub
 
@@ -243,6 +257,10 @@ The local JSON object and Google Sheet tabs represent the same concepts:
   per booth.
 - **Meta:** the raffle counter.
 
+The Node JSON object additionally stores the durable top-level `dataResetAt`
+marker used by `resetDemo`. The Apps Script Sheet has no equivalent because
+that adapter does not implement the full-data reset.
+
 See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
 ## API boundary
@@ -255,12 +273,19 @@ both selected options and the empty **No thanks** path; reads return that
 completion state so the final page cannot be reached by merely opening Phase
 3.
 
-The protected staff actions are `verifyOrganizer`,
-`updateBoothPresentation`, `boothDashboardData`, `dashboardData`,
-`confirmSignupInPerson`, and the demo reset. The Node demo additionally has
-the protected `setDemoClock` action and a public, PII-free `eventClock` read;
-these two demo-clock actions intentionally have no Apps Script parity. Legacy
-phone/kiosk actions remain for the optional fallback pages.
+The protected actions shared by both backends are `verifyOrganizer`,
+`updateBoothPresentation`, `boothDashboardData`, `dashboardData`, and
+`confirmSignupInPerson`. The Node service additionally has protected
+`resetDemo` and `setDemoClock` actions plus the public, PII-free `eventClock`
+read. Apps Script intentionally implements none of those three Node extensions.
+Legacy phone/kiosk actions remain for the optional fallback pages.
+
+`resetDemo` clears all attendees and wristband assignments, check-ins and
+scores, votes, Phase 3 sign-ups, booth presentation/control state, and the
+raffle counter. It writes the same fresh state to the primary JSON file and
+backup, advances `dataResetAt`, and thereby clears connected or reopened
+attendee identities at their next sync. It deliberately does not change the
+selected clock mode or anchor.
 
 Public presentation reads return only the booth's display state and server
 time. They do not return the organizer key, attendee roster, or event-wide
@@ -282,5 +307,6 @@ dashboard data.
 - Test real devices, accessibility, staff handoff, and recovery from late or
   incorrectly assigned wristbands.
 
-The included Apps Script backend provides API parity for testing the proposed
-shape. It does not remove these operating and security decisions.
+The included Apps Script backend provides core-journey compatibility for
+testing the proposed shape, but no remote clock or full-data reset parity. It
+does not remove these operating and security decisions.

@@ -132,11 +132,12 @@ async function runApiRegression(port) {
   res = await request(port, "eventClock", {});
   assert.equal(res.status, 200);
   assert.deepEqual(Object.keys(res.body).sort(), [
-    "controlled", "mode", "serverNow", "targetIso", "updatedAt",
+    "controlled", "dataResetAt", "mode", "serverNow", "targetIso", "updatedAt",
   ]);
   assert.equal(res.body.mode, "live");
   assert.equal(res.body.controlled, false);
   assert.equal(res.body.targetIso, null);
+  assert.equal(res.body.dataResetAt, "initial");
   assertIsoTimestamp(res.body.updatedAt, "initial demo clock updatedAt");
   assertIsoTimestamp(res.body.serverNow, "initial demo clock serverNow");
 
@@ -151,6 +152,38 @@ async function runApiRegression(port) {
   res = await request(port, "setDemoClock", { mode: "session1", targetIso: "not-a-date", organizerKey });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
+  res = await request(port, "setDemoClock", { mode: "custom", targetIso: "not-a-date", organizerKey });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
+  for (const targetIso of [
+    "2026-07-18T20:09:59.999Z",
+    "2026-07-18T21:10:00.001Z",
+  ]) {
+    res = await request(port, "setDemoClock", { mode: "custom", targetIso, organizerKey });
+    assert.equal(res.status, 400, targetIso);
+    assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET_RANGE", targetIso);
+  }
+
+  const customTarget = "2026-07-18T20:42:17.000Z";
+  res = await request(port, "setDemoClock", { mode: "custom", targetIso: customTarget, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.mode, "custom");
+  assert.equal(res.body.controlled, true);
+  assert.equal(res.body.targetIso, customTarget);
+  const firstCustomMs = Date.parse(res.body.serverNow);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  res = await request(port, "eventClock", undefined, "GET");
+  assert.ok(Date.parse(res.body.serverNow) > firstCustomMs, "custom demo time should tick forward");
+  for (const boundaryTarget of [
+    "2026-07-18T20:10:00.000Z",
+    "2026-07-18T21:10:00.000Z",
+  ]) {
+    res = await request(port, "setDemoClock", {
+      mode: "custom", targetIso: boundaryTarget, organizerKey,
+    });
+    assert.equal(res.status, 200, boundaryTarget);
+    assert.equal(res.body.targetIso, boundaryTarget, boundaryTarget);
+  }
 
   const anchoredTarget = "2026-07-18T20:15:00.000Z";
   res = await request(port, "setDemoClock", { mode: "session1", targetIso: anchoredTarget, organizerKey });
@@ -185,6 +218,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.mode, "live");
   assert.equal(res.body.controlled, true);
   assert.equal(res.body.targetIso, null);
+  const liveClockUpdatedAt = res.body.updatedAt;
 
   // Booth presentation state is public and PII-free. Each booth starts with
   // an independent waiting state; only an authenticated organizer can change
@@ -269,6 +303,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.raffleNumber, "1001");
   assert.equal(res.body.isNew, true);
   assert.equal(res.body.wristbandColor, null);
+  assert.equal(res.body.dataResetAt, "initial");
   res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
   assert.equal(res.body.isNew, false);
 
@@ -670,16 +705,25 @@ async function runApiRegression(port) {
   assert.equal(res.body.totals.registered, 3);
   res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assertIsoTimestamp(res.body.dataResetAt, "data reset marker");
+  const firstDataResetAt = res.body.dataResetAt;
   res = await request(port, "eventClock", {});
   assert.equal(res.body.mode, "live");
   assert.equal(res.body.controlled, true);
+  assert.equal(res.body.dataResetAt, firstDataResetAt);
   assertIsoTimestamp(res.body.updatedAt, "demo clock updatedAt after data reset");
+  assert.ok(
+    Date.parse(res.body.updatedAt) > Date.parse(liveClockUpdatedAt),
+    "data reset should version the unchanged clock state"
+  );
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.body.totals.registered, 0);
   const resetBackup = JSON.parse(fs.readFileSync(`${testDb}.bak`, "utf8"));
   assert.equal(resetBackup.attendees.length, 0);
   assert.equal(resetBackup.boothCheckins.length, 0);
   assert.equal(resetBackup.songVotes.length, 0);
+  assert.equal(resetBackup.dataResetAt, firstDataResetAt);
   fs.writeFileSync(testDb, "{corrupted after reset", "utf8");
   res = await request(port, "health", undefined, "GET");
   assert.equal(res.status, 200);
@@ -757,6 +801,7 @@ async function runCapacityRegression(port) {
 
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
+  assertIsoTimestamp(res.body.dataResetAt, "capacity reset marker");
 
   const registrations = await Promise.all(Array.from({ length: 150 }, (_, index) => (
     request(port, "registerAttendee", {
@@ -901,7 +946,9 @@ async function runFrontendContractRegression() {
 
   class FakeStorage {
     constructor() { this.values = new Map(); }
+    get length() { return this.values.size; }
     getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
+    key(index) { return Array.from(this.values.keys())[index] ?? null; }
     setItem(key, value) { this.values.set(key, String(value)); }
     removeItem(key) { this.values.delete(key); }
   }
@@ -979,8 +1026,13 @@ async function runFrontendContractRegression() {
   const identityStorage = new FakeStorage();
   const portalStorage = new FakeStorage();
   const backendPortalCalls = [];
+  const identityWindowListeners = {};
   const identityContext = {
-    window: { crypto: { randomUUID: () => "generated-id" }, location: { href: "" } },
+    window: {
+      crypto: { randomUUID: () => "generated-id" },
+      location: { href: "" },
+      addEventListener(type, listener) { identityWindowListeners[type] = listener; },
+    },
     localStorage: identityStorage,
     sessionStorage: portalStorage,
     EventAPI: {
@@ -993,6 +1045,7 @@ async function runFrontendContractRegression() {
           wristbandColor: "blue",
           phoneLinked: false,
           serverNow: "2026-07-18T20:10:00.000Z",
+          dataResetAt: "initial",
         };
       },
       attendeePortalSession: async (attendeeId, portal) => {
@@ -1003,6 +1056,7 @@ async function runFrontendContractRegression() {
           raffleNumber: "1001",
           phoneLinked: true,
           serverNow: "2026-07-18T20:11:00.000Z",
+          dataResetAt: "initial",
         };
       },
     },
@@ -1027,6 +1081,7 @@ async function runFrontendContractRegression() {
   let portalIdentity = await attendeePortal.signIn("phase2.heaven", "Jordan Lee", "1001");
   assert.equal(portalIdentity.attendeeId, "portal-attendee");
   assert.equal(portalIdentity.wristbandColor, "blue");
+  assert.equal(identityStorage.getItem("eventapp.data-reset-at"), "initial");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), false);
   assert.equal(attendeePortal.hasAccess("phase3"), false);
@@ -1057,6 +1112,31 @@ async function runFrontendContractRegression() {
   await attendeePortal.signIn("phase3", "Jordan Lee", "1001");
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
   assert.equal(attendeePortal.hasAccess("phase3"), true);
+  assert.equal(typeof attendeePortal.acceptDataReset, "function");
+  assert.equal(typeof identityWindowListeners["eventapp:data-reset"], "function");
+
+  // The first reset marker is only a baseline for this browser. A later,
+  // changed marker represents an intentional organizer reset and must clear
+  // both the attendee identity and saved journey/portal access before sending
+  // the phone back through Phase 1.
+  const attendeeJourneyKey = "eventapp.journey.v1.portal-attendee.phase3.draft";
+  identityStorage.setItem(attendeeJourneyKey, JSON.stringify({ optionIds: ["future"] }));
+  identityStorage.setItem("eventapp.pending-booth-checkins.v1", JSON.stringify([
+    { payload: { attendeeId: "portal-attendee", boothId: "heaven" } },
+  ]));
+  identityWindowListeners["eventapp:data-reset"]({ detail: { dataResetAt: "initial" } });
+  assert.equal(identityContext.__identity.peek().attendeeId, "portal-attendee");
+  assert.equal(identityStorage.getItem("eventapp.data-reset-at"), "initial");
+  identityWindowListeners["eventapp:data-reset"]({
+    detail: { dataResetAt: "2026-07-16T12:00:00.000Z", changed: true },
+  });
+  assert.equal(identityContext.__identity.peek().attendeeId, undefined);
+  assert.equal(identityStorage.getItem(attendeeJourneyKey), null);
+  assert.equal(identityStorage.getItem("eventapp.pending-booth-checkins.v1"), null);
+  assert.equal(identityStorage.getItem("eventapp.data-reset-at"), "2026-07-16T12:00:00.000Z");
+  assert.equal(portalStorage.getItem("eventapp.portal.phase2.trivia"), null);
+  assert.equal(portalStorage.getItem("eventapp.portal.phase3"), null);
+  assert.equal(identityContext.window.location.href, "/phase1-entry/index.html?eventReset=1");
 
   const apiSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "api.js"), "utf8");
   const apiContext = {
@@ -1077,6 +1157,7 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
   assert.equal(typeof apiContext.__eventApi.eventClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
+  assert.equal(typeof apiContext.__eventApi.setDemoClockAt, "function");
   assert.equal(typeof apiContext.__eventApi.saveSignupSelections, "function");
   assert.equal(typeof apiContext.__eventApi.mySignupSelections, "function");
   await assert.rejects(
@@ -1197,6 +1278,9 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /Complete Phase 1 &amp; continue/);
   assert.match(phase1Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/phase2-booths\/hub\.html"\)/);
   assert.match(phase1Source, /function resumeSavedAttendee\(\)/);
+  assert.match(phase1Source, /await phase1DemoClockReady/);
+  assert.match(phase1Source, /AttendeePortal\.acceptDataReset\(result\.dataResetAt\)/);
+  assert.match(phase1Source, /id="event-reset-note"/);
   assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
   assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
@@ -1313,6 +1397,7 @@ async function runFrontendContractRegression() {
   assert.equal(atExperienceEnd.sessionIndex, null);
   assert.equal(atExperienceEnd.remainingMs, 0);
   assert.equal(eventSchedule.eventEndsAtMs(), Date.parse("2026-07-18T16:10:00-05:00"));
+  assert.equal(eventSchedule.eventStartsAtMs(), Date.parse("2026-07-18T15:10:00-05:00"));
   assert.equal(eventSchedule.linkWithPreview("../done/index.html"), "../done/index.html");
   assert.equal(eventSchedule.currentBooth("blue", atSession1).id, "heaven");
   assert.equal(eventSchedule.currentBooth("blue", atSession2).id, "trivia");
@@ -1329,6 +1414,16 @@ async function runFrontendContractRegression() {
   assert.equal(eventSchedule.demoTargetIso("session3-final15"), "2026-07-18T21:09:45.000Z");
   assert.equal(eventSchedule.demoTargetIso("ended"), "2026-07-18T21:11:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("live"), null);
+  assert.equal(
+    eventSchedule.demoTargetIso("custom", "2026-07-18T15:42:17-05:00"),
+    "2026-07-18T20:42:17.000Z"
+  );
+  assert.equal(
+    eventSchedule.demoTargetIso("custom", Date.parse("2026-07-18T16:10:00-05:00")),
+    "2026-07-18T21:10:00.000Z"
+  );
+  assert.equal(eventSchedule.demoTargetIso("custom", "2026-07-18T15:09:59-05:00"), null);
+  assert.equal(eventSchedule.demoTargetIso("custom", "2026-07-18T16:10:01-05:00"), null);
   assert.equal(eventSchedule.demoTargetIso("unknown"), null);
 
   const session2Stops = [0, 1, 2].map((sessionIndex) => (
@@ -1362,6 +1457,13 @@ async function runFrontendContractRegression() {
   let eventClockCalls = 0;
   let pollerCount = 0;
   let clearedPollerCount = 0;
+  const dataResetEvents = [];
+  class TestCustomEvent {
+    constructor(type, options) {
+      this.type = type;
+      this.detail = options && options.detail;
+    }
+  }
   const demoScheduleContext = {
     window: {
       EVENT_APP_CONFIG: { API_BASE_URL: "/api" },
@@ -1370,6 +1472,7 @@ async function runFrontendContractRegression() {
         search: "?preview=1",
         href: "http://localhost/phase2-booths/hub.html?preview=1",
       },
+      dispatchEvent: (event) => { dataResetEvents.push(event); },
     },
     EventAPI: {
       eventClock: () => {
@@ -1379,6 +1482,7 @@ async function runFrontendContractRegression() {
     },
     URL,
     URLSearchParams,
+    CustomEvent: TestCustomEvent,
     setInterval: () => {
       pollerCount += 1;
       return pollerCount;
@@ -1400,9 +1504,13 @@ async function runFrontendContractRegression() {
     controlled: false,
     targetIso: null,
     updatedAt: "2026-07-15T10:00:00.000Z",
+    dataResetAt: "initial",
   });
   await firstClockSync;
   assert.equal(demoSchedule.current().sessionIndex, 0, "uncontrolled clock should preserve a URL preview");
+  assert.equal(dataResetEvents.length, 1);
+  assert.equal(dataResetEvents[0].type, "eventapp:data-reset");
+  assert.deepEqual({ ...dataResetEvents[0].detail }, { dataResetAt: "initial", changed: false });
 
   const synchronizedAt = Date.now();
   assert.equal(demoSchedule.applyDemoClock({
@@ -1411,10 +1519,29 @@ async function runFrontendContractRegression() {
     controlled: true,
     targetIso: "2026-07-18T20:35:00.000Z",
     updatedAt: "2026-07-15T11:00:00.000Z",
+    dataResetAt: "initial",
   }, synchronizedAt, synchronizedAt), true);
   assert.equal(demoSchedule.current().sessionIndex, 1);
   assert.equal(demoSchedule.isPreviewing(), true);
   assert.equal(demoSchedule.linkWithPreview("../done/index.html"), "../done/index.html");
+  assert.equal(dataResetEvents.length, 2, "every accepted clock sample should announce reset state");
+  assert.equal(dataResetEvents[1].detail.changed, false);
+  assert.equal(demoSchedule.applyDemoClock({
+    serverNow: "2026-07-18T20:42:17.000Z",
+    mode: "custom",
+    controlled: true,
+    targetIso: "2026-07-18T20:42:17.000Z",
+    updatedAt: "2026-07-15T11:30:00.000Z",
+    dataResetAt: "2026-07-15T11:20:00.000Z",
+  }, synchronizedAt, synchronizedAt), true);
+  assert.equal(demoSchedule.current().sessionIndex, 1);
+  assert.equal(demoSchedule.demoClockState().mode, "custom");
+  assert.equal(demoSchedule.demoClockState().dataResetAt, "2026-07-15T11:20:00.000Z");
+  assert.equal(dataResetEvents.length, 3);
+  assert.deepEqual({ ...dataResetEvents[dataResetEvents.length - 1].detail }, {
+    dataResetAt: "2026-07-15T11:20:00.000Z",
+    changed: true,
+  });
   assert.equal(
     demoSchedule.sync("2026-07-18T20:15:00.000Z", synchronizedAt, synchronizedAt),
     false,
@@ -1427,8 +1554,9 @@ async function runFrontendContractRegression() {
     controlled: true,
     targetIso: "2026-07-18T20:15:00.000Z",
     updatedAt: "2026-07-15T10:30:00.000Z",
+    dataResetAt: "initial",
   }, synchronizedAt, synchronizedAt), false, "an older in-flight clock response should not undo organizer control");
-  assert.equal(demoSchedule.demoClockState().mode, "session2");
+  assert.equal(demoSchedule.demoClockState().mode, "custom");
 
   const pollingRequestA = demoSchedule.refreshDemoClock();
   const pollingRequestB = demoSchedule.refreshDemoClock();
@@ -1440,9 +1568,12 @@ async function runFrontendContractRegression() {
     controlled: true,
     targetIso: "2026-07-18T20:55:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
+    dataResetAt: "2026-07-15T11:20:00.000Z",
   });
   await pollingRequestA;
   assert.equal(demoSchedule.current().sessionIndex, 2);
+  assert.equal(dataResetEvents.length, 4);
+  assert.equal(dataResetEvents[3].detail.changed, false);
   demoSchedule.stopDemoClockSync();
   assert.equal(clearedPollerCount, 1);
 

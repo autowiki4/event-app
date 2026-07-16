@@ -5,8 +5,9 @@ attendee moving from entry to three wristband-routed booth sessions, a booth
 leader changing what attendees see, and the checkbox-only Phase 3.
 
 The mock schedule assumes **July 18, 2026 in Nashville**. The organizer's
-shared demo clock lets every local rehearsal window show the same event moment
-without waiting for those exact times.
+shared Node clock lets every attendee and staff window using the same service
+show the same event moment without waiting for those exact times. It works
+with the Node service locally or when that same service is hosted on Render.
 
 ## 1. Start clean
 
@@ -29,6 +30,12 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:3000/api/resetDemo
 ```
 
+The dashboard action is deliberately broad: it clears registrations and
+wristbands, check-ins and scores, votes, Phase 3 sign-ups, booth presentation
+controls, and the raffle sequence. It also replaces the backup and signals
+connected or reopened attendee phones to clear their saved identity and return
+to Phase 1. It does not change the selected rehearsal time.
+
 Open these windows:
 
 | Window | URL | Role |
@@ -43,10 +50,13 @@ in B and **Overall Organizer** in C, then unlock each selected page with
 `demo`. Staff access is kept in the current page's memory, so a reload may ask
 for the key again.
 
-In Window C, find **Demo only · Shared event time**. Its presets affect every
-attendee and booth-leader page connected to this Node demo server, including
-Window A in incognito. This panel is a rehearsal helper; it does not appear on
-the Apps Script/live backend.
+In Window C, find **Demo only · Shared event time**. Its continuous timeline
+affects every attendee, overall-organizer, and booth-leader page connected to
+this Node service, including Window A in incognito. Drag to any second from
+3:10:00 through 4:10:00 PM, enter an exact time, or use a session-boundary
+shortcut, then choose **Apply simulated time**. The selected point continues
+ticking normally. This panel is a rehearsal helper; the Apps Script adapter
+has no remote clock or reset actions.
 
 ## 2. Register and assign a route
 
@@ -70,8 +80,8 @@ every booth.”
 
 ## 3. Show the before-session state
 
-In Window C, select **Before event**. Within a second, Window A updates without
-changing or reloading its URL.
+In Window C, choose **Show waiting lobby**. Within the next clock sync, Window
+A updates without changing or reloading its URL.
 
 Point out:
 
@@ -82,20 +92,23 @@ Point out:
 - the countdown is shared from the event schedule.
 
 Refresh Window A while it is in the lobby. It should return as Jordan instead
-of showing registration again. In Window C, choose **Start Session 1 now** and
-show that the lobby unlocks the first booth on every connected screen. Jordan
-remains signed in until the name menu at the top-right is used to log out.
+of showing registration again. In Window C, use the **3:10** shortcut and
+choose **Apply simulated time**. Show that the lobby unlocks the first booth on
+every connected screen. Jordan remains signed in until the name menu at the
+top-right is used to log out—or until an organizer deliberately clears all
+event data.
 
-Switching back to **Live clock** returns all demo screens to actual synchronized
-time.
+Choosing **Use live CDT clock** returns all Node-backed screens to actual
+synchronized Chicago time.
 
 ## 4. Let the booth leader control Session 1
 
-In Window C, select **Session 1 · midpoint**. From the organizer directory in
-Window B, open **Can You Draw Heaven?** and unlock it with `demo`. The page
-should show that Blue wristbands are scheduled there in Session 1. Set the
-presentation to **Live**, choose an activity step, optionally add a short
-announcement, and choose **Save to attendee screen**.
+In Window C, move the timeline to **3:20:00 PM** and choose **Apply simulated
+time**. From the organizer directory in Window B, open **Can You Draw
+Heaven?** and unlock it with `demo`. The page should show that Blue wristbands
+are scheduled there in Session 1. Set the presentation to **Live**, choose an
+activity step, optionally add a short announcement, and choose **Save to
+attendee screen**.
 
 Within the next refresh, the attendee card shows the leader's status, selected
 step, and announcement. Point out the Session 1 label, the 3:10–3:30 time, the
@@ -109,8 +122,10 @@ leader for that booth decides which instruction the group sees.”
 
 ## 5. Rotate through Sessions 2 and 3
 
-In Window C, select **Session 2 · midpoint**, then **Session 3 · midpoint**.
-Window A and the matching booth-leader screen rotate together.
+In Window C, apply **3:40:00 PM**, then **4:00:00 PM**. Window A and the
+matching booth-leader screen rotate together. The shared clock ticks forward
+from each chosen anchor; the session windows remain 3:10–3:30, 3:30–3:50, and
+3:50–4:10.
 
 For Blue, the current booth changes to Bible Bowl and then The Sower, Live.
 The matching leader pages are:
@@ -126,9 +141,11 @@ does not mark a visit complete. After the third saved tap, the hub reveals
 **Continue to Phase 3** even though Session 3 is still active. Every booth
 portal has the same types of controls but booth-specific activity steps.
 
-Before completing one booth, choose its **final 15s** preset. Point out the
-short finish warning on the attendee screen, then save the visit. This checks
-the time-critical state without waiting through a 20-minute session.
+Before completing one booth, enter a time exactly 15 seconds before that
+session boundary—for example **3:29:45**, **3:49:45**, or **4:09:45**—and
+apply it. Point out the short finish warning on the attendee screen, then save
+the visit. This checks the time-critical state without waiting through a
+20-minute session.
 
 The complete routing matrix is:
 
@@ -156,7 +173,8 @@ GO YET**. It shows the time remaining to the 4:10 PM main message. Because
 booth time is still active, **Return to my booth before 4:10** remains
 available.
 
-To show the handoff, select **After booths** in Window C.
+To show the handoff, use the **4:10** boundary shortcut and choose **Apply
+simulated time** in Window C.
 
 The card changes to **Message time**, displays **NOW**, asks the attendee to get
 seated, and hides the return-to-booth action.
@@ -188,12 +206,14 @@ cross-device recovery without creating a second attendee.
 ### Try another color
 
 Reset the demo and register a new attendee with Red, Orange, Green, or Yellow.
-Use the same shared Session 1, 2, and 3 presets to verify all route assignments.
+Use points inside the same shared Session 1, 2, and 3 timeline regions to
+verify all route assignments.
 
 ### Show the 4:10 fallback with an unmarked visit
 
-With a fresh attendee, leave at least one booth untapped and select **After
-booths** in the organizer dashboard.
+With a fresh attendee, leave at least one booth untapped, apply the **4:10**
+boundary in the organizer dashboard, and let the shared clock enter its ended
+state.
 
 The hub says **Booth time has ended**, leaves the missed visit labeled **Not
 marked · Ended**, and still offers Phase 3. It does not convert elapsed time
@@ -211,7 +231,7 @@ every attendee must open.
 The legacy localhost-only `?preview=before|1|2|3|ended` query remains useful
 for an isolated page check. It is frozen and browser-local, so use the shared
 organizer clock for this multi-window rehearsal. Once the organizer has chosen
-a shared preset, that preset takes precedence.
+a shared time, that Node-controlled time takes precedence.
 
 ## Questions to be ready for
 
@@ -232,9 +252,11 @@ a shared preset, that preset takes precedence.
 - **What happens when someone finishes early?** Save and **No thanks** both
   persist completion, then the **DON'T GO YET** countdown holds until the 4:10
   PM main message.
-- **Can this clock change a live event?** No. The shared presets and their API
-  exist only in the local Node demo. Apps Script/live pages have no remote
-  clock control and continue to use synchronized real time.
+- **Can this clock change real time?** No. The shared timeline is a Node-service
+  rehearsal override; **Use live CDT clock** removes it and resumes actual
+  Chicago time. It can coordinate all same-origin pages locally or on Render,
+  but it is not resilient show-control infrastructure. Apps Script pages have
+  no remote clock control and continue to use synchronized real time.
 - **Is this ready for live attendee data?** Not yet. Confirm credentials,
   access roles, privacy/retention, device testing, venue Wi-Fi, and a manual
   fallback first.
