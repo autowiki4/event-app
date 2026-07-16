@@ -95,6 +95,24 @@ const EventAPI = (function () {
       version,
       organizerKey,
     }),
+    newSongState: (attendeeId) => call("newSongState", { attendeeId }),
+    submitNewSongVote: (attendeeId, songTitle) => call("submitNewSongVote", {
+      attendeeId,
+      songTitle,
+    }),
+    newSongDashboardData: (organizerKey) => call("newSongDashboardData", { organizerKey }),
+    advanceNewSongSession: (sessionNumber, action, version, organizerKey) => call("advanceNewSongSession", {
+      sessionNumber,
+      action,
+      version,
+      organizerKey,
+    }),
+    resetNewSongSession: (sessionNumber, version, organizerKey) => call("resetNewSongSession", {
+      sessionNumber,
+      version,
+      organizerKey,
+    }),
+    completeNewSong: (attendeeId) => call("completeNewSong", { attendeeId }),
     eventClock: () => call("eventClock", {}),
     setDemoClock: (mode, targetIso, organizerKey) => call("setDemoClock", {
       mode,

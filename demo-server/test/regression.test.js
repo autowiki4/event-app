@@ -12,6 +12,18 @@ process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
 
 const { server, startServer } = require("../server");
 const { TRIVIA_QUESTIONS } = require("../trivia-questions");
+const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
+  "God in Me",
+  "He Turned It",
+  "Victory",
+  "Brighter Day",
+  "Praise — Elevation Worship",
+  "Jireh",
+  "I Thank God — Maverick City",
+  "Amen — Madison Ryann Ward",
+  "Quick — Caleb Gordon",
+  "Goodbye Yesterday — Elevation Rhythm",
+]);
 
 function request(port, action, payload, method = "POST") {
   return new Promise((resolve, reject) => {
@@ -73,7 +85,7 @@ function getPage(port, pathname) {
       let body = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => { body += chunk; });
-      res.on("end", () => resolve({ status: res.statusCode, body }));
+      res.on("end", () => resolve({ status: res.statusCode, body, headers: res.headers }));
     }).on("error", reject);
   });
 }
@@ -783,6 +795,11 @@ async function runApiRegression(port) {
     assert.equal(page.status, 200, pathname);
     assert.match(page.body, /<!DOCTYPE html>/i, pathname);
   }
+
+  const newSongArtwork = await getPage(port, "/assets/revelation-14-3-new-song.webp");
+  assert.equal(newSongArtwork.status, 200);
+  assert.equal(newSongArtwork.headers["content-type"], "image/webp");
+  assert.ok(newSongArtwork.body.length > 1000, "New Song verse artwork should not be empty");
 
   res = await request(port, "dashboardData", undefined, "GET");
   assert.equal(res.status, 404);
@@ -1601,6 +1618,493 @@ async function runHeavenApiRegression(port) {
   assert.deepEqual(resetDb.heavenRunHistory, []);
 }
 
+async function runNewSongApiRegression(port) {
+  const organizerKey = "test-organizer-key";
+  const sessionSummary = (dashboard, sessionNumber) => (
+    dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
+  );
+  const advance = (sessionNumber, action, version, key = organizerKey) => request(
+    port,
+    "advanceNewSongSession",
+    { sessionNumber, action, version, organizerKey: key }
+  );
+  const setSessionClock = (sessionNumber) => request(port, "setDemoClock", {
+    mode: `session${sessionNumber}`,
+    targetIso: [
+      "2026-07-18T20:15:00.000Z",
+      "2026-07-18T20:35:00.000Z",
+      "2026-07-18T20:55:00.000Z",
+    ][sessionNumber - 1],
+    organizerKey,
+  });
+  const voteCount = (summary, title) => (
+    summary.voteCounts.find((entry) => entry.title === title).votes
+  );
+
+  let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+
+  async function registerNewSongAttendee(attendeeId, name, wristbandColor) {
+    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    assert.equal(registration.status, 200);
+    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    assert.equal(confirmation.status, 200);
+    return registration.body;
+  }
+
+  await registerNewSongAttendee("song-green-a", "Green Singer", "green");
+  await registerNewSongAttendee("song-green-b", "Green Listener", "green");
+  await registerNewSongAttendee("song-green-c", "Green Worshipper", "green");
+  await registerNewSongAttendee("song-yellow-a", "Yellow Singer", "yellow");
+  await registerNewSongAttendee("song-yellow-b", "Yellow Listener", "yellow");
+  await registerNewSongAttendee("song-orange-a", "Orange Singer", "orange");
+  await registerNewSongAttendee("song-blue-a", "Blue Visitor", "blue");
+
+  // Attendee state follows the shared event window. Staff can prepare all
+  // three rotations, but attendee data is unavailable before or after them.
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+
+  res = await setSessionClock(1);
+  assert.equal(res.status, 200);
+
+  // Every staff action is protected. The dashboard exposes exactly three
+  // isolated rotations, their timed wristband groups, and the canonical poll.
+  res = await request(port, "newSongDashboardData", { organizerKey: "wrong" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(1, "start", 0, "wrong");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "resetNewSongSession", {
+    sessionNumber: 1,
+    version: 0,
+    organizerKey: "wrong",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+
+  res = await request(port, "newSongDashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.choices, EXPECTED_NEW_SONG_CHOICES);
+  assert.equal(res.body.sessions.length, 3);
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.sessionNumber,
+      session.assignedColor.id,
+      session.state.phase,
+      session.state.runNumber,
+      session.state.version,
+      session.assignedCount,
+      session.totalVotes,
+      session.archivedRuns.length,
+    ]),
+    [
+      [1, "green", "welcome", 1, 0, 3, 0, 0],
+      [2, "yellow", "welcome", 1, 0, 2, 0, 0],
+      [3, "orange", "welcome", 1, 0, 1, 0, 0],
+    ]
+  );
+  res.body.sessions.forEach((session) => {
+    assert.deepEqual(session.choices, EXPECTED_NEW_SONG_CHOICES);
+    assert.deepEqual(
+      session.voteCounts,
+      EXPECTED_NEW_SONG_CHOICES.map((title) => ({ title, votes: 0 }))
+    );
+  });
+
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 1);
+  assert.equal(res.body.assignedColor.id, "green");
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.version, 0);
+  assert.equal(res.body.runNumber, 1);
+  assert.equal(typeof res.body.runId, "string");
+  assert.deepEqual(res.body.choices, EXPECTED_NEW_SONG_CHOICES);
+  assert.equal(res.body.vote, null);
+  assert.equal(res.body.result, null);
+  assert.equal(res.body.winner, null);
+  assert.deepEqual(res.body.voteCounts, []);
+  const session1Run1Id = res.body.runId;
+
+  res = await request(port, "newSongState", { attendeeId: "song-blue-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "NEW_SONG_NOT_ASSIGNED");
+  res = await request(port, "newSongState", { attendeeId: "missing-song-attendee" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_VOTING_CLOSED");
+
+  // Invalid actions, ordering, and stale optimistic versions do not mutate
+  // the room. Only start can move the initial welcome screen into voting.
+  res = await advance(4, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_NEW_SONG_SESSION");
+  res = await advance(1, "not_an_action", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_NEW_SONG_ACTION");
+  res = await advance(1, "show_winner", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "INVALID_NEW_SONG_TRANSITION");
+  res = await advance(1, "start", 99);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CONFLICT");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "voting");
+  assert.equal(res.body.state.version, 1);
+  assert.equal(res.body.state.runId, session1Run1Id);
+  assertIsoTimestamp(res.body.state.startedAt, "New Song run start");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CONFLICT");
+
+  // Poll submissions accept only canonical choices. Each attendee gets one
+  // immutable vote per run; a same-song retry is idempotent, while a second
+  // different title is rejected and cannot skew the live staff graph.
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Not a real song",
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_SONG_CHOICE");
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-blue-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "NEW_SONG_NOT_ASSIGNED");
+
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.equal(res.body.changed, true);
+  assert.deepEqual(res.body.vote.songTitle, "Victory");
+  const firstVoteAt = res.body.vote.votedAt;
+  assertIsoTimestamp(firstVoteAt, "first New Song vote");
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.changed, false);
+  assert.equal(res.body.vote.votedAt, firstVoteAt);
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Jireh",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "SONG_VOTE_LOCKED");
+
+  for (const [attendeeId, songTitle] of [
+    ["song-green-b", "Victory"],
+    ["song-green-c", "Jireh"],
+  ]) {
+    res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
+    assert.equal(res.status, 200, attendeeId);
+  }
+
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.body.phase, "voting");
+  assert.deepEqual(res.body.vote, { songTitle: "Victory", votedAt: firstVoteAt });
+  assert.equal(res.body.result, null, "live totals must stay hidden from attendees");
+  assert.deepEqual(res.body.voteCounts, []);
+
+  res = await request(port, "newSongDashboardData", { organizerKey });
+  let session1 = sessionSummary(res.body, 1);
+  assert.equal(session1.totalVotes, 3);
+  assert.equal(session1.voteCount, 3);
+  assert.equal(session1.participantCount, 3);
+  assert.equal(voteCount(session1, "Victory"), 2);
+  assert.equal(voteCount(session1, "Jireh"), 1);
+  assert.deepEqual(
+    session1.voters.map((voter) => [voter.name, voter.songTitle]),
+    [
+      ["Green Singer", "Victory"],
+      ["Green Listener", "Victory"],
+      ["Green Worshipper", "Jireh"],
+    ]
+  );
+  assert.equal(sessionSummary(res.body, 2).totalVotes, 0);
+  assert.equal(sessionSummary(res.body, 3).totalVotes, 0);
+
+  // The leader freezes a unique result. Voting closes immediately, but the
+  // attendee result stays on the winner screen until the verse is released.
+  res = await advance(1, "show_winner", 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "winner");
+  assert.equal(res.body.state.version, 2);
+  assert.deepEqual(res.body.result, {
+    totalVotes: 3,
+    maxVotes: 2,
+    isTie: false,
+    tiedTitles: ["Victory"],
+    featuredWinner: "Victory",
+    tieBreakRule: "canonical-list-order",
+  });
+  assert.deepEqual(res.body.winner, {
+    songTitle: "Victory", voteCount: 2, tied: false, tiedSongs: ["Victory"],
+  });
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Victory",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_VOTING_CLOSED");
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.body.phase, "winner");
+  assert.equal(res.body.result.featuredWinner, "Victory");
+  assert.equal(res.body.totalVotes, 3);
+  assert.equal(res.body.voteCounts.length, EXPECTED_NEW_SONG_CHOICES.length);
+
+  res = await advance(1, "finish", 2);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "INVALID_NEW_SONG_TRANSITION");
+  res = await advance(1, "show_verse", 2);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "verse");
+  assert.equal(res.body.state.version, 3);
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.body.phase, "verse");
+  assert.equal(res.body.result.featuredWinner, "Victory");
+  res = await request(port, "completeNewSong", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_NOT_COMPLETE");
+  res = await advance(1, "finish", 3);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "complete");
+  assert.equal(res.body.state.version, 4);
+  assertIsoTimestamp(res.body.state.completedAt, "New Song run completion");
+
+  // Done saves exactly one booth check-in. Retrying is idempotent and keeps
+  // the same row while preserving the vote, run, and frozen winner metadata.
+  res = await request(port, "completeNewSong", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.runId, session1Run1Id);
+  assert.equal(res.body.vote.songTitle, "Victory");
+  assert.equal(res.body.result.featuredWinner, "Victory");
+  const firstCompletionId = res.body.checkinId;
+  res = await request(port, "completeNewSong", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.checkinId, firstCompletionId);
+  const completedRows = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
+    .filter((checkin) => checkin.attendeeId === "song-green-a" && checkin.boothId === "newsong");
+  assert.equal(completedRows.length, 1);
+  assert.equal(completedRows[0].extraData.runId, session1Run1Id);
+  assert.equal(completedRows[0].extraData.votedFor, "Victory");
+  assert.equal(completedRows[0].extraData.featuredWinner, "Victory");
+
+  // Session 2 is completely isolated. A two-song tie reports every leader in
+  // canonical order and deterministically features the earliest list entry.
+  res = await setSessionClock(2);
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongState", { attendeeId: "song-yellow-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 2);
+  assert.equal(res.body.assignedColor.id, "yellow");
+  assert.equal(res.body.phase, "welcome");
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "NEW_SONG_NOT_ASSIGNED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 200);
+  for (const [attendeeId, songTitle] of [
+    ["song-yellow-a", "Goodbye Yesterday — Elevation Rhythm"],
+    ["song-yellow-b", "God in Me"],
+  ]) {
+    res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
+    assert.equal(res.status, 200, attendeeId);
+  }
+  res = await advance(2, "show_winner", 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.result.isTie, true);
+  assert.equal(res.body.result.maxVotes, 1);
+  assert.deepEqual(res.body.result.tiedTitles, [
+    "God in Me", "Goodbye Yesterday — Elevation Rhythm",
+  ]);
+  assert.equal(res.body.result.featuredWinner, "God in Me");
+  assert.equal(res.body.result.tieBreakRule, "canonical-list-order");
+  assert.deepEqual(res.body.winner, {
+    songTitle: "God in Me",
+    voteCount: 1,
+    tied: true,
+    tiedSongs: ["God in Me", "Goodbye Yesterday — Elevation Rhythm"],
+  });
+  res = await request(port, "newSongState", { attendeeId: "song-yellow-a" });
+  assert.equal(res.body.phase, "winner");
+  assert.equal(res.body.result.isTie, true);
+  assert.equal(res.body.winner.songTitle, "God in Me");
+
+  res = await request(port, "newSongDashboardData", { organizerKey });
+  session1 = sessionSummary(res.body, 1);
+  const session2 = sessionSummary(res.body, 2);
+  assert.equal(session1.state.phase, "complete");
+  assert.equal(session1.totalVotes, 3);
+  assert.equal(session2.state.phase, "winner");
+  assert.equal(session2.totalVotes, 2);
+  assert.equal(sessionSummary(res.body, 3).state.phase, "welcome");
+
+  // A zero-vote run cannot invent a winner. Once Session 3 receives a vote,
+  // it can advance without changing either earlier session or their totals.
+  res = await setSessionClock(3);
+  assert.equal(res.status, 200);
+  res = await advance(3, "start", 0);
+  assert.equal(res.status, 200);
+  res = await advance(3, "show_winner", 1);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_NO_VOTES");
+  res = await request(port, "newSongState", { attendeeId: "song-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.phase, "voting");
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-orange-a",
+    songTitle: "Amen — Madison Ryann Ward",
+  });
+  assert.equal(res.status, 200);
+  res = await advance(3, "show_winner", 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.result.featuredWinner, "Amen — Madison Ryann Ward");
+
+  // Restarting archives Session 1 instead of deleting its votes. Optimistic
+  // reset versions prevent an older staff tab from replacing the active run.
+  res = await request(port, "resetNewSongSession", {
+    sessionNumber: 1,
+    version: 3,
+    organizerKey,
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CONFLICT");
+  res = await request(port, "resetNewSongSession", {
+    sessionNumber: 1,
+    version: 4,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 2);
+  assert.equal(res.body.state.version, 5);
+  assert.notEqual(res.body.state.runId, session1Run1Id);
+  assert.equal(res.body.totalVotes, 0);
+  assert.equal(res.body.participantCount, 0);
+  assert.equal(res.body.archivedRuns.length, 1);
+  assert.equal(res.body.archivedRuns[0].runId, session1Run1Id);
+  assert.equal(res.body.archivedRuns[0].runNumber, 1);
+  assert.equal(res.body.archivedRuns[0].phase, "complete");
+  assert.equal(res.body.archivedRuns[0].totalVotes, 3);
+  assert.equal(res.body.archivedRuns[0].participantCount, 3);
+  assert.equal(voteCount(res.body.archivedRuns[0], "Victory"), 2);
+  assert.equal(res.body.archivedRuns[0].result.featuredWinner, "Victory");
+  assert.equal(res.body.archivedRuns[0].winner.songTitle, "Victory");
+  const session1Run2Id = res.body.state.runId;
+
+  // Returning the clock to Session 1 restores the clean active run. The same
+  // attendee can vote again because vote identity includes runId.
+  res = await setSessionClock(1);
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.body.runId, session1Run2Id);
+  assert.equal(res.body.runNumber, 2);
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.vote, null);
+  res = await advance(1, "start", 5);
+  assert.equal(res.status, 200);
+  res = await request(port, "submitNewSongVote", {
+    attendeeId: "song-green-a",
+    songTitle: "Brighter Day",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.runId, session1Run2Id);
+  assert.equal(res.body.idempotent, false);
+
+  // Resetting an incomplete rehearsal also archives it. Histories are newest
+  // first, and the completed first run remains unchanged beside it.
+  res = await request(port, "resetNewSongSession", {
+    sessionNumber: 1,
+    version: 6,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 3);
+  assert.equal(res.body.state.version, 7);
+  assert.equal(res.body.archivedRuns.length, 2);
+  assert.deepEqual(res.body.archivedRuns.map((run) => [run.runNumber, run.phase, run.totalVotes]), [
+    [2, "voting", 1],
+    [1, "complete", 3],
+  ]);
+  assert.equal(res.body.archivedRuns[0].runId, session1Run2Id);
+  assert.equal(res.body.archivedRuns[0].result, null);
+  assert.equal(res.body.archivedRuns[1].runId, session1Run1Id);
+  assert.equal(res.body.archivedRuns[1].result.featuredWinner, "Victory");
+
+  // After the timed window, attendee state and completion close again while
+  // protected staff history remains queryable.
+  res = await request(port, "setDemoClock", {
+    mode: "ended",
+    targetIso: "2026-07-18T21:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+  res = await request(port, "completeNewSong", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+  res = await request(port, "newSongDashboardData", { organizerKey });
+  assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 2);
+  assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "God in Me");
+  assert.equal(sessionSummary(res.body, 3).result.featuredWinner, "Amen — Madison Ryann Ward");
+
+  // Only the overall reset destroys active rotations, archives, votes, and
+  // booth completions. Every specialized session then returns to run 1.
+  res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongDashboardData", { organizerKey });
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.state.phase,
+      session.state.runNumber,
+      session.state.version,
+      session.totalVotes,
+      session.archivedRuns.length,
+    ]),
+    [
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+    ]
+  );
+  const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.deepEqual(resetDb.newSongSessions, {});
+  assert.deepEqual(resetDb.newSongRunHistory, []);
+  assert.deepEqual(resetDb.songVotes, []);
+  assert.deepEqual(resetDb.boothCheckins, []);
+}
+
 async function runCapacityRegression(port) {
   const organizerKey = "test-organizer-key";
   const colors = ["blue", "red", "orange", "green", "yellow"];
@@ -1611,7 +2115,7 @@ async function runCapacityRegression(port) {
     green: ["newsong", "art", "heaven"],
     yellow: ["story", "newsong", "trivia"],
   };
-  const songChoices = ["Way Maker", "Goodness of God", "Firm Foundation"];
+  const songChoices = ["God in Me", "Victory", "Jireh"];
 
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
@@ -2039,6 +2543,12 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.advanceHeavenSession, "function");
   assert.equal(typeof apiContext.__eventApi.resetHeavenSession, "function");
   assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
+  assert.equal(typeof apiContext.__eventApi.newSongState, "function");
+  assert.equal(typeof apiContext.__eventApi.submitNewSongVote, "function");
+  assert.equal(typeof apiContext.__eventApi.newSongDashboardData, "function");
+  assert.equal(typeof apiContext.__eventApi.advanceNewSongSession, "function");
+  assert.equal(typeof apiContext.__eventApi.resetNewSongSession, "function");
+  assert.equal(typeof apiContext.__eventApi.completeNewSong, "function");
   assert.equal(typeof apiContext.__eventApi.eventClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClockAt, "function");
@@ -2186,6 +2696,9 @@ async function runFrontendContractRegression() {
   const boothRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-room.js"), "utf8");
   const boothCommonSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"), "utf8");
   const newSongSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-newsong.html"), "utf8");
+  const newSongAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "newsong-attendee.js"), "utf8");
+  const newSongStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "newsong.html"), "utf8");
+  const newSongStaffControllerSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "newsong-staff.js"), "utf8");
   const triviaRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-trivia.html"), "utf8");
   const triviaAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "trivia-attendee.js"), "utf8");
   const triviaStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "trivia.html"), "utf8");
@@ -2249,7 +2762,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
   assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
-  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven"\]\.includes\(currentBooth\.id\)/);
+  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "newsong"\]\.includes\(currentBooth\.id\)/);
   assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
@@ -2268,7 +2781,6 @@ async function runFrontendContractRegression() {
   assert.match(boothCommonSource, /completeBoothRoom/);
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
   assert.match(boothCommonSource, /phoneSkipped/);
-  assert.match(newSongSource, /EventAPI\.saveSongVote/);
 
   // Bible Bowl questions are now speaker-controlled and server-scored. The
   // attendee bundle has no answer-key data or local Next-question mechanism;
@@ -2377,7 +2889,64 @@ async function runFrontendContractRegression() {
   assert.match(heavenStaffSource, /confirmationCounts: normalizeCounts\(source\.confirmationCounts\)/);
   assert.match(heavenStaffSource, /source\.archivedRuns/);
   assert.match(heavenStaffSource, /session\.archivedRuns\.map/);
-  assert.match(newSongSource, /Vote counted for the booth leader/);
+
+  // New Song is a dedicated, server-authoritative poll rather than the old
+  // self-paced booth draft. The attendee sees one leader-controlled phase at
+  // a time, and only the booth leader receives the live graph and archives.
+  assert.match(newSongSource, /shared\/newsong-attendee\.js/);
+  assert.match(newSongSource, /NewSongAttendee\.init\(/);
+  assert.match(newSongSource, /onCompleted: \(\) => window\.completeBoothRoom\(BOOTH_NAME\)/);
+  assert.match(newSongSource, /window\.getBoothExtraData = \(\) => NewSongAttendee\.extraData\(\)/);
+  assert.doesNotMatch(newSongSource, /_DRAFT_SCOPE|renderBoothFooter\(|EventAPI\.saveSongVote/);
+  assert.match(newSongAttendeeSource, /new Set\(\["welcome", "voting", "winner", "verse", "complete"\]\)/);
+  EXPECTED_NEW_SONG_CHOICES.forEach((title) => {
+    assert.ok(newSongAttendeeSource.includes(`"${title}"`), title);
+  });
+  assert.match(newSongAttendeeSource, /EventAPI\.newSongState\(identity\.attendeeId\)/);
+  assert.match(newSongAttendeeSource, /EventAPI\.submitNewSongVote\(identity\.attendeeId, songTitle\)/);
+  assert.match(newSongAttendeeSource, /EventAPI\.completeNewSong\(identity\.attendeeId\)/);
+  assert.match(newSongAttendeeSource, /data-newsong-vote=/);
+  assert.match(newSongAttendeeSource, /Your first tap is final/);
+  assert.match(newSongAttendeeSource, /Hmm… will your pick take the crown\?/);
+  assert.match(newSongAttendeeSource, /result\.isTie/);
+  assert.match(newSongAttendeeSource, /result\.tiedTitles/);
+  assert.match(newSongAttendeeSource, /result\.featuredWinner/);
+  assert.match(newSongAttendeeSource, /Revelation 14:3 · KJV/);
+  assert.match(newSongAttendeeSource, /revelation-14-3-new-song\.webp/);
+  assert.match(newSongAttendeeSource, /id="btn-newsong-done"/);
+  assert.match(newSongAttendeeSource, /state\.sessionNumber === next\.sessionNumber/);
+  assert.match(newSongAttendeeSource, /next\.runNumber < state\.runNumber/);
+  assert.match(newSongAttendeeSource, /next\.version < state\.version/);
+  assert.match(newSongAttendeeSource, /runId: state\.runId/);
+  assert.match(newSongAttendeeSource, /runNumber: state\.runNumber/);
+
+  assert.match(newSongStaffPageSource, /shared\/newsong-staff\.js/);
+  assert.match(newSongStaffPageSource, /data-newsong-session="1"/);
+  assert.match(newSongStaffPageSource, /data-newsong-session="2"/);
+  assert.match(newSongStaffPageSource, /data-newsong-session="3"/);
+  assert.match(newSongStaffPageSource, /id="newsong-vote-chart"/);
+  assert.match(newSongStaffPageSource, /id="newsong-participant-table"/);
+  assert.match(newSongStaffPageSource, /id="newsong-run-history"/);
+  assert.match(newSongStaffPageSource, /id="btn-newsong-restart"/);
+  assert.match(newSongStaffPageSource, /id="btn-newsong-refresh"/);
+  assert.doesNotMatch(newSongStaffPageSource, /initBoothStaff\("newsong"\)/);
+  assert.match(newSongStaffControllerSource, /EventAPI\.newSongDashboardData\(organizerKey\)/);
+  assert.match(newSongStaffControllerSource, /EventAPI\.advanceNewSongSession\(session\.sessionNumber, action, session\.state\.version, organizerKey\)/);
+  assert.match(newSongStaffControllerSource, /EventAPI\.resetNewSongSession\(session\.sessionNumber, session\.state\.version, organizerKey\)/);
+  assert.match(newSongStaffControllerSource, /data-newsong-action=/);
+  ["start", "show_winner", "show_verse", "finish"].forEach((action) => {
+    assert.match(newSongStaffControllerSource, new RegExp(`"${action}"`));
+  });
+  assert.match(newSongStaffControllerSource, /source\.voteCounts \|\| source\.songCounts/);
+  assert.match(newSongStaffControllerSource, /source\.archivedRuns/);
+  assert.match(newSongStaffControllerSource, /session\.archivedRuns\.map/);
+  assert.match(newSongStaffControllerSource, /NEW_SONG_NO_VOTES/);
+  assert.match(newSongStaffControllerSource, /canonical-list-order|Featured first|Featured/);
+  assert.equal(
+    fs.existsSync(path.join(__dirname, "..", "..", "web", "assets", "revelation-14-3-new-song.webp")),
+    true
+  );
+
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.match(phase3Source, /\["phase3-name", "phase3-raffle"\]/);
   assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
@@ -2661,13 +3230,12 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
-  ["story", "art", "newsong"].forEach((boothId) => {
+  ["story", "art"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
     assert.match(source, /id="staff-settings"/);
   });
-  const newSongStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "newsong.html"), "utf8");
-  assert.match(newSongStaffSource, /id="staff-song-vote-table"/);
+  assert.doesNotMatch(newSongStaffPageSource, /booth-staff-common\.js|staff-song-vote-table/);
 
   const gasSource = fs.readFileSync(path.join(__dirname, "..", "..", "apps-script", "Code.gs"), "utf8");
   assert.equal((gasSource.match(/LockService\.getScriptLock\(\)/g) || []).length, 1);
@@ -2719,7 +3287,7 @@ function runBoothDraftPersistenceRegression() {
   assert.match(boothCommonSource, /note\.addEventListener\("input"/);
   assert.match(boothCommonSource, /rating: _boothStars/);
 
-  ["story", "art", "newsong"].forEach((boothId) => {
+  ["story", "art"].forEach((boothId) => {
     const source = fs.readFileSync(
       path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
       "utf8"
@@ -2755,6 +3323,15 @@ function runBoothDraftPersistenceRegression() {
   );
   assert.doesNotMatch(heavenSource, /_DRAFT_SCOPE|setHeavenPage|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
   assert.match(heavenSource, /shared\/heaven-attendee\.js/);
+
+  // New Song restores its active run and locked vote from the backend too.
+  // It does not revive the old local poll index or generic rating footer.
+  const newSongSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-newsong.html"),
+    "utf8"
+  );
+  assert.doesNotMatch(newSongSource, /_DRAFT_SCOPE|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
+  assert.match(newSongSource, /shared\/newsong-attendee\.js/);
 }
 
 function runAppsScriptRegression() {
@@ -3255,6 +3832,7 @@ async function main() {
     await runApiRegression(port);
     await runTriviaApiRegression(port);
     await runHeavenApiRegression(port);
+    await runNewSongApiRegression(port);
     await runCapacityRegression(port);
     await runFrontendContractRegression();
     runBoothDraftPersistenceRegression();

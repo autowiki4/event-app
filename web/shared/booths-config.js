@@ -75,16 +75,17 @@ const CONNECTOR_BOOTHS = [
     id: "newsong",
     title: "The New Song in Nashville",
     icon: "🎵",
-    blurb: "Vote on what plays next — then hear about the song only the redeemed can sing. ~20 min",
+    blurb: "Vote together, reveal the room's winner, then discover the new song in Revelation 14:3. ~20 min",
     mode: "kiosk",
     page: "booth-newsong.html",
     staffPage: "newsong.html",
     kioskPage: "../phase2-booths/kiosk-newsong.html",
     leaderSteps: [
-      { title: "Pick our song", body: "Invite each guest to vote once for what the venue should sing together. · Minutes 0–4" },
-      { title: "Design your CD", body: "While the group praises together, invite guests to decorate a CD from the table. · Minutes 4–9" },
-      { title: "There's one more new song", body: "Ask who they think the song is by, then connect the reveal to Revelation 14:3. · Minutes 9–15" },
-      { title: "Connect and wrap up", body: "Invite anyone who wants to learn more or make music with the group to speak with a leader, then mark the booth complete." },
+      { title: "Welcome the room", body: "Keep attendee screens in the cloud lobby until the speaker is ready to open voting." },
+      { title: "Open the ten-song vote", body: "Give every attendee one vote, watch the live graph, and wait until the room has had time to choose." },
+      { title: "Reveal the winner", body: "Freeze the result for this run. If the vote is tied, every tied title remains visible and the canonical-order tiebreak is explained." },
+      { title: "Reveal Revelation 14:3", body: "Move every screen to the new-song passage and its visual when the speaker reaches the lesson." },
+      { title: "Finish the shared run", body: "Release the Done button so guests save this visit and return to their timed route." },
     ],
   },
 ];
@@ -209,43 +210,16 @@ const ART_BEATS = [
 
 /* ---- The New Song in Nashville ---- */
 const SONG_LIST = [
-  "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life",
-  "Reckless Love", "King of Kings", "Living Hope", "Graves Into Gardens",
-  "Raise a Hallelujah", "The Blessing", "O Come to the Altar", "Do It Again",
-  "House of the Lord", "Same God", "Great Things", "Battle Belongs",
-  "Jireh", "Yes I Will", "Firm Foundation", "Champion",
-];
-
-const NEWSONG_BEATS = [
-  {
-    id: "vote",
-    time: "0–4 min · Vote",
-    headline: "Pick our song!",
-    lede: "Tap a song to vote — one tap, one vote. The winner is what this whole venue sings together, right now.",
-    type: "vote",
-    footNote: "🎨 While we sing, swing by the table — grab a CD and a marker and design your own.",
-  },
-  {
-    id: "create",
-    time: "4–9 min · Create",
-    headline: "Design your CD",
-    lede: "While we praise together, grab a CD and a marker from the table and make it yours — no rules, just have fun with it.",
-    type: "note",
-  },
-  {
-    id: "reveal",
-    time: "9–15 min · The New Song",
-    headline: "There's one more new song",
-    lede: "Out of everything releasing this year, there's another new song — one so good even someone who's lived 100 years would want to sing it. Any guesses who it's by?",
-    type: "reveal",
-    prompt: "Your guess (optional)",
-    placeholder: "Artist or song title…",
-    verse: {
-      ref: "Revelation 14:3",
-      text: "And they sang a new song before the throne… no one could learn that song except the redeemed from the earth.",
-    },
-    closing: "Want to know more about this new song — or just want to make music with our group? Let's connect. Tell the booth leader, or leave a note below before you head out.",
-  },
+  "God in Me",
+  "He Turned It",
+  "Victory",
+  "Brighter Day",
+  "Praise — Elevation Worship",
+  "Jireh",
+  "I Thank God — Maverick City",
+  "Amen — Madison Ryann Ward",
+  "Quick — Caleb Gordon",
+  "Goodbye Yesterday — Elevation Rhythm",
 ];
 
 /* ---- Phase 3 sign-up options ---- */

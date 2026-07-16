@@ -68,6 +68,26 @@ const HEAVEN_CONFIRMATION_RULES = Object.freeze({
   impact_yes: { minimumPhase: "comparison", requires: ["size_yes"] },
   programs_done: { minimumPhase: "programs", requires: ["impact_yes"] },
 });
+const NEW_SONG_SESSION_NUMBERS = new Set([1, 2, 3]);
+const NEW_SONG_PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
+const NEW_SONG_CHOICES = Object.freeze([
+  "God in Me",
+  "He Turned It",
+  "Victory",
+  "Brighter Day",
+  "Praise — Elevation Worship",
+  "Jireh",
+  "I Thank God — Maverick City",
+  "Amen — Madison Ryann Ward",
+  "Quick — Caleb Gordon",
+  "Goodbye Yesterday — Elevation Rhythm",
+]);
+const LEGACY_NEW_SONG_CHOICES = new Set([
+  "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life", "Reckless Love",
+  "King of Kings", "Living Hope", "Graves Into Gardens", "Raise a Hallelujah", "The Blessing",
+  "O Come to the Altar", "Do It Again", "House of the Lord", "Same God", "Great Things",
+  "Battle Belongs", "Jireh", "Yes I Will", "Firm Foundation", "Champion",
+]);
 const DEMO_CLOCK_MODES = new Set([
   "live",
   "custom",
@@ -90,29 +110,6 @@ const FINAL_SIGNUP_OPTIONS = new Map([
   ["art", "Art therapy"],
   ["friend", "Help me invite a friend"],
 ]);
-const NEW_SONG_CHOICES = new Set([
-  "Great Are You Lord",
-  "Way Maker",
-  "Goodness of God",
-  "Build My Life",
-  "Reckless Love",
-  "King of Kings",
-  "Living Hope",
-  "Graves Into Gardens",
-  "Raise a Hallelujah",
-  "The Blessing",
-  "O Come to the Altar",
-  "Do It Again",
-  "House of the Lord",
-  "Same God",
-  "Great Things",
-  "Battle Belongs",
-  "Jireh",
-  "Yes I Will",
-  "Firm Foundation",
-  "Champion",
-]);
-
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -121,6 +118,7 @@ const MIME = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
@@ -218,6 +216,8 @@ function emptyDb() {
     heavenSessions: {},
     heavenConfirmations: [],
     heavenRunHistory: [],
+    newSongSessions: {},
+    newSongRunHistory: [],
     raffleCounter: 1000,
     dataResetAt: "initial",
   };
@@ -236,9 +236,7 @@ function normalizeDb(raw) {
   db.boothCheckins = Array.isArray(source.boothCheckins)
     ? source.boothCheckins.filter((row) => row && typeof row === "object" && !Array.isArray(row))
     : [];
-  db.songVotes = Array.isArray(source.songVotes)
-    ? source.songVotes.filter((row) => row && typeof row === "object" && !Array.isArray(row))
-    : [];
+  db.songVotes = normalizeNewSongVotes(source.songVotes);
   db.signups = Array.isArray(source.signups)
     ? source.signups.filter((row) => row && typeof row === "object" && !Array.isArray(row))
     : [];
@@ -275,6 +273,21 @@ function normalizeDb(raw) {
   });
   db.heavenConfirmations = normalizeHeavenConfirmations(source.heavenConfirmations);
   db.heavenRunHistory = normalizeActivityRunHistory(source.heavenRunHistory, "heaven");
+  const sourceNewSongSessions = source.newSongSessions
+    && typeof source.newSongSessions === "object"
+    && !Array.isArray(source.newSongSessions)
+    ? source.newSongSessions
+    : {};
+  db.newSongSessions = {};
+  NEW_SONG_SESSION_NUMBERS.forEach((sessionNumber) => {
+    const key = String(sessionNumber);
+    if (sourceNewSongSessions[key]) {
+      db.newSongSessions[key] = normalizeNewSongSessionRecord(
+        sourceNewSongSessions[key], sessionNumber
+      );
+    }
+  });
+  db.newSongRunHistory = normalizeActivityRunHistory(source.newSongRunHistory, "newsong");
   db.attendees.forEach((attendee) => {
     if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
@@ -495,7 +508,11 @@ function newActivityRunId(activity, sessionNumber, runNumber) {
 
 function normalizeActivityRunHistory(value, activity) {
   if (!Array.isArray(value)) return [];
-  const validPhases = activity === "trivia" ? TRIVIA_PHASES : HEAVEN_PHASES;
+  const validPhases = activity === "trivia"
+    ? TRIVIA_PHASES
+    : activity === "heaven"
+      ? HEAVEN_PHASES
+      : NEW_SONG_PHASES;
   const seen = new Set();
   const history = [];
   value.forEach((raw) => {
@@ -520,6 +537,7 @@ function normalizeActivityRunHistory(value, activity) {
         && parsedQuestionIndex < TRIVIA_QUESTIONS.length
         ? parsedQuestionIndex
         : undefined,
+      result: activity === "newsong" ? normalizeNewSongResult(raw.result) : undefined,
       version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
       startedAt: earliestTimestamp(raw.startedAt),
       completedAt: earliestTimestamp(raw.completedAt),
@@ -688,6 +706,129 @@ function normalizeHeavenConfirmations(value) {
   return confirmations;
 }
 
+function normalizedNewSongKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s*[—–-]\s*/g, "-")
+    .replace(/\s+/g, " ");
+}
+
+function canonicalNewSongChoice(value) {
+  const key = normalizedNewSongKey(value);
+  return NEW_SONG_CHOICES.find((title) => normalizedNewSongKey(title) === key) || null;
+}
+
+function normalizeNewSongResult(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const tiedSet = new Set(
+    (Array.isArray(value.tiedTitles) ? value.tiedTitles : [])
+      .map(canonicalNewSongChoice)
+      .filter(Boolean)
+  );
+  const tiedTitles = NEW_SONG_CHOICES.filter((title) => tiedSet.has(title));
+  const requestedFeatured = canonicalNewSongChoice(value.featuredWinner);
+  const featuredWinner = requestedFeatured && tiedSet.has(requestedFeatured)
+    ? requestedFeatured
+    : tiedTitles[0] || null;
+  if (!featuredWinner) return null;
+  const parsedTotalVotes = Number(value.totalVotes);
+  const parsedMaxVotes = Number(value.maxVotes);
+  return {
+    totalVotes: Number.isSafeInteger(parsedTotalVotes) && parsedTotalVotes >= 0 ? parsedTotalVotes : 0,
+    maxVotes: Number.isSafeInteger(parsedMaxVotes) && parsedMaxVotes >= 0 ? parsedMaxVotes : 0,
+    isTie: tiedTitles.length > 1,
+    tiedTitles,
+    featuredWinner,
+    tieBreakRule: "canonical-list-order",
+  };
+}
+
+function normalizeNewSongSessionNumber(value) {
+  const sessionNumber = Number(value);
+  return Number.isInteger(sessionNumber) && NEW_SONG_SESSION_NUMBERS.has(sessionNumber)
+    ? sessionNumber
+    : null;
+}
+
+function defaultNewSongSession(sessionNumber, options = {}) {
+  const runNumber = normalizeRunNumber(options.runNumber);
+  const parsedVersion = Number(options.version);
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(options.runId, "newsong", sessionNumber, runNumber),
+    runNumber,
+    phase: "welcome",
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    result: null,
+    startedAt: null,
+    updatedAt: earliestTimestamp(options.updatedAt),
+    completedAt: null,
+  };
+}
+
+function normalizeNewSongSessionRecord(value, sessionNumber) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const parsedVersion = Number(raw.version);
+  const runNumber = normalizeRunNumber(raw.runNumber);
+  const phase = NEW_SONG_PHASES.has(raw.phase) ? raw.phase : "welcome";
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(raw.runId, "newsong", sessionNumber, runNumber),
+    runNumber,
+    phase,
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    result: ["winner", "verse", "complete"].includes(phase)
+      ? normalizeNewSongResult(raw.result)
+      : null,
+    startedAt: earliestTimestamp(raw.startedAt),
+    updatedAt: earliestTimestamp(raw.updatedAt),
+    completedAt: phase === "complete" ? earliestTimestamp(raw.completedAt) : null,
+  };
+}
+
+function normalizeNewSongVotes(value) {
+  if (!Array.isArray(value)) return [];
+  const votesByParticipant = new Map();
+  value.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const attendeeId = String(raw.attendeeId || "").trim();
+    const canonicalTitle = canonicalNewSongChoice(raw.songTitle);
+    const legacyTitle = String(raw.songTitle || "").trim();
+    const songTitle = canonicalTitle || (LEGACY_NEW_SONG_CHOICES.has(legacyTitle) ? legacyTitle : null);
+    if (!attendeeId || !songTitle) return;
+    const sessionNumber = canonicalTitle ? normalizeNewSongSessionNumber(raw.sessionNumber) : null;
+    const runNumber = normalizeRunNumber(raw.runNumber);
+    const runId = sessionNumber
+      ? normalizeActivityRunId(raw.runId, "newsong", sessionNumber, runNumber)
+      : null;
+    const vote = {
+      id: String(raw.id || `legacy-${runId || "unscoped"}-${attendeeId}`),
+      attendeeId,
+      name: String(raw.name || "Guest").trim() || "Guest",
+      sessionNumber,
+      runId,
+      runNumber: sessionNumber ? runNumber : null,
+      songTitle,
+      votedAt: earliestTimestamp(raw.votedAt, raw.updatedAt),
+      updatedAt: earliestTimestamp(raw.updatedAt, raw.votedAt),
+    };
+    votesByParticipant.set(`${runId || "legacy"}:${attendeeId}`, vote);
+  });
+  return Array.from(votesByParticipant.values());
+}
+
+function requireNewSongSessionNumber(value) {
+  const sessionNumber = normalizeNewSongSessionNumber(value);
+  return sessionNumber
+    ? { sessionNumber }
+    : { error: errorResult(400, "Choose New Song Session 1, 2, or 3.", "INVALID_NEW_SONG_SESSION") };
+}
+
+function newSongSessionFromDb(db, sessionNumber) {
+  return normalizeNewSongSessionRecord(db.newSongSessions[String(sessionNumber)], sessionNumber);
+}
+
 function requireHeavenSessionNumber(value) {
   const sessionNumber = normalizeHeavenSessionNumber(value);
   return sessionNumber
@@ -761,6 +902,23 @@ function heavenSessionLabel(sessionNumber) {
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
+function newSongAssignedColorId(sessionNumber) {
+  const sessionIndex = sessionNumber - 1;
+  const entry = Object.entries(WRISTBAND_ROUTES)
+    .find(([, route]) => route[sessionIndex] === "newsong");
+  return entry ? entry[0] : null;
+}
+
+function newSongAssignedColor(sessionNumber) {
+  const id = newSongAssignedColorId(sessionNumber);
+  return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
+}
+
+function newSongSessionLabel(sessionNumber) {
+  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  return session ? session.label : `Session ${sessionNumber}`;
+}
+
 function triviaQuestionsRevealed(session) {
   if (session.questionIndex < 0) return 0;
   return session.phase === "question" ? session.questionIndex : session.questionIndex + 1;
@@ -819,6 +977,24 @@ function attendeeHeavenContext(db, attendeeId) {
     : null;
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "heaven") {
     return { error: errorResult(403, "Draw Heaven is not your assigned booth in this session.", "HEAVEN_NOT_ASSIGNED") };
+  }
+  return { attendee, eventState, sessionNumber: eventState.sessionNumber };
+}
+
+function attendeeNewSongContext(db, attendeeId) {
+  if (!attendeeId) return { error: errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED") };
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
+  const eventState = eventSessionState();
+  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+    return { error: errorResult(409, "New Song is not in an active booth session.", "NEW_SONG_SESSION_CLOSED") };
+  }
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
+    : null;
+  if (!attendee.wristbandConfirmedAt || assignedBooth !== "newsong") {
+    return { error: errorResult(403, "New Song is not your assigned booth in this session.", "NEW_SONG_NOT_ASSIGNED") };
   }
   return { attendee, eventState, sessionNumber: eventState.sessionNumber };
 }
@@ -899,6 +1075,24 @@ function archiveHeavenRun(db, session, archiveReason, archivedAt) {
   });
 }
 
+function archiveNewSongRun(db, session, archiveReason, archivedAt) {
+  if (db.newSongRunHistory.some((run) => (
+    run.sessionNumber === session.sessionNumber && run.runId === session.runId
+  ))) return;
+  db.newSongRunHistory.push({
+    sessionNumber: session.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    phase: session.phase,
+    version: session.version,
+    result: session.result,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    archivedAt,
+    archiveReason,
+  });
+}
+
 function triviaBoothPresentation(db, eventState = eventSessionState()) {
   const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
     ? eventState.sessionNumber
@@ -946,6 +1140,30 @@ function heavenBoothPresentation(db, eventState = eventSessionState()) {
   const [stepIndex, status, message] = phaseDetails[session.phase];
   return {
     boothId: "heaven",
+    stepIndex,
+    status,
+    message,
+    createdAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    version: session.version,
+  };
+}
+
+function newSongBoothPresentation(db, eventState = eventSessionState()) {
+  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+    ? eventState.sessionNumber
+    : 1;
+  const session = newSongSessionFromDb(db, sessionNumber);
+  const phaseDetails = {
+    welcome: [0, "waiting", "Welcome to New Song. The booth leader will open the poll when everyone is ready."],
+    voting: [1, "live", "The New Song poll is open. Choose a song on the activity screen."],
+    winner: [2, "live", "The poll is closed and the most-voted song is ready."],
+    verse: [3, "live", "Revelation 14:3 is now showing on attendee screens."],
+    complete: [4, "complete", "The New Song activity is complete. Attendees can finish this booth visit."],
+  };
+  const [stepIndex, status, message] = phaseDetails[session.phase];
+  return {
+    boothId: "newsong",
     stepIndex,
     status,
     message,
@@ -1041,6 +1259,7 @@ function mergeAttendees(db, canonical, duplicate, phone) {
       row.name = canonical.name;
     });
   });
+  db.songVotes = normalizeNewSongVotes(db.songVotes);
   db.triviaAnswers.forEach((answer) => {
     if (duplicateIds.has(answer.attendeeId)) answer.attendeeId = canonical.attendeeId;
   });
@@ -1327,65 +1546,258 @@ function boothCheckin(body) {
   return { status: 200, body: { ok: true, checkinId: row.id } };
 }
 
+function newSongVotesFor(db, sessionNumber, runId) {
+  return db.songVotes.filter((vote) => (
+    vote.sessionNumber === sessionNumber && vote.runId === runId
+  ));
+}
+
+function newSongVoteCountsForRun(db, sessionNumber, runId) {
+  const totals = new Map(NEW_SONG_CHOICES.map((title) => [title, 0]));
+  newSongVotesFor(db, sessionNumber, runId).forEach((vote) => {
+    totals.set(vote.songTitle, (totals.get(vote.songTitle) || 0) + 1);
+  });
+  return NEW_SONG_CHOICES.map((title) => ({ title, votes: totals.get(title) || 0 }));
+}
+
+function currentNewSongSessionNumber() {
+  const eventState = eventSessionState();
+  return eventState.phase === "active" && eventState.sessionNumber
+    ? eventState.sessionNumber
+    : 1;
+}
+
+// Compatibility view used by the original generic dashboards. It now scopes
+// totals to the active rotation/run instead of mixing all three groups.
 function songVoteCounts(db) {
-  // Dedicated votes are saved at tap time so the leader can choose a winner
-  // during the opening four-minute beat. Older completed check-ins still
-  // count when a database predates the dedicated vote collection.
+  const sessionNumber = currentNewSongSessionNumber();
+  const session = newSongSessionFromDb(db, sessionNumber);
   const voteByAttendee = new Map();
   db.boothCheckins
-    .filter((checkin) => (
-      checkin.boothId === "newsong"
-      && checkin.extraData
-      && NEW_SONG_CHOICES.has(checkin.extraData.votedFor)
-    ))
+    .filter((checkin) => {
+      const extraData = checkin.extraData && typeof checkin.extraData === "object"
+        ? checkin.extraData
+        : {};
+      const votedFor = extraData.votedFor;
+      const scopedToRun = Number.isInteger(Number(extraData.sessionNumber))
+        && Boolean(extraData.runId);
+      return checkin.boothId === "newsong"
+        && (canonicalNewSongChoice(votedFor) || LEGACY_NEW_SONG_CHOICES.has(votedFor))
+        && (!scopedToRun || (
+          Number(extraData.sessionNumber) === sessionNumber && extraData.runId === session.runId
+        ));
+    })
     .forEach((checkin) => voteByAttendee.set(checkin.attendeeId, checkin.extraData.votedFor));
   db.songVotes
-    .filter((vote) => NEW_SONG_CHOICES.has(vote.songTitle))
+    .filter((vote) => (
+      !vote.sessionNumber
+        || (vote.sessionNumber === sessionNumber && vote.runId === session.runId)
+    ))
     .forEach((vote) => voteByAttendee.set(vote.attendeeId, vote.songTitle));
-
   const totals = new Map();
-  voteByAttendee.forEach((songTitle) => totals.set(songTitle, (totals.get(songTitle) || 0) + 1));
-  return Array.from(totals.entries())
-    .map(([title, votes]) => ({ title, votes }))
-    .sort((a, b) => b.votes - a.votes || a.title.localeCompare(b.title));
+  voteByAttendee.forEach((title) => totals.set(title, (totals.get(title) || 0) + 1));
+  return Array.from(totals, ([title, votes]) => ({ title, votes }))
+    .sort((a, b) => {
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      const aIndex = NEW_SONG_CHOICES.indexOf(a.title);
+      const bIndex = NEW_SONG_CHOICES.indexOf(b.title);
+      if (aIndex >= 0 || bIndex >= 0) {
+        return (aIndex >= 0 ? aIndex : Number.MAX_SAFE_INTEGER)
+          - (bIndex >= 0 ? bIndex : Number.MAX_SAFE_INTEGER);
+      }
+      return a.title.localeCompare(b.title);
+    });
+}
+
+function calculateNewSongResult(voteCounts) {
+  const totalVotes = voteCounts.reduce((total, entry) => total + entry.votes, 0);
+  if (totalVotes === 0) return null;
+  const maxVotes = Math.max(...voteCounts.map((entry) => entry.votes));
+  const tiedTitles = voteCounts
+    .filter((entry) => entry.votes === maxVotes)
+    .map((entry) => entry.title);
+  return {
+    totalVotes,
+    maxVotes,
+    isTie: tiedTitles.length > 1,
+    tiedTitles,
+    featuredWinner: tiedTitles[0],
+    tieBreakRule: "canonical-list-order",
+  };
+}
+
+function newSongWinnerView(result) {
+  if (!result || !result.featuredWinner) return null;
+  return {
+    songTitle: result.featuredWinner,
+    voteCount: result.maxVotes,
+    tied: result.isTie,
+    tiedSongs: result.tiedTitles.slice(),
+  };
+}
+
+function newSongVoteForAttendee(db, attendeeId, session) {
+  return newSongVotesFor(db, session.sessionNumber, session.runId)
+    .find((vote) => vote.attendeeId === attendeeId) || null;
+}
+
+function newSongStateBody(db, context, session) {
+  const vote = newSongVoteForAttendee(db, context.attendee.attendeeId, session);
+  const resultVisible = ["winner", "verse", "complete"].includes(session.phase)
+    ? session.result
+    : null;
+  const visibleCounts = resultVisible
+    ? newSongVoteCountsForRun(db, context.sessionNumber, session.runId)
+    : [];
+  return {
+    sessionNumber: context.sessionNumber,
+    sessionLabel: newSongSessionLabel(context.sessionNumber),
+    assignedColor: newSongAssignedColor(context.sessionNumber),
+    phase: session.phase,
+    version: session.version,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    choices: NEW_SONG_CHOICES.slice(),
+    vote: vote ? { songTitle: vote.songTitle, votedAt: vote.votedAt } : null,
+    voteCounts: visibleCounts,
+    songCounts: visibleCounts,
+    totalVotes: resultVisible ? resultVisible.totalVotes : null,
+    result: resultVisible,
+    winner: newSongWinnerView(resultVisible),
+    completedAt: session.completedAt,
+    updatedAt: session.updatedAt,
+    serverNow: eventNowIso(),
+  };
+}
+
+function newSongState(body) {
+  const db = readDb();
+  const context = attendeeNewSongContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = newSongSessionFromDb(db, context.sessionNumber);
+  return { status: 200, body: newSongStateBody(db, context, session) };
+}
+
+function submitNewSongVote(body) {
+  const db = readDb();
+  const context = attendeeNewSongContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const songTitle = canonicalNewSongChoice(body && body.songTitle);
+  if (!songTitle) {
+    return errorResult(400, "Choose a valid New Song option.", "INVALID_SONG_CHOICE");
+  }
+  const session = newSongSessionFromDb(db, context.sessionNumber);
+  if (session.phase !== "voting") {
+    return errorResult(409, "The New Song poll is not open right now.", "NEW_SONG_VOTING_CLOSED");
+  }
+  const previous = newSongVoteForAttendee(db, context.attendee.attendeeId, session);
+  const now = eventNowIso();
+  if (previous && previous.songTitle === songTitle) {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        idempotent: true,
+        changed: false,
+        vote: { songTitle: previous.songTitle, votedAt: previous.votedAt },
+        state: newSongStateBody(db, context, session),
+      },
+    };
+  }
+  if (previous) {
+    return errorResult(409, "Your first New Song vote is already locked in.", "SONG_VOTE_LOCKED");
+  }
+  db.songVotes.push({
+    id: id(),
+    attendeeId: context.attendee.attendeeId,
+    name: context.attendee.name,
+    sessionNumber: context.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    songTitle,
+    votedAt: now,
+    updatedAt: now,
+  });
+  writeDb(db);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      idempotent: false,
+      changed: true,
+      vote: { songTitle, votedAt: now },
+      state: newSongStateBody(db, context, session),
+    },
+  };
 }
 
 function saveSongVote(body) {
   const attendeeId = body && body.attendeeId;
-  const songTitle = String((body && body.songTitle) || "").trim();
+  const requestedTitle = String((body && body.songTitle) || "").trim();
+  const canonicalTitle = canonicalNewSongChoice(requestedTitle);
+  const songTitle = canonicalTitle
+    || (LEGACY_NEW_SONG_CHOICES.has(requestedTitle) ? requestedTitle : null);
   if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
-  if (!NEW_SONG_CHOICES.has(songTitle)) {
-    return errorResult(400, "Choose a valid New Song option.", "INVALID_SONG_CHOICE");
-  }
+  if (!songTitle) return errorResult(400, "Choose a valid New Song option.", "INVALID_SONG_CHOICE");
 
   const db = readDb();
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
-  const previous = db.songVotes.find((vote) => vote.attendeeId === attendee.attendeeId);
+  const eventState = eventSessionState();
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  const assignedBooth = eventState.phase === "active" && colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
+    : null;
+  if (canonicalTitle && assignedBooth === "newsong" && attendee.wristbandConfirmedAt) {
+    const result = submitNewSongVote({ attendeeId, songTitle: canonicalTitle });
+    if (result.status !== 200) return result;
+    const state = result.body.state;
+    const freshDb = readDb();
+    const counts = newSongVoteCountsForRun(freshDb, state.sessionNumber, state.runId);
+    const selected = counts.find((entry) => entry.title === result.body.vote.songTitle);
+    return {
+      status: 200,
+      body: {
+        ...result.body,
+        songTitle: result.body.vote.songTitle,
+        votes: selected ? selected.votes : 0,
+        totalVotes: counts.reduce((total, entry) => total + entry.votes, 0),
+      },
+    };
+  }
+
+  const previous = db.songVotes.find((vote) => (
+    vote.attendeeId === attendee.attendeeId && !vote.sessionNumber
+  ));
   const now = eventNowIso();
   if (previous) {
     previous.songTitle = songTitle;
     previous.name = attendee.name;
     previous.votedAt = now;
+    previous.updatedAt = now;
   } else {
     db.songVotes.push({
       id: id(),
       attendeeId: attendee.attendeeId,
       name: attendee.name,
+      sessionNumber: null,
+      runId: null,
+      runNumber: null,
       songTitle,
       votedAt: now,
+      updatedAt: now,
     });
   }
   writeDb(db);
-  const votes = songVoteCounts(db);
-  const selected = votes.find((entry) => entry.title === songTitle);
+  const counts = songVoteCounts(db);
+  const selected = counts.find((entry) => entry.title === songTitle);
   return {
     status: 200,
     body: {
       ok: true,
       songTitle,
-      votes: selected ? selected.votes : 1,
-      totalVotes: db.songVotes.length,
+      votes: selected ? selected.votes : 0,
+      totalVotes: counts.reduce((total, entry) => total + entry.votes, 0),
     },
   };
 }
@@ -2139,6 +2551,243 @@ function resetHeavenSession(body) {
   return { status: 200, body: heavenSessionStaffSummary(db, sessionResult.sessionNumber) };
 }
 
+function newSongCompletionFor(db, attendeeId, runId) {
+  return db.boothCheckins.find((checkin) => (
+    checkin.boothId === "newsong"
+      && checkin.attendeeId === attendeeId
+      && checkin.extraData
+      && checkin.extraData.runId === runId
+  )) || null;
+}
+
+function newSongParticipantSummary(db, attendee, session) {
+  const vote = newSongVoteForAttendee(db, attendee.attendeeId, session);
+  const completion = newSongCompletionFor(db, attendee.attendeeId, session.runId);
+  return {
+    attendeeId: attendee.attendeeId,
+    name: attendee.name || "Guest",
+    raffleNumber: attendee.raffleNumber || "",
+    songTitle: vote ? vote.songTitle : null,
+    votedAt: vote ? vote.votedAt : null,
+    voted: Boolean(vote),
+    completedAt: completion ? completion.checkedInAt : null,
+  };
+}
+
+function newSongArchivedRunSummary(db, archivedRun) {
+  const voteCounts = newSongVoteCountsForRun(
+    db, archivedRun.sessionNumber, archivedRun.runId
+  );
+  const voters = newSongVotesFor(db, archivedRun.sessionNumber, archivedRun.runId)
+    .map((vote) => {
+      const attendee = findAttendeeById(db, vote.attendeeId);
+      return {
+        attendeeId: vote.attendeeId,
+        name: attendee ? attendee.name || "Guest" : vote.name || "Guest",
+        raffleNumber: attendee ? attendee.raffleNumber || "" : "",
+        songTitle: vote.songTitle,
+        votedAt: vote.votedAt,
+        voted: true,
+        completedAt: newSongCompletionFor(db, vote.attendeeId, archivedRun.runId)?.checkedInAt || null,
+      };
+    })
+    .sort((a, b) => (
+      String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+        || a.name.localeCompare(b.name)
+    ));
+  const totalVotes = voteCounts.reduce((total, entry) => total + entry.votes, 0);
+  return {
+    runId: archivedRun.runId,
+    runNumber: archivedRun.runNumber,
+    phase: archivedRun.phase,
+    version: archivedRun.version,
+    startedAt: archivedRun.startedAt,
+    completedAt: archivedRun.completedAt,
+    archivedAt: archivedRun.archivedAt,
+    archiveReason: archivedRun.archiveReason,
+    participantCount: voters.length,
+    voteCount: totalVotes,
+    totalVotes,
+    voteCounts,
+    songCounts: voteCounts,
+    result: archivedRun.result,
+    winner: newSongWinnerView(archivedRun.result),
+    voters,
+    participants: voters,
+  };
+}
+
+function newSongSessionStaffSummary(db, sessionNumber) {
+  const session = newSongSessionFromDb(db, sessionNumber);
+  const assignedAttendees = attendeesAssignedToBoothSession(db, "newsong", sessionNumber);
+  const participants = assignedAttendees
+    .map((attendee) => newSongParticipantSummary(db, attendee, session))
+    .sort((a, b) => (
+      String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+        || a.name.localeCompare(b.name)
+    ));
+  const voters = participants.filter((participant) => participant.voted);
+  const voteCounts = newSongVoteCountsForRun(db, sessionNumber, session.runId);
+  const totalVotes = voteCounts.reduce((total, entry) => total + entry.votes, 0);
+  return {
+    sessionNumber,
+    sessionLabel: newSongSessionLabel(sessionNumber),
+    assignedColor: newSongAssignedColor(sessionNumber),
+    assignedCount: assignedAttendees.length,
+    state: session,
+    activeRun: session,
+    participantCount: voters.length,
+    voteCount: totalVotes,
+    totalVotes,
+    choices: NEW_SONG_CHOICES.slice(),
+    voteCounts,
+    songCounts: voteCounts,
+    result: session.result,
+    winner: newSongWinnerView(session.result),
+    participants,
+    voters,
+    archivedRuns: db.newSongRunHistory
+      .filter((run) => run.sessionNumber === sessionNumber)
+      .sort((a, b) => b.runNumber - a.runNumber)
+      .map((run) => newSongArchivedRunSummary(db, run)),
+  };
+}
+
+function newSongDashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const db = readDb();
+  return {
+    status: 200,
+    body: {
+      serverNow: eventNowIso(),
+      eventState: eventSessionState(),
+      choices: NEW_SONG_CHOICES.slice(),
+      sessions: Array.from(NEW_SONG_SESSION_NUMBERS, (sessionNumber) => (
+        newSongSessionStaffSummary(db, sessionNumber)
+      )),
+    },
+  };
+}
+
+function advanceNewSongSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireNewSongSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const action = String((body && body.action) || "").trim().toLowerCase();
+  const transitions = {
+    start: ["welcome", "voting"],
+    show_winner: ["voting", "winner"],
+    show_verse: ["winner", "verse"],
+    finish: ["verse", "complete"],
+  };
+  if (!Object.prototype.hasOwnProperty.call(transitions, action)) {
+    return errorResult(400, "Choose a valid New Song control action.", "INVALID_NEW_SONG_ACTION");
+  }
+  const db = readDb();
+  const previous = newSongSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This New Song session changed in another tab. Refresh and try again.", "NEW_SONG_SESSION_CONFLICT");
+  }
+  const [requiredPhase, nextPhase] = transitions[action];
+  if (previous.phase !== requiredPhase) {
+    return errorResult(409, "That control is not available at this point in the activity.", "INVALID_NEW_SONG_TRANSITION");
+  }
+  let result = previous.result;
+  if (action === "show_winner") {
+    result = calculateNewSongResult(newSongVoteCountsForRun(
+      db, sessionResult.sessionNumber, previous.runId
+    ));
+    if (!result) {
+      return errorResult(409, "Wait for at least one attendee to vote before showing a winner.", "NEW_SONG_NO_VOTES");
+    }
+  }
+  const now = eventNowIso();
+  const next = {
+    ...previous,
+    phase: nextPhase,
+    version: previous.version + 1,
+    result,
+    startedAt: action === "start" ? previous.startedAt || now : previous.startedAt,
+    updatedAt: now,
+    completedAt: action === "finish" ? now : null,
+  };
+  db.newSongSessions[String(sessionResult.sessionNumber)] = next;
+  writeDb(db);
+  return { status: 200, body: newSongSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function resetNewSongSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireNewSongSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const db = readDb();
+  const previous = newSongSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This New Song session changed in another tab. Refresh and try again.", "NEW_SONG_SESSION_CONFLICT");
+  }
+  const now = eventNowIso();
+  archiveNewSongRun(db, previous, "reset", now);
+  const nextRunNumber = previous.runNumber + 1;
+  db.newSongSessions[String(sessionResult.sessionNumber)] = defaultNewSongSession(
+    sessionResult.sessionNumber,
+    {
+      runId: newActivityRunId("newsong", sessionResult.sessionNumber, nextRunNumber),
+      runNumber: nextRunNumber,
+      version: previous.version + 1,
+      updatedAt: now,
+    }
+  );
+  writeDb(db);
+  return { status: 200, body: newSongSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function completeNewSong(body) {
+  const db = readDb();
+  const context = attendeeNewSongContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = newSongSessionFromDb(db, context.sessionNumber);
+  if (session.phase !== "complete") {
+    return errorResult(409, "Wait for the New Song leader to finish the activity.", "NEW_SONG_NOT_COMPLETE");
+  }
+  const vote = newSongVoteForAttendee(db, context.attendee.attendeeId, session);
+  const checkin = boothCheckin({
+    attendeeId: context.attendee.attendeeId,
+    phone: context.attendee.phone || "",
+    boothId: "newsong",
+    boothName: BOOTH_NAMES.newsong,
+    checkedInBy: "new-song-finale",
+    extraData: {
+      sessionNumber: context.sessionNumber,
+      sessionId: `session-${context.sessionNumber}`,
+      runId: session.runId,
+      runNumber: session.runNumber,
+      wristbandColor: normalizeWristbandColor(context.attendee.wristbandColor),
+      votedFor: vote ? vote.songTitle : null,
+      featuredWinner: session.result ? session.result.featuredWinner : null,
+      tiedTitles: session.result ? session.result.tiedTitles : [],
+    },
+  });
+  if (checkin.status !== 200) return checkin;
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      checkinId: checkin.body.checkinId,
+      sessionNumber: context.sessionNumber,
+      runId: session.runId,
+      runNumber: session.runNumber,
+      vote: vote ? { songTitle: vote.songTitle, votedAt: vote.votedAt } : null,
+      result: session.result,
+      winner: newSongWinnerView(session.result),
+    },
+  };
+}
+
 function wristbandGroupsForDashboard(db, eventState) {
   return Array.from(WRISTBAND_COLORS).map((colorId) => {
     const route = WRISTBAND_ROUTES[colorId] || [];
@@ -2258,7 +2907,9 @@ function boothPresentation(body) {
     ? triviaBoothPresentation(db)
     : boothResult.boothId === "heaven"
       ? heavenBoothPresentation(db)
-      : boothPresentationFromDb(db, boothResult.boothId);
+      : boothResult.boothId === "newsong"
+        ? newSongBoothPresentation(db)
+        : boothPresentationFromDb(db, boothResult.boothId);
   return {
     status: 200,
     body: Object.assign(
@@ -2340,7 +2991,9 @@ function boothDashboardData(body) {
         ? triviaBoothPresentation(db)
         : boothId === "heaven"
           ? heavenBoothPresentation(db)
-          : boothPresentationFromDb(db, boothId),
+          : boothId === "newsong"
+            ? newSongBoothPresentation(db)
+            : boothPresentationFromDb(db, boothId),
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
@@ -2455,7 +3108,9 @@ const POST_ACTIONS = {
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
   triviaState, submitTriviaAnswer, triviaDashboardData, advanceTriviaSession, resetTriviaSession,
   completeTrivia, heavenState, confirmHeavenStep, heavenDashboardData, advanceHeavenSession,
-  resetHeavenSession, myCheckins, mySignupSelections, eventClock, setDemoClock,
+  resetHeavenSession, newSongState, submitNewSongVote, newSongDashboardData,
+  advanceNewSongSession, resetNewSongSession, completeNewSong,
+  myCheckins, mySignupSelections, eventClock, setDemoClock,
 };
 const GET_ACTIONS = { eventClock, health };
 

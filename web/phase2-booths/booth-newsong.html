@@ -6,19 +6,141 @@
 <title>The New Song in Nashville — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
-  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
-  .song-choice.selected{ background:var(--teal); color:#fff; border-color:var(--teal); }
-  .song-choice:disabled{ opacity:1; cursor:default; }
-  .beat-time{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--coral); text-transform:uppercase; margin-bottom:8px; }
-  .beat-headline{ font-family:'Fraunces',serif; font-size:30px; line-height:1.08; margin:0 0 10px; }
-  .song-list-scroll{ max-height:390px; overflow:auto; padding:2px 3px 2px 0; margin:14px 0; overscroll-behavior:contain; }
-  .song-list-scroll .poll-opt{ margin-bottom:8px; }
-  .song-vote-status{ border-radius:14px; padding:13px 14px; background:rgba(29,122,120,.11); border:1px solid rgba(29,122,120,.22); color:var(--teal-deep); font-weight:800; margin:14px 0; }
-  .quiet-note{ border-radius:14px; padding:13px 14px; background:#fff8df; border:1px solid rgba(229,183,47,.35); font-weight:700; margin:14px 0; line-height:1.45; }
-  .create-card{ border-radius:20px; padding:24px 20px; text-align:center; background:linear-gradient(145deg, rgba(47,111,237,.10), rgba(217,74,67,.10)); border:1px solid var(--line); margin:16px 0; }
-  .verse-box{ border-left:4px solid var(--sun-deep); background:#fff9e9; border-radius:0 14px 14px 0; padding:16px; margin:16px 0; }
-  .verse-box p{ font-family:'Fraunces',serif; font-style:italic; line-height:1.5; margin:0 0 8px; }
-  .verse-ref{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:var(--coral-deep); text-transform:uppercase; letter-spacing:.06em; }
+  :root{
+    --phase-color:#4f9ed7; --phase-color-deep:#236b9e;
+    --song-sky:#dff4ff; --song-sky-deep:#78c5ed; --song-blue:#2c7fb8;
+    --song-navy:#163b61; --song-gold:#e9b949; --song-gold-soft:#fff0b9;
+  }
+  body{
+    background:
+      radial-gradient(circle at 12% 8%,rgba(255,255,255,.92) 0 5%,transparent 5.4%),
+      radial-gradient(circle at 85% 18%,rgba(255,255,255,.76) 0 7%,transparent 7.4%),
+      linear-gradient(180deg,#bfe9ff 0,#edf9ff 45%,#f8fbff 100%);
+  }
+  .newsong-shell-head{ position:relative; overflow:hidden; }
+  .newsong-shell-head::after{
+    content:"♪"; position:absolute; right:18px; top:13px; color:rgba(233,185,73,.45);
+    font:700 48px/1 'Fraunces',serif; transform:rotate(10deg); pointer-events:none;
+  }
+  .newsong-content{ min-height:380px; }
+  .newsong-card{
+    position:relative; overflow:hidden; padding:23px 18px; border:1.5px solid rgba(44,127,184,.18);
+    border-radius:22px; background:rgba(255,255,255,.94); box-shadow:0 24px 52px -38px rgba(22,59,97,.88);
+  }
+  .newsong-card::before,.newsong-card::after{
+    content:""; position:absolute; border-radius:999px; pointer-events:none;
+    background:rgba(255,255,255,.66); filter:blur(.2px);
+  }
+  .newsong-card::before{ width:130px; height:36px; right:-24px; top:24px; box-shadow:-38px 5px 0 -5px rgba(255,255,255,.66); }
+  .newsong-card::after{ width:88px; height:26px; left:-35px; bottom:28px; }
+  .newsong-card > *{ position:relative; }
+  .newsong-card h2{
+    margin:0 0 9px; color:var(--song-navy); font-family:'Fraunces',serif;
+    font-size:27px; line-height:1.12;
+  }
+  .newsong-copy{ margin:0; color:#41617d; font-size:13.5px; line-height:1.58; }
+  .newsong-script{ margin:0 0 3px; color:#9a6a00; font-family:'Fraunces',serif; font-size:17px; font-style:italic; font-weight:800; }
+  .newsong-session-meta{ margin:14px 0 0; color:#62819a; font-size:10px; line-height:1.4; text-align:center; }
+  .newsong-cloud-note{
+    display:flex; align-items:flex-start; gap:11px; margin-top:18px; padding:13px 14px;
+    border:1px solid rgba(44,127,184,.15); border-radius:16px; background:linear-gradient(145deg,#f4fbff,#e4f5ff); color:var(--song-navy);
+  }
+  .newsong-cloud-note > span{ flex:none; font-size:23px; line-height:1; }
+  .newsong-cloud-note strong,.newsong-cloud-note small{ display:block; }
+  .newsong-cloud-note strong{ margin-bottom:3px; font-size:12.5px; }
+  .newsong-cloud-note small{ color:#4d718d; font-size:11px; line-height:1.45; }
+  .newsong-welcome{ padding-top:28px; text-align:center; background:linear-gradient(150deg,#fffdf3,#eaf8ff 62%,#fff); }
+  .newsong-welcome .status-pill{ margin-bottom:14px; }
+  .newsong-welcome .newsong-cloud-note{ text-align:left; }
+  .newsong-cloud-stage{
+    display:flex; align-items:center; justify-content:center; gap:18px; width:168px; height:88px; margin:0 auto 14px;
+    border-radius:50%; background:linear-gradient(180deg,#d8f1ff,#fff); color:#d9a529;
+    box-shadow:0 18px 32px -27px rgba(22,59,97,.9);
+  }
+  .newsong-cloud-stage::before,.newsong-cloud-stage::after{
+    content:""; position:absolute; width:57px; height:57px; border-radius:50%; background:#eefaff; z-index:-1;
+  }
+  .newsong-cloud-stage::before{ margin-left:-92px; margin-top:-25px; }.newsong-cloud-stage::after{ margin-left:91px; margin-top:-14px; }
+  .newsong-cloud-stage b{ font-size:37px; }.newsong-cloud-stage span{ font-size:21px; }
+  .newsong-vote-head{ display:flex; align-items:flex-start; gap:12px; margin-bottom:7px; }
+  .newsong-vote-head > span{
+    flex:none; display:grid; place-items:center; width:52px; height:52px; border-radius:18px;
+    background:linear-gradient(145deg,var(--song-gold-soft),#fff7d9); font-size:27px;
+  }
+  .newsong-vote-head .eyebrow{ margin:1px 0 3px; color:var(--song-blue); }
+  .newsong-vote-head h2{ font-size:23px; }
+  .newsong-choice-list{ display:grid; gap:8px; margin-top:17px; }
+  .newsong-choice{
+    appearance:none; display:grid; grid-template-columns:33px 1fr 18px; align-items:center; gap:9px; width:100%;
+    min-height:51px; padding:9px 11px; border:1.5px solid rgba(44,127,184,.18); border-radius:14px;
+    background:#fff; color:var(--song-navy); cursor:pointer; text-align:left; font:750 12.5px/1.3 'Inter',sans-serif;
+    box-shadow:0 10px 24px -23px rgba(22,59,97,.9); transition:transform .15s,border-color .15s,background .15s;
+  }
+  .newsong-choice:hover,.newsong-choice:focus-visible{ transform:translateY(-1px); border-color:var(--song-blue); background:#f1faff; outline:none; }
+  .newsong-choice:disabled{ cursor:default; opacity:.68; transform:none; }
+  .newsong-track-number{
+    display:grid; place-items:center; width:31px; height:31px; border-radius:10px; background:#e8f6fe;
+    color:var(--song-blue); font-family:'JetBrains Mono',monospace; font-size:10px;
+  }
+  .newsong-choice i{ color:#c08c12; font-size:16px; font-style:normal; }
+  .newsong-fine-print{ margin:13px 0 0; color:#7590a4; font:700 9.5px/1.4 'JetBrains Mono',monospace; text-align:center; text-transform:uppercase; letter-spacing:.06em; }
+  .newsong-vote-wait{ padding-top:30px; text-align:center; background:linear-gradient(145deg,#eef9ff,#fff9e3); }
+  .newsong-vote-wait .newsong-cloud-note{ text-align:left; }
+  .newsong-vinyl{
+    display:grid; place-items:center; width:104px; height:104px; margin:0 auto 18px; border-radius:50%;
+    background:repeating-radial-gradient(circle,#173956 0 7px,#244a68 8px 10px); color:#fff;
+    box-shadow:0 17px 35px -24px rgba(11,34,55,.95);
+  }
+  .newsong-vinyl::before{ content:""; position:absolute; width:42px; height:42px; border-radius:50%; background:var(--song-gold); border:7px solid #fff3c9; }
+  .newsong-vinyl span{ z-index:1; color:var(--song-navy); font-weight:900; }
+  .newsong-vinyl.is-spinning{ animation:newsongSpin 4s linear infinite; }
+  @keyframes newsongSpin{ to{ transform:rotate(360deg); } }
+  .newsong-winner{ padding-top:27px; text-align:center; background:linear-gradient(150deg,#fff8d8,#e9f8ff 60%,#fff); }
+  .newsong-crown{
+    display:grid; place-items:center; width:76px; height:76px; margin:0 auto 15px; border-radius:26px 36px 25px 40px;
+    background:linear-gradient(145deg,#fff2a7,#e9b949); color:#815800; font-size:38px; transform:rotate(-3deg);
+    box-shadow:0 18px 32px -24px rgba(129,88,0,.85);
+  }
+  .newsong-winner-title,.newsong-featured{
+    margin-top:17px; padding:17px 14px; border:1px solid rgba(192,140,18,.23); border-radius:17px; background:rgba(255,255,255,.83);
+  }
+  .newsong-winner-title small,.newsong-winner-title strong,.newsong-winner-title span,.newsong-featured small,.newsong-featured strong{ display:block; }
+  .newsong-winner-title small,.newsong-featured small{ color:#8b6a20; font:800 9px/1.4 'JetBrains Mono',monospace; letter-spacing:.07em; text-transform:uppercase; }
+  .newsong-winner-title strong,.newsong-featured strong{ margin:5px 0; color:var(--song-navy); font-family:'Fraunces',serif; font-size:21px; line-height:1.22; }
+  .newsong-winner-title span{ color:#53738c; font-size:11px; font-weight:800; }
+  .newsong-tie-list{ display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-top:14px; }
+  .newsong-tie-list span{ padding:7px 9px; border-radius:999px; background:#fff; color:var(--song-navy); font-size:10.5px; font-weight:800; box-shadow:0 7px 18px -16px #163b61; }
+  .newsong-your-pick{ margin:13px 0 0; color:#587890; font-size:11px; font-weight:750; }.newsong-your-pick.won{ color:#7e5900; }
+  .newsong-verse{ color:#fff; background:linear-gradient(155deg,#143b62,#246e9e 58%,#4aa8d7); }
+  .newsong-verse::before,.newsong-verse::after{ opacity:.2; }
+  .newsong-verse h2{ color:#fff; }.newsong-verse .newsong-script{ color:#ffe38b; }.newsong-verse .newsong-copy{ color:rgba(255,255,255,.88); }
+  .newsong-verse-image{
+    appearance:none; display:block; width:100%; margin:16px 0 0; padding:0; overflow:hidden; border:2px solid rgba(255,227,139,.85);
+    border-radius:16px; background:#0e2c49; cursor:zoom-in; box-shadow:0 22px 38px -28px #071c2d;
+  }
+  .newsong-verse-image img{ display:block; width:100%; height:auto; }.newsong-verse-image span{ display:block; padding:7px 9px; color:#ffe9a9; font-size:9.5px; font-weight:800; }
+  .newsong-verse blockquote{ margin:16px 0; padding:15px; border:1px solid rgba(255,255,255,.22); border-radius:15px; background:rgba(255,255,255,.1); }
+  .newsong-verse blockquote p{ margin:0; font-family:'Fraunces',serif; font-size:14px; font-style:italic; line-height:1.55; }
+  .newsong-verse cite{ display:block; margin-top:9px; color:#ffe38b; font:800 9px/1.4 'JetBrains Mono',monospace; font-style:normal; letter-spacing:.07em; text-transform:uppercase; }
+  .newsong-verse .newsong-cloud-note{ background:rgba(255,255,255,.92); }.newsong-verse .newsong-session-meta{ color:rgba(255,255,255,.7); }
+  .newsong-complete{ padding-top:29px; text-align:center; background:linear-gradient(145deg,#fff9dc,#e6f7ff 60%,#fff); }
+  .newsong-finale{ display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:17px; color:#c18e14; font-size:23px; }
+  .newsong-finale b{ display:grid; place-items:center; width:70px; height:70px; border-radius:50%; background:linear-gradient(145deg,#72c6ed,#2c7fb8); color:#fff; font-size:30px; box-shadow:0 18px 32px -24px #163b61; }
+  .newsong-done{ width:100%; margin-top:19px; }
+  .newsong-loading,.newsong-error{ text-align:center; }.newsong-loading p:not(.eyebrow){ margin:0; color:#55758d; font-size:12.5px; }
+  .newsong-equalizer{ display:flex; align-items:end; justify-content:center; gap:6px; height:58px; margin-bottom:17px; }
+  .newsong-equalizer i{ width:9px; height:25px; border-radius:999px; background:var(--song-blue); animation:newsongBars .7s ease-in-out infinite alternate; }
+  .newsong-equalizer i:nth-child(2){ height:46px; animation-delay:.12s; }.newsong-equalizer i:nth-child(3){ height:35px; animation-delay:.24s; background:var(--song-gold); }
+  .newsong-equalizer i:nth-child(4){ height:51px; animation-delay:.36s; }.newsong-equalizer i:nth-child(5){ height:29px; animation-delay:.48s; }
+  @keyframes newsongBars{ to{ height:12px; opacity:.55; } }
+  .newsong-sync-issue{ margin:13px 0 0; padding:10px; border-radius:11px; background:#fff1e8; color:#8b321f; font-size:10.5px; line-height:1.4; }
+  .newsong-image-dialog{ position:fixed; z-index:1000; inset:0; display:flex; align-items:center; justify-content:center; padding:58px 12px 18px; background:rgba(5,24,42,.95); cursor:zoom-out; }
+  .newsong-image-dialog img{ display:block; max-width:min(1200px,96vw); max-height:calc(100vh - 78px); border-radius:12px; object-fit:contain; box-shadow:0 28px 80px rgba(0,0,0,.52); cursor:default; }
+  .newsong-image-close{ appearance:none; position:absolute; top:max(12px,env(safe-area-inset-top)); right:16px; display:grid; place-items:center; width:42px; height:42px; border:1px solid rgba(255,255,255,.4); border-radius:50%; background:#fff; color:var(--song-navy); cursor:pointer; font:700 27px/1 Arial,sans-serif; }
+  @media(max-width:390px){
+    .newsong-card{ padding:20px 15px; }.newsong-card h2{ font-size:24px; }.newsong-choice{ font-size:11.5px; }
+  }
+  @media(prefers-reduced-motion:reduce){ .newsong-vinyl.is-spinning,.newsong-equalizer i{ animation:none; } }
 </style>
 </head>
 <body>
@@ -26,17 +148,17 @@
 <div class="phone" id="phone">
   <div id="booth-room-content" style="display:none;">
     <div class="progress" id="progress"></div>
-    <section class="screen">
+    <section class="screen newsong-shell-head">
       <p class="eyebrow">Phase 2 · New Song room</p>
-      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎵</span><em>The New Song in Nashville</em></h1>
-      <p class="lede">Vote on what plays next, then hear about the song only the redeemed can sing.</p>
+      <h1 class="display" style="display:flex;align-items:center;gap:10px;"><span aria-hidden="true">🎵</span><em>The New Song in Nashville</em></h1>
+      <p class="lede">Your music host sets the pace: vote once, watch the room's result, then discover the new song in Revelation 14:3.</p>
     </section>
 
     <section id="booth-gate" class="screen">
       <div class="field">
         <label for="booth-phone-input">Your phone number to check in</label>
         <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
-        <div class="hint">You'll only need to enter this once today.</div>
+        <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
         <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
       </div>
       <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
@@ -44,20 +166,13 @@
 
     <div id="booth-interface" style="display:none;">
       <section class="screen" style="padding-top:0;">
-        <div id="booth-content"></div>
-      </section>
-      <section class="screen" style="padding-top:0;">
-        <div class="field">
-          <label for="booth-note">Anything you'd like to share?</label>
-          <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
-        </div>
-        <div class="field">
-          <label>Rate this booth</label>
-          <div class="stars" id="booth-stars">
-            <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+        <div id="booth-content" class="newsong-content" role="region" aria-label="New Song shared activity" aria-live="polite">
+          <div class="newsong-card newsong-loading" aria-busy="true">
+            <div class="newsong-equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <p class="eyebrow">Joining New Song…</p>
+            <h2>Tuning in to your room.</h2>
           </div>
         </div>
-        <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
       </section>
     </div>
   </div>
@@ -76,194 +191,33 @@
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
 <script src="../shared/booth-room.js"></script>
+<script src="../shared/newsong-attendee.js"></script>
 <script>
 const BOOTH_ID = "newsong";
 const BOOTH_NAME = "The New Song in Nashville";
 const BOOTH_ROOM_NAME = "New Song";
-const NEWSONG_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
-const newSongState = { index: 0, votedFor: "", voteSaving: false, voteSaved: false, guess: "" };
-let newSongStateOwner = "";
-
-function restoreNewSongState() {
-  const owner = String((Identity.peek() || {}).attendeeId || "");
-  if (!owner || newSongStateOwner === owner) return;
-  const saved = JourneyState.load(NEWSONG_DRAFT_SCOPE, {}) || {};
-  const index = Number(saved.index);
-  const votedFor = saved.voteSaved && SONG_LIST.includes(saved.votedFor) ? saved.votedFor : "";
-  newSongState.index = Number.isInteger(index) ? Math.min(NEWSONG_BEATS.length - 1, Math.max(0, index)) : 0;
-  newSongState.votedFor = votedFor;
-  newSongState.voteSaving = false;
-  newSongState.voteSaved = Boolean(votedFor);
-  newSongState.guess = typeof saved.guess === "string" ? saved.guess.slice(0, 80) : "";
-  newSongStateOwner = owner;
-}
-
-function saveNewSongState() {
-  JourneyState.save(NEWSONG_DRAFT_SCOPE, {
-    index: newSongState.index,
-    votedFor: newSongState.voteSaved ? newSongState.votedFor : "",
-    voteSaved: newSongState.voteSaved,
-    guess: newSongState.guess,
-  });
-}
 
 function renderProgress() {
-  const el = document.getElementById("progress");
-  el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
+  const progress = document.getElementById("progress");
+  progress.innerHTML = "";
+  for (let index = 0; index < 3; index += 1) {
     const dot = document.createElement("div");
-    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(dot);
+    dot.className = "dot" + (index < 1 ? " done" : index === 1 ? " current" : "");
+    progress.appendChild(dot);
   }
 }
 renderProgress();
 
-function renderSongRoom() {
-  restoreNewSongState();
-  const beat = NEWSONG_BEATS[newSongState.index];
-  let content = `
-    <div class="beat-time">${escapeHtml(beat.time)}</div>
-    <h2 class="beat-headline">${escapeHtml(beat.headline)}</h2>
-    <p class="lede">${escapeHtml(beat.lede)}</p>
-  `;
-
-  if (beat.type === "vote") {
-    content += `<div class="hint" style="margin-top:12px;">Scroll to see all ${SONG_LIST.length} song choices.</div><div id="song-choices" class="song-list-scroll"></div>`;
-    if (newSongState.votedFor) {
-      content += `<div class="song-vote-status">${newSongState.voteSaving ? "Saving your vote…" : "✓ Vote counted:"} ${escapeHtml(newSongState.votedFor)}</div>`;
-    }
-    content += `<div class="quiet-note">${escapeHtml(beat.footNote)}</div>`;
-  }
-
-  if (beat.type === "note") {
-    content += `
-      <div class="create-card">
-        <div style="font-size:46px; margin-bottom:9px;">💿🖊️</div>
-        <strong style="display:block; font-size:18px; margin-bottom:6px;">Grab a CD and a marker</strong>
-        <span style="color:var(--ink-soft); line-height:1.45;">Use this time to create while the room sings together.</span>
-      </div>
-    `;
-  }
-
-  if (beat.type === "reveal") {
-    content += `
-      <div class="field">
-        <label for="newsong-guess-input">${escapeHtml(beat.prompt)}</label>
-        <input id="newsong-guess-input" type="text" maxlength="80" placeholder="${escapeHtml(beat.placeholder)}">
-      </div>
-      <div class="verse-box">
-        <p>“${escapeHtml(beat.verse.text)}”</p>
-        <div class="verse-ref">${escapeHtml(beat.verse.ref)}</div>
-      </div>
-      <p class="lede" style="margin-bottom:0;">${escapeHtml(beat.closing)}</p>
-    `;
-  }
-
-  content += `
-    <div class="poll-nav" style="margin-top:16px;">
-      <button class="btn btn-ghost" id="btn-newsong-prev"${newSongState.index === 0 ? " style=\"visibility:hidden;\"" : ""}>← Back</button>
-      <button class="btn btn-primary" id="btn-newsong-next">${newSongState.index === NEWSONG_BEATS.length - 1 ? "Continue to finish ↓" : "Next →"}</button>
-    </div>
-  `;
-
-  document.getElementById("booth-content").innerHTML = content;
-
-  if (beat.type === "vote") renderSongChoices();
-  const guessInput = document.getElementById("newsong-guess-input");
-  if (guessInput) {
-    guessInput.value = newSongState.guess;
-    guessInput.addEventListener("input", () => {
-      newSongState.guess = guessInput.value;
-      saveNewSongState();
-    });
-  }
-
-  document.getElementById("btn-newsong-prev").addEventListener("click", () => {
-    saveSongGuess();
-    if (newSongState.index > 0) {
-      newSongState.index--;
-      saveNewSongState();
-      renderSongRoom();
-    }
-  });
-  document.getElementById("btn-newsong-next").addEventListener("click", () => {
-    if (newSongState.voteSaving) {
-      toast("Your vote is still saving — one moment.");
-      return;
-    }
-    if (beat.type === "vote" && !newSongState.votedFor) {
-      const choices = document.getElementById("song-choices");
-      if (choices) choices.scrollIntoView({ behavior: "smooth", block: "center" });
-      toast("Choose one song to cast your vote.");
-      return;
-    }
-    saveSongGuess();
-    if (newSongState.index < NEWSONG_BEATS.length - 1) {
-      newSongState.index++;
-      saveNewSongState();
-      renderSongRoom();
-      return;
-    }
-    document.getElementById("btn-booth-done").scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-}
-
-function renderSongChoices() {
-  const choices = document.getElementById("song-choices");
-  if (!choices) return;
-  SONG_LIST.forEach((song) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "poll-opt song-choice" + (newSongState.votedFor === song ? " selected" : "");
-    button.textContent = song + (newSongState.votedFor === song ? "  ✓" : "");
-    button.disabled = Boolean(newSongState.votedFor) || newSongState.voteSaving;
-    button.addEventListener("click", async () => {
-      if (newSongState.votedFor || newSongState.voteSaving) return;
-      newSongState.votedFor = song;
-      newSongState.voteSaving = true;
-      renderSongRoom();
-      try {
-        const attendee = typeof window.getCurrentBoothIdentity === "function"
-          ? window.getCurrentBoothIdentity()
-          : Identity.peek();
-        await EventAPI.saveSongVote(attendee.attendeeId, song);
-        newSongState.voteSaving = false;
-        newSongState.voteSaved = true;
-        saveNewSongState();
-        renderSongRoom();
-        toast("Vote counted for the booth leader.");
-      } catch (error) {
-        console.error(error);
-        newSongState.votedFor = "";
-        newSongState.voteSaving = false;
-        newSongState.voteSaved = false;
-        saveNewSongState();
-        renderSongRoom();
-        if (!Identity.restartIfMissing(error, currentBoothRoomUrl())) {
-          toast("Couldn't save that vote — check the connection and tap again.");
-        }
-      }
-    });
-    choices.appendChild(button);
-  });
-}
-
-function saveSongGuess() {
-  const input = document.getElementById("newsong-guess-input");
-  if (input) newSongState.guess = input.value.trim();
-  saveNewSongState();
-}
-
-window.getBoothExtraData = () => ({
-  votedFor: newSongState.votedFor || null,
-  voteSavedAtSelection: newSongState.voteSaved,
-  guess: newSongState.guess || null,
-  reachedBeat: NEWSONG_BEATS[newSongState.index].id,
+window.getBoothExtraData = () => NewSongAttendee.extraData();
+initBoothRoom({
+  boothId: BOOTH_ID,
+  boothName: BOOTH_NAME,
+  roomName: BOOTH_ROOM_NAME,
+  onReady: () => NewSongAttendee.init({
+    containerId: "booth-content",
+    onCompleted: () => window.completeBoothRoom(BOOTH_NAME),
+  }),
 });
-
-initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderSongRoom });
-renderBoothFooter(BOOTH_ID);
-document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>
 </body>
 </html>

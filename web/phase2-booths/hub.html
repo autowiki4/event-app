@@ -428,7 +428,7 @@ function renderSchedule() {
         ? `Reopen ${currentBooth.title} activity →`
         : `Open ${currentBooth.title} activity →`;
       const alreadyComplete = completedBooths.has(currentBooth.id);
-      const completionLivesInActivity = ["trivia", "heaven"].includes(currentBooth.id);
+      const completionLivesInActivity = ["trivia", "heaven", "newsong"].includes(currentBooth.id);
       completeButton.hidden = completionLivesInActivity;
       completeButton.disabled = completionLivesInActivity || alreadyComplete;
       completeButton.textContent = completionLivesInActivity

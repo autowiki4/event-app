@@ -211,6 +211,19 @@ leader tab instead of silently overwriting a newer update. This is still a
 small mock rather than a full multi-operator show-control system, so staff
 should decide who owns each booth page during a live session.
 
+New Song is a specialized Node/Render-only controller while retaining the
+existing attendee and staff URLs. Its independent session controllers serve
+Green wristbands in Session 1, Yellow in Session 2, and Orange in Session 3,
+and progress through `welcome → voting → winner → verse → complete`. The first
+vote from an attendee is locked. Staff see a live tally for only the active
+session/run and control when the winner, Revelation 14:3, and completion are
+shown. Restarting one session archives its current run and opens a clean one.
+
+The canonical ten-song poll is: **God in Me**, **He Turned It**, **Victory**,
+**Brighter Day**, **Praise — Elevation Worship**, **Jireh**, **I Thank God —
+Maverick City**, **Amen — Madison Ryann Ward**, **Quick — Caleb Gordon**, and
+**Goodbye Yesterday — Elevation Rhythm**.
+
 All booth and organizer pages currently use the same organizer key. The API
 does filter booth dashboard results by the requested booth, but the key does
 not prevent its holder from opening a different booth page or the overall
@@ -249,8 +262,8 @@ The local JSON object and Google Sheet tabs represent the same concepts:
   completion time.
 - **BoothCheckins:** attendee, booth, time, method, and optional booth/session
   metadata.
-- **SongVotes:** one immediate, idempotent New Song choice per attendee so the
-  opening vote is available before the full booth check-in is finished.
+- **SongVotes:** one immediate, run-scoped New Song choice per attendee; the
+  first vote is locked and available to the live staff tally before check-in.
 - **SignUps:** one row per selected next-step option plus staff confirmation
   fields.
 - **BoothControls:** one current status, step, message, timestamps, and version
@@ -262,11 +275,12 @@ marker used by `resetDemo`. The Apps Script Sheet has no equivalent because
 that adapter does not implement the full-data reset. The Node object also has
 `triviaSessions` (one versioned welcome/question/reveal/complete controller for
 each rotation), `triviaAnswers`, and `triviaRunHistory`. Draw Heaven similarly
-uses `heavenSessions`, `heavenConfirmations`, and `heavenRunHistory`. Every
-attendee response carries a `runId`, so restarting a rotation opens an empty
-active run without overwriting the archived answers, confirmations, or staff
-summary from the prior run. These collections are not part of the Apps Script
-sketch.
+uses `heavenSessions`, `heavenConfirmations`, and `heavenRunHistory`. New Song
+uses `newSongSessions`, run-scoped `songVotes`, and `newSongRunHistory`. Every
+specialized attendee response carries a `runId`, so restarting a rotation
+opens an empty active run without overwriting the archived answers,
+confirmations, votes, results, or staff summary from the prior run. These
+collections are not part of the Apps Script sketch.
 
 See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
@@ -289,19 +303,24 @@ read. The leader-paced Bible Bowl adds attendee `triviaState`,
 `triviaDashboardData`, `advanceTriviaSession`, and `resetTriviaSession`
 actions. Draw Heaven adds attendee `heavenState` and `confirmHeavenStep` plus
 protected `heavenDashboardData`, `advanceHeavenSession`, and
-`resetHeavenSession`. Both activities keep independent Session 1–3 controllers
-and require the version returned by the preceding staff read when advancing.
-Their session reset actions archive one run and create the next; only
+`resetHeavenSession`. New Song adds attendee `newSongState`,
+`submitNewSongVote`, and `completeNewSong` plus protected
+`newSongDashboardData`, `advanceNewSongSession`, and `resetNewSongSession`.
+All three activities keep independent Session 1–3 controllers and require the
+version returned by the preceding staff read when advancing. Their session
+reset actions archive one run and create the next; only
 `resetDemo` deletes the histories. Apps Script intentionally implements none
-of these Node extensions.
+of these synchronized Node extensions; its New Song endpoint remains a legacy
+unsynchronized vote path.
 Legacy phone/kiosk actions remain for the optional fallback pages.
 
 `resetDemo` clears all attendees and wristband assignments, check-ins and
-scores, votes, Phase 3 sign-ups, booth presentation/control state, active and
-archived leader-paced runs, and the raffle counter. It writes the same fresh state to the primary JSON file and
-backup, advances `dataResetAt`, and thereby clears connected or reopened
-attendee identities at their next sync. It deliberately does not change the
-selected clock mode or anchor.
+scores, New Song sessions/votes/history, Phase 3 sign-ups, booth
+presentation/control state, all other active and archived leader-paced runs,
+and the raffle counter. It writes the same fresh state to the primary JSON
+file and backup, advances `dataResetAt`, and thereby clears connected or
+reopened attendee identities at their next sync. It deliberately does not
+change the selected clock mode or anchor.
 
 Public presentation reads return only the booth's display state and server
 time. They do not return the organizer key, attendee roster, or event-wide

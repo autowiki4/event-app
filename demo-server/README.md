@@ -121,11 +121,11 @@ The server creates `db.json` on first write. It contains:
   Phase 3 completion time;
 - booth check-ins, including scheduled visits created by attendee completion
   taps;
-- New Song votes saved as soon as an attendee taps a song;
+- run-scoped New Song votes, Session 1–3 controllers, and archived runs;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
 - one current presentation state per booth;
 - versioned Session 1–3 controllers, attendee responses, and archived prior
-  runs for Bible Bowl and Draw Heaven;
+  runs for Bible Bowl, Draw Heaven, and New Song;
 - the raffle counter; and
 - a durable `dataResetAt` marker used to invalidate attendee browser identity
   after an organizer starts fresh.
@@ -155,12 +155,12 @@ curl -X POST -H "Content-Type: application/json" \
 
 The organizer dashboard exposes the same protected action as **Clear all
 attendee data & start fresh**. It deletes attendees and wristbands, booth
-check-ins and scores, New Song votes, Phase 3 sign-ups, all booth presentation
-and control state, and the raffle counter. It replaces `db.json.bak` with the
-same empty state and advances the durable reset marker. On their next sync,
-connected or reopened attendee browsers clear their old identity and return to
-Phase 1. The reset deliberately leaves the current simulated/live clock mode
-unchanged.
+check-ins and scores, New Song sessions, votes, and run history, Phase 3
+sign-ups, all booth presentation and control state, and the raffle counter. It
+replaces `db.json.bak` with the same empty state and advances the durable reset
+marker. On their next sync, connected or reopened attendee browsers clear
+their old identity and return to Phase 1. The reset deliberately leaves the
+current simulated/live clock mode unchanged.
 
 ## Tests
 
@@ -232,18 +232,36 @@ Draw Heaven uses the same Node-only, leader-paced run model:
   comparison, reflection, programs, and completion using optimistic versions
 - `resetHeavenSession` archives the current run and opens a clean welcome run
 
-Session reset preserves prior-run answers/confirmations for staff review while
-keeping the active run's results isolated. The overall `resetDemo` action is
-the deliberate deletion boundary: it clears active and archived runs for both
-activities along with all other event data.
+New Song also uses a Node/Render-only leader-paced run model without changing
+its attendee (`/phase2-booths/booth-newsong.html`) or staff
+(`/phase2-staff/newsong.html`) URLs. Green, Yellow, and Orange wristbands use
+Sessions 1, 2, and 3 respectively. `newSongState`, `submitNewSongVote`, and
+`completeNewSong` serve attendees; protected `newSongDashboardData`,
+`advanceNewSongSession`, and `resetNewSongSession` serve staff. The leader
+advances `welcome → voting → winner → verse → complete`, choosing when to show
+the winner, Revelation 14:3, and the end. Tallies are live and isolated by
+session/run, the first attendee vote is locked, and session reset preserves an
+archived run before opening the next.
+
+The exact poll is **God in Me**, **He Turned It**, **Victory**, **Brighter
+Day**, **Praise — Elevation Worship**, **Jireh**, **I Thank God — Maverick
+City**, **Amen — Madison Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye
+Yesterday — Elevation Rhythm**.
+
+Session reset preserves prior-run answers, confirmations, votes, and results
+for staff review while keeping each active run isolated. The overall
+`resetDemo` action is the deliberate deletion boundary: it clears active and
+archived runs, including New Song sessions, votes, and history, along with all
+other event data.
 
 The question answer key stays outside `web/`, and the public attendee state
 does not include the correct answer until the booth leader reveals it. Each
 session and leaderboard is persisted separately in `triviaSessions`,
-`triviaAnswers`, and `triviaRunHistory`. Draw Heaven uses matching session,
-confirmation, and run-history collections. Run one Node instance with a
-persistent `EVENT_APP_DB_PATH`; the Apps Script adapter does not implement
-either synchronized booth workflow.
+`triviaAnswers`, and `triviaRunHistory`. Draw Heaven and New Song use matching
+session/run-history collections, with New Song votes carrying their run ID.
+Run one Node instance with a persistent `EVENT_APP_DB_PATH`; the Apps Script
+adapter does not implement these synchronized booth workflows. Its New Song
+support remains the legacy unsynchronized vote path.
 
 The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,

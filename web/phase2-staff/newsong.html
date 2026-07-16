@@ -3,74 +3,175 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Song — Staff</title>
+  <title>New Song — Booth Leader</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <style>
-    :root {
-      --phase-color: var(--teal);
-      --phase-color-deep: var(--teal-deep);
+    :root{
+      --phase-color:#4f9ed7; --phase-color-deep:#236b9e;
+      --song-sky:#dff4ff; --song-sky-deep:#7bc8ed; --song-blue:#2c7fb8;
+      --song-navy:#163b61; --song-gold:#e9b949; --song-gold-deep:#9a6a00;
     }
+    body{
+      background:
+        radial-gradient(circle at 10% 7%,rgba(255,255,255,.84) 0 5%,transparent 5.4%),
+        radial-gradient(circle at 88% 14%,rgba(255,255,255,.72) 0 7%,transparent 7.4%),
+        linear-gradient(180deg,#c7edff,#f4fbff 48%,#fafcff);
+    }
+    .dash-wrap{ max-width:1180px; }
+    .newsong-staff-head{ position:relative; overflow:hidden; }
+    .newsong-staff-head::after{ content:"♫"; position:absolute; right:25px; top:30px; color:rgba(233,185,73,.35); font:800 72px/1 'Fraunces',serif; transform:rotate(8deg); pointer-events:none; }
+    .newsong-leader-intro{
+      display:flex; align-items:center; justify-content:space-between; gap:16px; margin:5px 0 18px; padding:15px 17px;
+      border:1px solid rgba(44,127,184,.17); border-radius:17px; background:linear-gradient(145deg,#effaff,#fff9df); color:var(--song-navy);
+    }
+    .newsong-leader-intro strong,.newsong-leader-intro span{ display:block; }.newsong-leader-intro strong{ margin-bottom:3px; font-size:14px; }
+    .newsong-leader-intro span{ color:#55758d; font-size:11.5px; line-height:1.45; }
+    .newsong-sync-note{ margin-bottom:13px; padding:11px 13px; border-radius:12px; background:#fff0e9; color:#8b321f; font-size:11px; line-height:1.45; }
+    .newsong-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:10px 0 17px; }
+    .newsong-session-tab{
+      appearance:none; min-height:65px; padding:11px 13px; border:1.5px solid rgba(44,127,184,.18); border-radius:15px;
+      background:rgba(255,255,255,.84); color:var(--song-navy); cursor:pointer; text-align:left; box-shadow:0 12px 26px -26px rgba(22,59,97,.9);
+    }
+    .newsong-session-tab b,.newsong-session-tab small{ display:block; }.newsong-session-tab b{ font-size:12.5px; }.newsong-session-tab small{ margin-top:4px; color:#68869c; font-size:10px; }
+    .newsong-session-tab.active{ border-color:var(--song-blue); background:linear-gradient(145deg,#e9f8ff,#fff8d9); box-shadow:0 0 0 3px rgba(44,127,184,.09); }
+    .newsong-session-tab:focus-visible{ outline:3px solid rgba(44,127,184,.25); outline-offset:2px; }
+    .newsong-layout{ display:grid; grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr); gap:14px; align-items:start; }
+    .newsong-panel{
+      min-width:0; padding:17px; border:1px solid rgba(44,127,184,.16); border-radius:18px;
+      background:rgba(255,255,255,.94); box-shadow:0 19px 42px -36px rgba(22,59,97,.86);
+    }
+    .newsong-panel-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:13px; }
+    .newsong-panel-head h2{ margin:2px 0 0; color:var(--song-navy); font-family:'Fraunces',serif; font-size:20px; line-height:1.2; }
+    .newsong-panel-kicker{ color:var(--song-blue); font:800 9px/1.4 'JetBrains Mono',monospace; letter-spacing:.08em; text-transform:uppercase; }
+    .newsong-phase-pill{ flex:none; padding:6px 9px; border-radius:999px; background:#edf8fe; color:var(--song-blue); font-size:9.5px; font-weight:850; }
+    .newsong-phase-pill.voting{ background:#e3f5ff; color:#116c9d; }.newsong-phase-pill.winner{ background:#fff1b8; color:#805700; }
+    .newsong-phase-pill.verse{ background:#e8e8ff; color:#454080; }.newsong-phase-pill.complete{ background:#e3f4e8; color:#246c43; }
+    .newsong-schedule-card{
+      display:grid; grid-template-columns:1fr auto; align-items:center; gap:12px; padding:13px; border-radius:14px;
+      background:linear-gradient(145deg,#eaf8ff,#fff9df); color:var(--song-navy);
+    }
+    .newsong-schedule-card strong,.newsong-schedule-card span{ display:block; }.newsong-schedule-card strong{ font-size:11.5px; }.newsong-schedule-card > div > span{ margin-top:3px; color:#658298; font-size:9.5px; }
+    .newsong-band-dot{ display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--band-color,#4f9ed7); vertical-align:1px; }
+    .newsong-session-timer{ min-width:92px; color:var(--song-navy); font:800 19px/1 'JetBrains Mono',monospace; text-align:right; }
+    .newsong-session-timer small{ display:block; margin-top:5px; color:#69859a; font:700 8px/1.2 'Inter',sans-serif; text-transform:uppercase; letter-spacing:.05em; }
+    .newsong-session-note{ margin-top:9px; padding:9px 10px; border-radius:10px; background:#fff6d5; color:#745414; font-size:9.8px; line-height:1.42; }
+    .newsong-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin:13px 0; }
+    .newsong-stat{ padding:10px 7px; border:1px solid rgba(44,127,184,.1); border-radius:12px; background:#f8fcff; text-align:center; }
+    .newsong-stat b,.newsong-stat span{ display:block; }.newsong-stat b{ color:var(--song-navy); font:850 20px/1 'JetBrains Mono',monospace; }.newsong-stat span{ margin-top:5px; color:#6a879d; font-size:8.5px; font-weight:750; }
+    .newsong-stage{ min-height:182px; padding:16px; border:1px solid rgba(44,127,184,.13); border-radius:15px; background:linear-gradient(150deg,#f9fdff,#fffdf4); color:#54728a; }
+    .newsong-stage h3{ margin:0 0 6px; color:var(--song-navy); font-family:'Fraunces',serif; font-size:17px; }.newsong-stage > p{ margin:0; font-size:10.8px; line-height:1.48; }
+    .newsong-stage blockquote{ margin:12px 0 0; padding:11px; border-left:3px solid var(--song-gold); border-radius:0 10px 10px 0; background:#fff; color:#3d5e79; font-family:'Fraunces',serif; font-size:10.5px; font-style:italic; line-height:1.5; }
+    .newsong-stage-icon{ display:grid; place-items:center; width:48px; height:48px; margin-bottom:11px; border-radius:17px; background:#e4f6ff; font-size:24px; }.newsong-stage-icon.live{ background:#dff4ff; }.newsong-stage-icon.gold{ background:#fff0b1; }.newsong-stage-icon.verse{ background:#e9e7ff; }.newsong-stage-icon.complete{ background:#e1f4e7; color:#246c43; font-weight:900; }
+    .newsong-actions{ display:grid; gap:8px; margin-top:11px; }.newsong-actions .btn{ width:100%; }
+    .newsong-finished-note{ margin:0; padding:10px; border-radius:10px; background:#e8f6ed; color:#286745; font-size:10px; line-height:1.45; }
+    .newsong-publish-state{ margin:9px 2px 0; color:#69869b; font-size:9.5px; line-height:1.4; }.newsong-publish-state.error{ color:#9a3c25; }
+    .newsong-result-card{ display:flex; align-items:flex-start; gap:10px; margin-top:13px; padding:11px; border:1px solid rgba(233,185,73,.32); border-radius:12px; background:#fffaf0; color:var(--song-navy); }
+    .newsong-result-card.tie{ border-color:rgba(44,127,184,.25); background:#eff9ff; }.newsong-result-card.compact{ margin:0 0 11px; }
+    .newsong-result-icon{ flex:none; font-size:22px; }.newsong-result-card small,.newsong-result-card strong{ display:block; }.newsong-result-card small{ color:#84651d; font-size:8.5px; font-weight:850; text-transform:uppercase; letter-spacing:.05em; }
+    .newsong-result-card strong{ margin:3px 0; font-size:11.5px; line-height:1.35; }.newsong-result-card p{ margin:0; color:#668299; font-size:8.8px; line-height:1.4; }.newsong-result-empty{ color:#7790a3; font-size:10px; }
+    .newsong-tie-note{ min-height:31px; margin-bottom:10px; padding:9px 10px; border-radius:10px; background:#f2f7fa; color:#627e93; font-size:9.6px; line-height:1.42; }
+    .newsong-tie-note.tie{ background:#fff4cf; color:#775713; }.newsong-tie-note.winner{ background:#e9f7ee; color:#286a45; }.newsong-tie-note.live{ background:#e8f6ff; color:#236b9e; }
+    .newsong-chart{ display:grid; gap:7px; }.newsong-chart-row{ display:grid; grid-template-columns:20px minmax(112px,1.45fr) minmax(80px,1fr) 28px; align-items:center; gap:7px; min-height:25px; }
+    .newsong-chart-rank{ color:#8aa0b0; font:700 8px/1 'JetBrains Mono',monospace; }.newsong-chart-title{ overflow:hidden; color:#3d5d77; font-size:9.5px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+    .newsong-chart-track{ height:8px; overflow:hidden; border-radius:999px; background:#eaf1f5; }.newsong-chart-track i{ display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#77c8ee,#2c7fb8); transition:width .3s ease; }
+    .newsong-chart-row.leader .newsong-chart-title{ color:var(--song-gold-deep); }.newsong-chart-row.leader .newsong-chart-track i{ background:linear-gradient(90deg,#ffe28a,#e9b949); }.newsong-chart-row > b{ color:var(--song-navy); font:800 10px/1 'JetBrains Mono',monospace; text-align:right; }
+    .newsong-chart.compact{ margin-bottom:12px; }.newsong-chart.compact .newsong-chart-row{ grid-template-columns:18px minmax(100px,1.4fr) minmax(65px,1fr) 25px; }
+    .newsong-roster-panel{ margin-top:14px; }.newsong-table-wrap{ overflow-x:auto; }.newsong-participant-table{ min-width:570px; }.newsong-participant-table td{ vertical-align:middle; }.newsong-raffle{ color:#6b8498; font-family:'JetBrains Mono',monospace; font-size:10px; }.newsong-waiting-vote{ color:#8a9ba8; font-style:italic; }.newsong-done-mark{ color:#2f8a57; font-weight:900; }
+    .newsong-history-head{ display:flex; align-items:end; justify-content:space-between; gap:12px; margin:21px 1px 10px; }.newsong-history-head h2{ margin:2px 0 0; color:var(--song-navy); font-family:'Fraunces',serif; font-size:19px; }.newsong-history-head > span{ color:#718b9f; font-size:9.5px; }
+    .newsong-run-history{ display:grid; gap:9px; }.newsong-archive-run{ border:1px solid rgba(44,127,184,.16); border-radius:14px; background:rgba(255,255,255,.92); overflow:hidden; }
+    .newsong-archive-run summary{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; color:var(--song-navy); cursor:pointer; font-size:11px; }.newsong-archive-run summary small{ color:#748da0; font-size:9px; }.newsong-archive-body{ padding:0 14px 14px; }
+    .newsong-footer-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:15px; }.newsong-danger{ color:#9b3d27; border-color:rgba(155,61,39,.25); }
+    .newsong-empty{ padding:15px; color:#7b92a3; font-size:10.5px; line-height:1.45; text-align:center; }.newsong-loading{ opacity:.66; pointer-events:none; }
+    @media(max-width:860px){ .newsong-layout{ grid-template-columns:1fr; }.newsong-chart-row{ grid-template-columns:18px minmax(120px,1.5fr) minmax(90px,1fr) 28px; } }
+    @media(max-width:620px){
+      .newsong-session-tabs{ grid-template-columns:1fr; }.newsong-session-tab{ min-height:54px; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+      .newsong-stats{ grid-template-columns:repeat(2,1fr); }.newsong-leader-intro{ align-items:flex-start; flex-direction:column; }.newsong-history-head{ align-items:flex-start; flex-direction:column; }
+      .newsong-footer-actions{ flex-direction:column; }.newsong-footer-actions .btn{ width:100%; }.newsong-chart-row{ grid-template-columns:18px minmax(100px,1.4fr) minmax(55px,.8fr) 24px; gap:5px; }.newsong-chart-title{ font-size:8.8px; }
+    }
+    @media(prefers-reduced-motion:reduce){ .newsong-chart-track i{ transition:none; } }
   </style>
 </head>
 <body>
   <div class="phone dash-wrap">
     <div class="device-tag organizer">Booth leader</div>
-    <section class="screen">
+    <section class="screen newsong-staff-head">
       <a class="btn-link" href="../organizer/index.html">← All organizer portals</a>
-      <p class="eyebrow" id="staff-booth-mode">Booth</p>
-      <h1 class="display" id="staff-booth-name">Booth controls</h1>
-      <p class="lede" id="staff-booth-description"></p>
+      <p class="eyebrow">Booth leader portal</p>
+      <h1 class="display">🎵 <em>The New Song in Nashville</em></h1>
+      <p class="lede">Open one vote per attendee, freeze the room's result, and move every phone through Revelation 14:3 together.</p>
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock this booth's presentation controls and check-ins.</p>
+        <p>Unlock the three separate New Song sessions, live vote graphs, and archived results.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
           <div class="hint">Local demo default: <b>demo</b>.</div>
           <div class="err" id="err-organizer-key"></div>
         </div>
-        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth →</button>
+        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock New Song →</button>
       </div>
 
       <div id="organizer-content" style="display:none;">
-        <div class="staff-toolbar">
-          <button class="btn-link" id="btn-organizer-lock">Lock booth</button>
+        <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock booth</button></div>
+        <div class="newsong-leader-intro">
+          <div><strong>One room, one shared song reveal</strong><span>Choose the timed session, follow the speaker's pace, and watch votes arrive. Restarting archives the current run instead of mixing it with the next group.</span></div>
+          <a class="btn btn-small btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee route ↗</a>
         </div>
-        <div class="dash-grid">
-          <div class="dash-card">
-            <div class="num" id="staff-total">0</div>
-            <div class="lbl">Check-ins at this booth</div>
-          </div>
+        <div class="newsong-sync-note" id="newsong-sync-note" role="status" aria-live="polite" style="display:none;"></div>
+
+        <div class="section-title">Choose a session</div>
+        <div class="newsong-session-tabs" id="newsong-session-tabs" role="tablist" aria-label="New Song sessions">
+          <button type="button" class="newsong-session-tab" id="newsong-tab-1" role="tab" aria-controls="newsong-session-panel" aria-selected="true" data-newsong-session="1"><b>Session 1 · Green</b><small>3:10–3:30 PM</small></button>
+          <button type="button" class="newsong-session-tab" id="newsong-tab-2" role="tab" aria-controls="newsong-session-panel" aria-selected="false" data-newsong-session="2"><b>Session 2 · Yellow</b><small>3:30–3:50 PM</small></button>
+          <button type="button" class="newsong-session-tab" id="newsong-tab-3" role="tab" aria-controls="newsong-session-panel" aria-selected="false" data-newsong-session="3"><b>Session 3 · Orange</b><small>3:50–4:10 PM</small></button>
         </div>
-        <div id="staff-room-launch"></div>
-        <div id="staff-kiosk-launch"></div>
-        <div id="staff-song-votes">
-          <div class="section-title">Live song vote</div>
-          <p class="top-note" style="color:var(--ink-soft); text-align:left; margin:6px 0 12px;">Updates as attendees tap a song; they do not need to finish the booth first.</p>
-          <div style="overflow-x:auto;">
-            <table class="dash-table" id="staff-song-vote-table" aria-live="polite">
-              <thead><tr><th>Song</th><th>Votes</th></tr></thead>
-              <tbody><tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr></tbody>
+
+        <div class="newsong-layout" id="newsong-session-panel" role="tabpanel" aria-labelledby="newsong-tab-1">
+          <section class="newsong-panel" id="staff-settings">
+            <div class="newsong-panel-head">
+              <div><div class="newsong-panel-kicker" id="newsong-run-label">Active run</div><h2 id="newsong-control-title">Session 1 · Run 1</h2></div>
+              <span class="newsong-phase-pill welcome" id="newsong-phase-pill">Welcome</span>
+            </div>
+            <div class="newsong-schedule-card">
+              <div><strong id="newsong-assigned-band"><span class="newsong-band-dot" aria-hidden="true"></span>Green wristbands · Session 1</strong><span id="newsong-session-time">3:10–3:30 PM</span></div>
+              <div class="newsong-session-timer" id="newsong-session-timer">--:--<small>Checking event clock</small></div>
+            </div>
+            <div class="newsong-session-note" id="newsong-session-note" style="display:none;"></div>
+            <div class="newsong-stats">
+              <div class="newsong-stat"><b id="newsong-assigned-count">0</b><span>Assigned</span></div>
+              <div class="newsong-stat"><b id="newsong-participant-count">0</b><span>Voters</span></div>
+              <div class="newsong-stat"><b id="newsong-vote-count">0</b><span>Votes</span></div>
+              <div class="newsong-stat"><b id="newsong-leading-count">0</b><span>Top count</span></div>
+            </div>
+            <div class="newsong-stage" id="newsong-stage"><div class="newsong-empty">Unlock New Song to load the run controls.</div></div>
+            <div class="newsong-actions" id="newsong-actions"></div>
+            <p class="newsong-publish-state" id="newsong-publish-state" role="status" aria-live="polite">Unlock New Song to load the session controls.</p>
+          </section>
+
+          <section class="newsong-panel">
+            <div class="newsong-panel-head"><div><div class="newsong-panel-kicker">This active run only</div><h2>Live vote graph</h2></div></div>
+            <div class="newsong-tie-note" id="newsong-tie-note" role="status" aria-live="polite"></div>
+            <div id="newsong-vote-chart"><div class="newsong-empty">Unlock New Song to load the vote graph.</div></div>
+          </section>
+        </div>
+
+        <section class="newsong-panel newsong-roster-panel">
+          <div class="newsong-panel-head"><div><div class="newsong-panel-kicker">This active run only</div><h2 id="newsong-roster-title">Attendee votes</h2></div></div>
+          <div class="newsong-table-wrap">
+            <table class="dash-table newsong-participant-table" id="newsong-participant-table">
+              <thead><tr><th>Attendee</th><th>Raffle</th><th>Locked vote</th><th>Done</th></tr></thead>
+              <tbody><tr><td colspan="4" class="newsong-empty">Unlock New Song to load attendees.</td></tr></tbody>
             </table>
           </div>
+        </section>
+
+        <div class="newsong-history-head"><div><div class="newsong-panel-kicker">Selected session only</div><h2>Archived run history</h2></div><span>Read-only · earlier rotations never mix with the active run</span></div>
+        <div class="newsong-run-history" id="newsong-run-history"><div class="newsong-empty">Unlock New Song to load prior runs.</div></div>
+        <div class="newsong-footer-actions">
+          <button type="button" class="btn btn-small btn-ghost newsong-danger" id="btn-newsong-restart">Archive run &amp; start another</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-newsong-refresh">Refresh now</button>
         </div>
-        <div class="section-title">Attendee screen controls</div>
-        <div id="staff-settings"></div>
-        <div class="section-title">Recent check-ins</div>
-        <div style="overflow-x:auto;">
-          <table class="dash-table" id="staff-roster">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Time</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh check-ins and controls</button>
         <p class="top-note" id="staff-last-updated" aria-live="polite"></p>
       </div>
     </section>
@@ -82,7 +183,7 @@
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
   <script src="../shared/event-schedule.js"></script>
-  <script src="../shared/booth-staff-common.js"></script>
-  <script>initBoothStaff("newsong");</script>
+  <script src="../shared/newsong-staff.js"></script>
+  <script>initNewSongStaff();</script>
 </body>
 </html>

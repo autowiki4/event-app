@@ -181,6 +181,34 @@ The attendee hub polls for that booth's published state and refreshes the
 current screen automatically. Leaders also see the wristband group scheduled
 for their booth, the shared timer, and that booth's recent check-ins.
 
+### Specialized New Song controls
+
+New Song keeps the same attendee URL (`/phase2-booths/booth-newsong.html`) and
+staff URL (`/phase2-staff/newsong.html`). On the Node/Render backend, each
+rotation follows the leader-paced sequence **welcome → voting → winner → verse
+→ complete**: Green wristbands attend Session 1, Yellow attend Session 2, and
+Orange attend Session 3. The leader opens the poll, reveals its winner, shows
+Revelation 14:3, and releases the final completion action.
+
+The poll contains exactly these ten choices:
+
+1. God in Me
+2. He Turned It
+3. Victory
+4. Brighter Day
+5. Praise — Elevation Worship
+6. Jireh
+7. I Thank God — Maverick City
+8. Amen — Madison Ryann Ward
+9. Quick — Caleb Gordon
+10. Goodbye Yesterday — Elevation Rhythm
+
+Tallies update live within the current session and run. An attendee's first
+vote is locked; restarting a session opens a clean run while retaining the
+prior run in protected staff history. The synchronized New Song experience is
+Node/Render-only. Apps Script retains its legacy vote path and does not support
+these leader-paced phases or run archives.
+
 All five staff portals currently share one organizer key. The backend scopes
 the data and controls by booth, but the shared key is **not per-booth access
 control**: anyone with it can unlock another staff or organizer page. Use the
@@ -243,8 +271,9 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 The protected reset deletes attendees and wristband assignments, booth
-check-ins and scores, New Song votes, Phase 3 sign-ups, every booth's current
-presentation/control state, and the raffle counter. It replaces the backup
+check-ins and scores, New Song sessions, votes, and run history, Phase 3
+sign-ups, every booth's current presentation/control state, and the raffle
+counter. It replaces the backup
 with the same empty state. A durable reset marker also tells connected or
 reopened attendee browsers to clear their saved identity and return to Phase 1
 to register again. The selected simulated/live clock is deliberately left in
@@ -262,8 +291,8 @@ Script adapter does not implement it.
 - Phase 3 eligibility is enforced by the browser from saved check-ins and the
   shared clock, not as an authentication or authorization boundary at the API.
 - Booth leaders share one organizer key. Generic booth controls retain only
-  one current state; Bible Bowl and Draw Heaven additionally preserve
-  session-isolated prior runs, but this is still not a full audited
+  one current state; Bible Bowl, Draw Heaven, and New Song additionally
+  preserve session-isolated prior runs, but this is still not a full audited
   show-control system.
 - The shared clock controls are Node-service rehearsal helpers, available when
   the site and `/api` share the local or Render origin. The Apps Script path
@@ -273,6 +302,9 @@ Script adapter does not implement it.
   they are not implemented by the Apps Script sketch.
 - Draw Heaven's leader-paced phases, attendee confirmations, catch-up flow,
   and archived run summaries likewise require the Node/Render backend.
+- New Song's session-separated live poll, winner and Revelation 14:3 reveals,
+  locked first votes, and archived runs also require Node/Render; Apps Script
+  supports only the legacy unsynchronized vote path.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 
