@@ -13,12 +13,13 @@ process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
 const { server, startServer } = require("../server");
 const { TRIVIA_QUESTIONS } = require("../trivia-questions");
 const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
-  "God in Me",
+  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
   "Praise — Elevation Worship",
-  "Jireh",
+  "247 — Tbabz",
+  "Elohim — Sondae",
   "I Thank God — Maverick City",
   "Amen — Madison Ryann Ward",
   "Quick — Caleb Gordon",
@@ -1814,14 +1815,14 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.vote.votedAt, firstVoteAt);
   res = await request(port, "submitNewSongVote", {
     attendeeId: "song-green-a",
-    songTitle: "Jireh",
+    songTitle: "247 — Tbabz",
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, "SONG_VOTE_LOCKED");
 
   for (const [attendeeId, songTitle] of [
     ["song-green-b", "Victory"],
-    ["song-green-c", "Jireh"],
+    ["song-green-c", "247 — Tbabz"],
   ]) {
     res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
     assert.equal(res.status, 200, attendeeId);
@@ -1839,13 +1840,13 @@ async function runNewSongApiRegression(port) {
   assert.equal(session1.voteCount, 3);
   assert.equal(session1.participantCount, 3);
   assert.equal(voteCount(session1, "Victory"), 2);
-  assert.equal(voteCount(session1, "Jireh"), 1);
+  assert.equal(voteCount(session1, "247 — Tbabz"), 1);
   assert.deepEqual(
     session1.voters.map((voter) => [voter.name, voter.songTitle]),
     [
       ["Green Singer", "Victory"],
       ["Green Listener", "Victory"],
-      ["Green Worshipper", "Jireh"],
+      ["Green Worshipper", "247 — Tbabz"],
     ]
   );
   assert.equal(sessionSummary(res.body, 2).totalVotes, 0);
@@ -1933,7 +1934,7 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.status, 200);
   for (const [attendeeId, songTitle] of [
     ["song-yellow-a", "Goodbye Yesterday — Elevation Rhythm"],
-    ["song-yellow-b", "God in Me"],
+    ["song-yellow-b", "He Called Me — Eugy Official"],
   ]) {
     res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
     assert.equal(res.status, 200, attendeeId);
@@ -1943,20 +1944,20 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.result.isTie, true);
   assert.equal(res.body.result.maxVotes, 1);
   assert.deepEqual(res.body.result.tiedTitles, [
-    "God in Me", "Goodbye Yesterday — Elevation Rhythm",
+    "He Called Me — Eugy Official", "Goodbye Yesterday — Elevation Rhythm",
   ]);
-  assert.equal(res.body.result.featuredWinner, "God in Me");
+  assert.equal(res.body.result.featuredWinner, "He Called Me — Eugy Official");
   assert.equal(res.body.result.tieBreakRule, "canonical-list-order");
   assert.deepEqual(res.body.winner, {
-    songTitle: "God in Me",
+    songTitle: "He Called Me — Eugy Official",
     voteCount: 1,
     tied: true,
-    tiedSongs: ["God in Me", "Goodbye Yesterday — Elevation Rhythm"],
+    tiedSongs: ["He Called Me — Eugy Official", "Goodbye Yesterday — Elevation Rhythm"],
   });
   res = await request(port, "newSongState", { attendeeId: "song-yellow-a" });
   assert.equal(res.body.phase, "winner");
   assert.equal(res.body.result.isTie, true);
-  assert.equal(res.body.winner.songTitle, "God in Me");
+  assert.equal(res.body.winner.songTitle, "He Called Me — Eugy Official");
 
   res = await request(port, "newSongDashboardData", { organizerKey });
   session1 = sessionSummary(res.body, 1);
@@ -2076,7 +2077,7 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
   res = await request(port, "newSongDashboardData", { organizerKey });
   assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 2);
-  assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "God in Me");
+  assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "He Called Me — Eugy Official");
   assert.equal(sessionSummary(res.body, 3).result.featuredWinner, "Amen — Madison Ryann Ward");
 
   // Only the overall reset destroys active rotations, archives, votes, and
@@ -2115,7 +2116,7 @@ async function runCapacityRegression(port) {
     green: ["newsong", "art", "heaven"],
     yellow: ["story", "newsong", "trivia"],
   };
-  const songChoices = ["God in Me", "Victory", "Jireh"];
+  const songChoices = ["He Called Me — Eugy Official", "Victory", "Elohim — Sondae"];
 
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);

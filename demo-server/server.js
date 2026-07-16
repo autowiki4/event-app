@@ -71,12 +71,13 @@ const HEAVEN_CONFIRMATION_RULES = Object.freeze({
 const NEW_SONG_SESSION_NUMBERS = new Set([1, 2, 3]);
 const NEW_SONG_PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
 const NEW_SONG_CHOICES = Object.freeze([
-  "God in Me",
+  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
   "Praise — Elevation Worship",
-  "Jireh",
+  "247 — Tbabz",
+  "Elohim — Sondae",
   "I Thank God — Maverick City",
   "Amen — Madison Ryann Ward",
   "Quick — Caleb Gordon",

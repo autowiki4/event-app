@@ -219,10 +219,11 @@ vote from an attendee is locked. Staff see a live tally for only the active
 session/run and control when the winner, Revelation 14:3, and completion are
 shown. Restarting one session archives its current run and opens a clean one.
 
-The canonical ten-song poll is: **God in Me**, **He Turned It**, **Victory**,
-**Brighter Day**, **Praise — Elevation Worship**, **Jireh**, **I Thank God —
-Maverick City**, **Amen — Madison Ryann Ward**, **Quick — Caleb Gordon**, and
-**Goodbye Yesterday — Elevation Rhythm**.
+The canonical eleven-song poll is: **He Called Me — Eugy Official**, **He
+Turned It**, **Victory**, **Brighter Day**, **Praise — Elevation Worship**,
+**247 — Tbabz**, **Elohim — Sondae**, **I Thank God — Maverick City**, **Amen —
+Madison Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye Yesterday —
+Elevation Rhythm**.
 
 All booth and organizer pages currently use the same organizer key. The API
 does filter booth dashboard results by the requested booth, but the key does

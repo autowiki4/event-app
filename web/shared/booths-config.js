@@ -82,7 +82,7 @@ const CONNECTOR_BOOTHS = [
     kioskPage: "../phase2-booths/kiosk-newsong.html",
     leaderSteps: [
       { title: "Welcome the room", body: "Keep attendee screens in the cloud lobby until the speaker is ready to open voting." },
-      { title: "Open the ten-song vote", body: "Give every attendee one vote, watch the live graph, and wait until the room has had time to choose." },
+      { title: "Open the eleven-song vote", body: "Give every attendee one vote, watch the live graph, and wait until the room has had time to choose." },
       { title: "Reveal the winner", body: "Freeze the result for this run. If the vote is tied, every tied title remains visible and the canonical-order tiebreak is explained." },
       { title: "Reveal Revelation 14:3", body: "Move every screen to the new-song passage and its visual when the speaker reaches the lesson." },
       { title: "Finish the shared run", body: "Release the Done button so guests save this visit and return to their timed route." },
@@ -210,12 +210,13 @@ const ART_BEATS = [
 
 /* ---- The New Song in Nashville ---- */
 const SONG_LIST = [
-  "God in Me",
+  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
   "Praise — Elevation Worship",
-  "Jireh",
+  "247 — Tbabz",
+  "Elohim — Sondae",
   "I Thank God — Maverick City",
   "Amen — Madison Ryann Ward",
   "Quick — Caleb Gordon",

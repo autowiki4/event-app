@@ -7,12 +7,13 @@
 const NewSongAttendee = (() => {
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const CANONICAL_SONGS = [
-    "God in Me",
+    "He Called Me — Eugy Official",
     "He Turned It",
     "Victory",
     "Brighter Day",
     "Praise — Elevation Worship",
-    "Jireh",
+    "247 — Tbabz",
+    "Elohim — Sondae",
     "I Thank God — Maverick City",
     "Amen — Madison Ryann Ward",
     "Quick — Caleb Gordon",
@@ -175,7 +176,7 @@ const NewSongAttendee = (() => {
         <span class="status-pill waiting">Waiting for your music host</span>
         <p class="newsong-script">Welcome to</p>
         <h2>The New Song in Nashville</h2>
-        <p class="newsong-copy">Ten songs are waiting in the wings. When your host opens the vote, choose the one you want this room to lift up together.</p>
+        <p class="newsong-copy">Eleven songs are waiting in the wings. When your host opens the vote, choose the one you want this room to lift up together.</p>
         ${cloudNote("One room, one shared reveal", "Voting will appear for everyone when your booth leader starts the experience.", "🎙️")}
         ${sessionMeta(value)}
       </div>
@@ -261,7 +262,7 @@ const NewSongAttendee = (() => {
           <p>“And they sung as it were a new song before the throne, and before the four beasts, and the elders: and no man could learn that song but the hundred and forty and four thousand, which were redeemed from the earth.”</p>
           <cite>Revelation 14:3 · KJV</cite>
         </blockquote>
-        <p class="newsong-copy">The room could choose a favorite from ten songs. Revelation points to a song that belongs to the redeemed — learned through a life with God, not simply selected from a list.</p>
+        <p class="newsong-copy">The room could choose a favorite from eleven songs. Revelation points to a song that belongs to the redeemed — learned through a life with God, not simply selected from a list.</p>
         ${cloudNote("Hold onto the thought", "Your host will release the final Done button when the shared reflection is complete.", "✨")}
         ${sessionMeta(value)}
       </div>

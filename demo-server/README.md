@@ -243,10 +243,11 @@ the winner, Revelation 14:3, and the end. Tallies are live and isolated by
 session/run, the first attendee vote is locked, and session reset preserves an
 archived run before opening the next.
 
-The exact poll is **God in Me**, **He Turned It**, **Victory**, **Brighter
-Day**, **Praise — Elevation Worship**, **Jireh**, **I Thank God — Maverick
-City**, **Amen — Madison Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye
-Yesterday — Elevation Rhythm**.
+The exact eleven-song poll is **He Called Me — Eugy Official**, **He Turned
+It**, **Victory**, **Brighter Day**, **Praise — Elevation Worship**, **247 —
+Tbabz**, **Elohim — Sondae**, **I Thank God — Maverick City**, **Amen — Madison
+Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye Yesterday — Elevation
+Rhythm**.
 
 Session reset preserves prior-run answers, confirmations, votes, and results
 for staff review while keeping each active run isolated. The overall

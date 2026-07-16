@@ -9,12 +9,13 @@ function initNewSongStaff() {
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const SONGS = [
-    "God in Me",
+    "He Called Me — Eugy Official",
     "He Turned It",
     "Victory",
     "Brighter Day",
     "Praise — Elevation Worship",
-    "Jireh",
+    "247 — Tbabz",
+    "Elohim — Sondae",
     "I Thank God — Maverick City",
     "Amen — Madison Ryann Ward",
     "Quick — Caleb Gordon",
@@ -268,7 +269,7 @@ function initNewSongStaff() {
       stage.innerHTML = `
         <div class="newsong-stage-icon" aria-hidden="true">☁️</div>
         <h3>Attendees see the New Song welcome lobby.</h3>
-        <p>When the room is settled, open the ten-song ballot for this session only.</p>
+        <p>When the room is settled, open the eleven-song ballot for this session only.</p>
       `;
     } else if (phase === "voting") {
       stage.innerHTML = `
@@ -583,7 +584,7 @@ function initNewSongStaff() {
     refreshInFlight = false;
     syncBusyState();
     const pending = {
-      start: "Opening the ten-song vote…",
+      start: "Opening the eleven-song vote…",
       show_winner: "Freezing and publishing the room result…",
       show_verse: "Publishing Revelation 14:3…",
       finish: "Releasing the final Done button…",

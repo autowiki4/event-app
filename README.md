@@ -190,18 +190,19 @@ rotation follows the leader-paced sequence **welcome → voting → winner → v
 Orange attend Session 3. The leader opens the poll, reveals its winner, shows
 Revelation 14:3, and releases the final completion action.
 
-The poll contains exactly these ten choices:
+The poll contains exactly these eleven choices:
 
-1. God in Me
+1. He Called Me — Eugy Official
 2. He Turned It
 3. Victory
 4. Brighter Day
 5. Praise — Elevation Worship
-6. Jireh
-7. I Thank God — Maverick City
-8. Amen — Madison Ryann Ward
-9. Quick — Caleb Gordon
-10. Goodbye Yesterday — Elevation Rhythm
+6. 247 — Tbabz
+7. Elohim — Sondae
+8. I Thank God — Maverick City
+9. Amen — Madison Ryann Ward
+10. Quick — Caleb Gordon
+11. Goodbye Yesterday — Elevation Rhythm
 
 Tallies update live within the current session and run. An attendee's first
 vote is locked; restarting a session opens a clean run while retaining the
