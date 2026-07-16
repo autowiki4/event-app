@@ -261,9 +261,12 @@ The Node JSON object additionally stores the durable top-level `dataResetAt`
 marker used by `resetDemo`. The Apps Script Sheet has no equivalent because
 that adapter does not implement the full-data reset. The Node object also has
 `triviaSessions` (one versioned welcome/question/reveal/complete controller for
-each of the three rotations) and `triviaAnswers` (one server-scored answer per
-attendee, session, and question). Those collections power the synchronized
-Bible Bowl and are not part of the Apps Script sketch.
+each rotation), `triviaAnswers`, and `triviaRunHistory`. Draw Heaven similarly
+uses `heavenSessions`, `heavenConfirmations`, and `heavenRunHistory`. Every
+attendee response carries a `runId`, so restarting a rotation opens an empty
+active run without overwriting the archived answers, confirmations, or staff
+summary from the prior run. These collections are not part of the Apps Script
+sketch.
 
 See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
@@ -284,12 +287,18 @@ The protected actions shared by both backends are `verifyOrganizer`,
 read. The leader-paced Bible Bowl adds attendee `triviaState`,
 `submitTriviaAnswer`, and `completeTrivia` actions plus protected
 `triviaDashboardData`, `advanceTriviaSession`, and `resetTriviaSession`
-actions. Apps Script intentionally implements none of these Node extensions.
+actions. Draw Heaven adds attendee `heavenState` and `confirmHeavenStep` plus
+protected `heavenDashboardData`, `advanceHeavenSession`, and
+`resetHeavenSession`. Both activities keep independent Session 1–3 controllers
+and require the version returned by the preceding staff read when advancing.
+Their session reset actions archive one run and create the next; only
+`resetDemo` deletes the histories. Apps Script intentionally implements none
+of these Node extensions.
 Legacy phone/kiosk actions remain for the optional fallback pages.
 
 `resetDemo` clears all attendees and wristband assignments, check-ins and
-scores, votes, Phase 3 sign-ups, booth presentation/control state, and the
-raffle counter. It writes the same fresh state to the primary JSON file and
+scores, votes, Phase 3 sign-ups, booth presentation/control state, active and
+archived leader-paced runs, and the raffle counter. It writes the same fresh state to the primary JSON file and
 backup, advances `dataResetAt`, and thereby clears connected or reopened
 attendee identities at their next sync. It deliberately does not change the
 selected clock mode or anchor.

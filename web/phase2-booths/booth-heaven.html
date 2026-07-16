@@ -3,47 +3,184 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Can You Draw Heaven? — The Perfect Summer Day</title>
+<title>Draw Heaven — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
   :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
-  .sky-mode{
-    padding:0 !important; min-height:80vh; position:relative;
-    background: radial-gradient(ellipse 140% 55% at 50% -8%, rgba(255,248,220,0.95), transparent 62%),
-                radial-gradient(circle at 88% 14%, rgba(255,255,255,0.35), transparent 42%),
-                linear-gradient(180deg, #EAF7FF 0%, #BCE6FF 16%, #6FCBEE 40%, #2E9FD6 66%, #1D7A78 100%);
+  body{
+    background:
+      radial-gradient(circle at 10% 8%,rgba(240,168,60,.22),transparent 26%),
+      radial-gradient(circle at 92% 22%,rgba(108,78,150,.2),transparent 30%),
+      linear-gradient(145deg,#f9f0dc,#e7f5f3 52%,#edf0fb);
   }
-  .sky-mode #booth-content{
-    min-height:80vh; display:flex; flex-direction:column; justify-content:center;
-    padding:64px 28px 110px; text-align:center; color:#fff; width:100%; box-sizing:border-box;
+  .heaven-shell-head{
+    position:relative; overflow:hidden; padding-bottom:24px;
+    background:linear-gradient(145deg,#173f66 0%,#446fc0 52%,#774b91 100%); color:#fff;
   }
-  .sky-card{
-    background:rgba(255,255,255,0.16); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    border:1px solid rgba(255,255,255,0.45); border-radius:24px; padding:30px 24px;
-    box-shadow:0 24px 46px -22px rgba(8,40,60,0.45);
+  .heaven-shell-head::after{
+    content:""; position:absolute; width:190px; height:190px; top:-118px; right:-68px; border-radius:50%;
+    border:20px solid rgba(255,222,135,.14); box-shadow:0 0 0 24px rgba(255,255,255,.06);
   }
-  .sky-bottom-btn.btn-primary{
-    position:absolute; left:0; right:0; bottom:0; margin:0; border-radius:0; padding:20px 28px;
-    background:linear-gradient(90deg, var(--coral-deep), var(--sun-deep)); color:#fff; box-shadow:none;
+  .heaven-shell-head .eyebrow{ color:#ffdc89; }
+  .heaven-shell-head .display{ position:relative; margin-bottom:8px; color:#fff; }
+  .heaven-shell-head .display em{ color:#ffe39a; }
+  .heaven-shell-head .lede{ position:relative; margin:0; color:rgba(255,255,255,.84); }
+  .heaven-content{ min-height:390px; }
+  .heaven-card{
+    position:relative; overflow:hidden; padding:23px 19px; border:1.5px solid rgba(34,79,107,.14);
+    border-radius:22px; background:#fffdfa; box-shadow:0 22px 44px -34px rgba(21,42,78,.9);
   }
-  .heaven-kicker{
-    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700;
-    letter-spacing:.08em; text-transform:uppercase; color:var(--coral); margin-bottom:8px;
+  .heaven-card::before{
+    content:""; position:absolute; width:150px; height:150px; right:-95px; top:-95px; border-radius:50%;
+    background:radial-gradient(circle,rgba(240,168,60,.32),rgba(240,168,60,0) 69%); pointer-events:none;
   }
-  .heaven-details{ display:grid; gap:10px; margin:18px 0; }
-  .heaven-detail{
-    display:flex; align-items:flex-start; gap:12px; padding:13px 14px;
-    border:1px solid var(--line); border-radius:14px; background:#fff;
+  .heaven-card h2{
+    position:relative; margin:0 0 10px; color:var(--ink); font-family:'Fraunces',serif;
+    font-size:28px; line-height:1.1;
   }
-  .heaven-detail-number{
-    flex:0 0 28px; width:28px; height:28px; display:grid; place-items:center;
-    border-radius:50%; background:var(--teal); color:#fff; font-weight:800; font-size:13px;
+  .heaven-copy{ position:relative; margin:0; color:var(--ink-soft); font-size:14px; line-height:1.58; }
+  .heaven-script{
+    position:relative; margin:0 0 2px; color:var(--coral-deep); font-family:'Fraunces',serif;
+    font-size:17px; font-style:italic; font-weight:700;
   }
-  .heaven-detail-text{ font-weight:700; line-height:1.4; padding-top:4px; }
-  .draw-ready{
-    border-radius:20px; padding:22px; text-align:center;
-    background:linear-gradient(145deg, rgba(46,159,214,.13), rgba(29,122,120,.15));
-    border:1px solid rgba(29,122,120,.25);
+  .heaven-stage-icon{
+    position:relative; display:grid; place-items:center; width:72px; height:72px; margin:0 auto 15px;
+    border-radius:24px 42px 30px 44px; background:linear-gradient(145deg,#fff1a9,#ffc27b 58%,#ef7d68);
+    font-size:36px; transform:rotate(-3deg); box-shadow:0 16px 28px -20px rgba(129,58,51,.9);
+  }
+  .heaven-stage-icon + *{ transform:rotate(0); }
+  .heaven-action{ position:relative; width:100%; margin-top:18px; }
+  .heaven-session-meta{ margin:13px 0 0; color:var(--ink-soft); font-size:10px; line-height:1.4; text-align:center; }
+  .heaven-wait{
+    position:relative; display:flex; align-items:flex-start; gap:11px; margin-top:18px; padding:13px 14px;
+    border:1px solid rgba(108,78,150,.18); border-radius:14px; background:#f3eef9; color:var(--violet-deep);
+  }
+  .heaven-wait-icon{ flex:none; font-size:23px; line-height:1; }
+  .heaven-wait strong,.heaven-wait span{ display:block; }
+  .heaven-wait strong{ margin-bottom:2px; font-size:13px; }
+  .heaven-wait span{ font-size:11.5px; line-height:1.45; }
+  .heaven-welcome{ padding-top:27px; text-align:center; background:linear-gradient(150deg,#fff9e9,#f7fcfc 58%,#f3edfa); }
+  .heaven-welcome .status-pill{ margin-bottom:14px; }
+  .heaven-welcome .heaven-wait{ text-align:left; }
+  .heaven-orbit{
+    position:relative; display:flex; align-items:center; justify-content:center; gap:17px; width:150px; height:82px;
+    margin:0 auto 13px; border:1px dashed rgba(108,78,150,.25); border-radius:50%; color:var(--sun-deep);
+  }
+  .heaven-orbit b{ display:grid; place-items:center; width:60px; height:60px; border-radius:50%; background:#fff; font-size:31px; box-shadow:0 13px 28px -22px rgba(82,58,115,.9); }
+  .heaven-orbit span{ font-size:19px; }
+  .heaven-art-strip{
+    position:relative; display:grid; grid-template-columns:repeat(5,1fr); gap:7px; margin-bottom:18px;
+  }
+  .heaven-art-strip span{
+    display:grid; place-items:center; aspect-ratio:1; border-radius:13px 17px 12px 18px; background:#fff1b9; font-size:22px;
+  }
+  .heaven-art-strip span:nth-child(2){ background:#ecddf6; transform:rotate(3deg); }
+  .heaven-art-strip span:nth-child(3){ background:#d9effa; transform:rotate(-2deg); }
+  .heaven-art-strip span:nth-child(4){ background:#dff3e3; transform:rotate(4deg); }
+  .heaven-art-strip span:nth-child(5){ background:#ffe1d6; transform:rotate(-3deg); }
+  .heaven-prompt-grid{ position:relative; display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:17px; }
+  .heaven-prompt-grid span{ padding:11px 9px; border-radius:12px; background:var(--parchment-dim); color:var(--ink-soft); font-size:10px; line-height:1.38; }
+  .heaven-prompt-grid b{ display:block; margin-bottom:4px; color:var(--teal-deep); font-size:11px; }
+  .heaven-invitation{ text-align:center; background:linear-gradient(145deg,#fffbef,#eef8f7); }
+  .heaven-question{
+    position:relative; display:flex; align-items:flex-start; gap:12px; margin-top:17px; padding:14px;
+    border-radius:15px; background:linear-gradient(145deg,#e8f4fb,#f4eef9); color:var(--ink);
+  }
+  .heaven-question > span{ flex:none; font-size:25px; line-height:1; }
+  .heaven-question strong{ display:block; margin-bottom:3px; font-family:'Fraunces',serif; font-size:16px; }
+  .heaven-question p{ margin:0; color:var(--ink-soft); font-size:11.5px; line-height:1.45; }
+  .heaven-verse{
+    padding-top:29px; color:#fff; background:
+      radial-gradient(circle at 90% 5%,rgba(255,230,148,.42),transparent 28%),
+      linear-gradient(145deg,#3e3973,#5d4c91 52%,#1e6e85);
+  }
+  .heaven-verse::before{ display:none; }
+  .heaven-verse .heaven-script{ color:#ffdf8c; text-align:center; }
+  .heaven-verse h2{ color:#fff; text-align:center; }
+  .heaven-verse blockquote{
+    position:relative; margin:16px 0 0; padding:17px; border:1px solid rgba(255,255,255,.24);
+    border-radius:16px; background:rgba(255,255,255,.11); backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+  }
+  .heaven-verse blockquote p{ margin:0; font-family:'Fraunces',serif; font-size:16px; font-style:italic; line-height:1.55; }
+  .heaven-verse cite{ display:block; margin-top:10px; color:#ffdf8c; font-size:10px; font-style:normal; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+  .heaven-verse .heaven-question{ background:rgba(255,255,255,.93); }
+  .heaven-verse .heaven-wait{ border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.92); }
+  .heaven-verse .heaven-session-meta{ color:rgba(255,255,255,.72); }
+  .heaven-confetti-field{ position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .heaven-confetti{ position:absolute; top:-22px; left:var(--x); width:8px; height:15px; border-radius:2px; opacity:.22; transform:rotate(calc(var(--i) * 29deg)); }
+  .heaven-confetti-sun{ background:#ffdd79; }.heaven-confetti-coral{ background:#ff866f; }
+  .heaven-confetti-teal{ background:#64d7c6; }.heaven-confetti-violet{ background:#cab1ef; }.heaven-confetti-blue{ background:#82cfff; }
+  .heaven-confetti-field.is-playing .heaven-confetti{ animation:heavenConfetti 1.55s cubic-bezier(.2,.7,.3,1) var(--delay) both; }
+  @keyframes heavenConfetti{
+    0%{ opacity:0; transform:translate3d(0,-22px,0) rotate(0); }
+    16%{ opacity:1; }
+    100%{ opacity:.2; transform:translate3d(var(--drift),420px,0) rotate(calc(var(--i) * 79deg)); }
+  }
+  .heaven-transition{
+    min-height:330px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center;
+  }
+  .heaven-verse-transition{
+    color:#fff; background:radial-gradient(circle at 50% 28%,rgba(255,226,132,.4),transparent 30%),linear-gradient(145deg,#3e3973,#5d4c91 52%,#1e6e85);
+  }
+  .heaven-verse-transition::before{ display:none; }
+  .heaven-verse-transition h2{ color:#fff; }
+  .heaven-verse-transition .heaven-script{ color:#ffdf8c; }
+  .heaven-verse-transition .heaven-session-meta{ color:rgba(255,255,255,.72); }
+  .heaven-impact-transition{ background:radial-gradient(circle at 50% 28%,rgba(255,212,103,.46),transparent 28%),linear-gradient(145deg,#fff2cc,#fff 48%,#e8f6f3); }
+  .heaven-comparison{ background:linear-gradient(145deg,#fffaf0,#eef8f6); }
+  .heaven-image-button{
+    appearance:none; position:relative; display:block; width:100%; margin-top:16px; padding:0; overflow:hidden;
+    border:2px solid #d3a54c; border-radius:16px; background:#1c2732; cursor:zoom-in; box-shadow:0 18px 30px -24px rgba(44,35,17,.9);
+  }
+  .heaven-image-button img{ display:block; width:100%; height:auto; }
+  .heaven-image-button span{ position:absolute; right:8px; bottom:8px; padding:6px 9px; border-radius:999px; background:rgba(16,25,35,.84); color:#fff; font-size:9.5px; font-weight:800; }
+  .heaven-image-button:focus-visible{ outline:4px solid rgba(108,78,150,.36); outline-offset:3px; }
+  .heaven-final-question{ background:linear-gradient(145deg,#fff0d0,#f7e8ed); }
+  .heaven-image-dialog{
+    position:fixed; z-index:1000; inset:0; display:flex; align-items:center; justify-content:center; padding:54px 12px 18px;
+    background:rgba(7,16,29,.94); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); cursor:zoom-out;
+  }
+  .heaven-image-dialog img{ display:block; max-width:min(1200px,96vw); max-height:calc(100vh - 76px); border-radius:10px; object-fit:contain; box-shadow:0 24px 70px rgba(0,0,0,.5); cursor:default; }
+  .heaven-image-close{
+    appearance:none; position:absolute; top:max(12px,env(safe-area-inset-top)); right:16px; display:grid; place-items:center;
+    width:40px; height:40px; border:1px solid rgba(255,255,255,.38); border-radius:50%; background:#fff; color:#17263d;
+    cursor:pointer; font:700 27px/1 Arial,sans-serif;
+  }
+  .heaven-reflection{ text-align:center; background:linear-gradient(145deg,#fdf3e0,#fff 48%,#eaf6f5); }
+  .heaven-burst{ position:relative; width:114px; height:114px; margin:0 auto 13px; }
+  .heaven-burst strong{ position:absolute; inset:28px; display:grid; place-items:center; border-radius:50%; background:linear-gradient(145deg,#ffd96d,#fa8c68); color:#fff; font-size:31px; box-shadow:0 14px 30px -18px #b15d37; }
+  .heaven-burst i{ position:absolute; left:53px; top:2px; width:8px; height:34px; border-radius:999px; background:#ef6b57; transform-origin:4px 55px; }
+  .heaven-burst i:nth-child(2){ background:#e5b72f; transform:rotate(72deg); }
+  .heaven-burst i:nth-child(3){ background:#2e9fd6; transform:rotate(144deg); }
+  .heaven-burst i:nth-child(4){ background:#6c4e96; transform:rotate(216deg); }
+  .heaven-burst i:nth-child(5){ background:#2f8a57; transform:rotate(288deg); }
+  .heaven-burst.is-playing{ animation:heavenBurst .85s cubic-bezier(.16,.84,.27,1) both; }
+  @keyframes heavenBurst{ 0%{ opacity:0; transform:scale(.12) rotate(-40deg); } 72%{ transform:scale(1.12) rotate(5deg); } 100%{ opacity:1; transform:scale(1) rotate(0); } }
+  .heaven-meaning{ position:relative; display:flex; align-items:flex-start; gap:11px; margin-top:17px; padding:14px; border-radius:15px; background:#fff; color:var(--ink-soft); text-align:left; }
+  .heaven-meaning span{ flex:none; font-size:25px; }.heaven-meaning p{ margin:0; font-size:12px; line-height:1.5; }.heaven-meaning strong{ color:var(--ink); }
+  .heaven-programs{ background:linear-gradient(145deg,#fffdf8,#f2f8f7); }
+  .heaven-program-list{ position:relative; display:grid; gap:9px; margin-top:17px; }
+  .heaven-program-card{ display:flex; align-items:flex-start; gap:11px; padding:12px; border:1px solid rgba(21,42,78,.1); border-radius:14px; background:#fff; }
+  .heaven-program-card > span{ flex:none; display:grid; place-items:center; width:36px; height:36px; border-radius:11px; background:#f0eafa; font-size:18px; }
+  .heaven-program-card:nth-child(2n) > span{ background:#e5f4f1; }.heaven-program-card:nth-child(3n) > span{ background:#fff0d4; }
+  .heaven-program-card h3{ margin:1px 0 3px; color:var(--ink); font-size:12.5px; line-height:1.25; }
+  .heaven-program-card p{ margin:0; color:var(--ink-soft); font-size:10.5px; line-height:1.4; }
+  .heaven-complete{ padding-top:28px; text-align:center; background:linear-gradient(145deg,#fff4cf,#f0fbf8 52%,#efe8fa); }
+  .heaven-loading,.heaven-error{ text-align:center; }.heaven-loading p:not(.eyebrow){ margin:0; color:var(--ink-soft); font-size:13px; }
+  .heaven-palette{ display:flex; justify-content:center; gap:7px; margin-bottom:17px; }
+  .heaven-palette i{ width:27px; height:45px; border-radius:16px 16px 7px 7px; background:#e5b72f; animation:heavenPalette 1.15s ease-in-out infinite alternate; }
+  .heaven-palette i:nth-child(2){ background:#e15b3d; animation-delay:.1s; }.heaven-palette i:nth-child(3){ background:#2e9fd6; animation-delay:.2s; }
+  .heaven-palette i:nth-child(4){ background:#2f8a57; animation-delay:.3s; }.heaven-palette i:nth-child(5){ background:#6c4e96; animation-delay:.4s; }
+  @keyframes heavenPalette{ to{ transform:translateY(8px) rotate(4deg); } }
+  .heaven-sync-issue{ position:relative; margin:13px 0 0; padding:10px 11px; border-radius:10px; background:#fff0e9; color:#8b321f; font-size:11px; line-height:1.4; text-align:center; }
+  @media (max-width:390px){
+    .heaven-card{ padding:20px 16px; }.heaven-card h2{ font-size:25px; }.heaven-prompt-grid{ grid-template-columns:1fr; }
+    .heaven-prompt-grid span{ display:grid; grid-template-columns:55px 1fr; gap:7px; }.heaven-prompt-grid b{ margin:0; }
+  }
+  @media (prefers-reduced-motion:reduce){
+    .heaven-confetti-field.is-playing .heaven-confetti,.heaven-burst.is-playing,.heaven-palette i{ animation:none; }
+    .heaven-confetti{ opacity:.18; }
   }
 </style>
 </head>
@@ -51,41 +188,34 @@
 
 <div class="phone" id="phone">
   <div id="booth-room-content" style="display:none;">
-  <div id="booth-header">
     <div class="progress" id="progress"></div>
-    <section class="screen">
-      <p class="eyebrow">Phase 2 · Heaven booth room</p>
-      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🎨</span><em>Can You Draw Heaven?</em></h1>
-      <p class="lede">We'll show you the Kingdom of Heaven as described in Revelation — then you can draw it!</p>
+    <section class="screen heaven-shell-head">
+      <p class="eyebrow">Phase 2 · Draw Heaven room</p>
+      <h1 class="display" style="display:flex;align-items:center;gap:10px;"><span aria-hidden="true">🎨</span><em>Draw Heaven</em></h1>
+      <p class="lede">Create with your group, then let Revelation expand the picture. Your booth leader controls every shared reveal.</p>
     </section>
-  </div>
 
-  <section id="booth-gate" class="screen">
-    <div class="field">
-      <label for="booth-phone-input">Your phone number to check in</label>
-      <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
-      <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
-      <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
-    </div>
-    <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
-  </section>
-
-  <div id="booth-interface" style="display:none;">
-    <div id="booth-content"></div>
-    <section class="screen" id="booth-footer-wrap">
+    <section id="booth-gate" class="screen">
       <div class="field">
-        <label for="booth-note">Anything you'd like to share?</label>
-        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+        <label for="booth-phone-input">Your phone number to check in</label>
+        <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
+        <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
+        <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
       </div>
-      <div class="field">
-        <label>Rate this booth</label>
-        <div class="stars" id="booth-stars">
-          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
+      <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
+    </section>
+
+    <div id="booth-interface" style="display:none;">
+      <section class="screen" style="padding-top:0;">
+        <div id="booth-content" class="heaven-content" role="region" aria-label="Draw Heaven shared activity" aria-live="polite">
+          <div class="heaven-card heaven-loading" aria-busy="true">
+            <div class="heaven-palette" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <p class="eyebrow">Joining Draw Heaven…</p>
+            <h2>Setting out your canvas.</h2>
+          </div>
         </div>
-      </div>
-      <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
-    </section>
-  </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -102,114 +232,33 @@
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
 <script src="../shared/booth-room.js"></script>
+<script src="../shared/heaven-attendee.js"></script>
 <script>
 const BOOTH_ID = "heaven";
-const BOOTH_NAME = "Can You Draw Heaven?";
-const BOOTH_ROOM_NAME = "Heaven";
-const HEAVEN_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
-const HEAVEN_VERSE_TEXT = "And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,";
+const BOOTH_NAME = "Draw Heaven";
+const BOOTH_ROOM_NAME = "Draw Heaven";
 
 function renderProgress() {
-  const el = document.getElementById("progress");
-  el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const d = document.createElement("div");
-    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(d);
+  const progress = document.getElementById("progress");
+  progress.innerHTML = "";
+  for (let index = 0; index < 3; index += 1) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (index < 1 ? " done" : index === 1 ? " current" : "");
+    progress.appendChild(dot);
   }
 }
 renderProgress();
 
-const heavenState = { page: 1 };
-let heavenStateOwner = "";
-
-function restoreHeavenState() {
-  const owner = String((Identity.peek() || {}).attendeeId || "");
-  if (!owner || heavenStateOwner === owner) return;
-  const saved = JourneyState.load(HEAVEN_DRAFT_SCOPE, {}) || {};
-  const page = Number(saved.page);
-  heavenState.page = Number.isInteger(page) ? Math.min(3, Math.max(1, page)) : 1;
-  heavenStateOwner = owner;
-}
-
-function setHeavenPage(page) {
-  heavenState.page = Math.min(3, Math.max(1, Number(page) || 1));
-  JourneyState.save(HEAVEN_DRAFT_SCOPE, { page: heavenState.page });
-  renderHeaven();
-}
-
-function setChrome(sky) {
-  document.getElementById("phone").classList.toggle("sky-mode", sky);
-  document.getElementById("booth-header").style.display = sky ? "none" : "";
-  document.getElementById("booth-footer-wrap").style.display = sky ? "none" : "";
-  document.getElementById("progress").style.display = sky ? "none" : "";
-}
-
-function renderHeaven() {
-  restoreHeavenState();
-  const wrap = document.getElementById("booth-content");
-  if (heavenState.page === 1) {
-    setChrome(true);
-    wrap.innerHTML = `
-      <div style="flex:1; display:flex; flex-direction:column; justify-content:center;">
-        <div class="sky-card">
-          <div style="font-family:'Fraunces',serif; font-weight:700; font-size:28px; letter-spacing:.02em; color:#FFE9B0; margin-bottom:18px; text-shadow:0 2px 14px rgba(8,40,60,0.35);">Revelation 21:10</div>
-          <p style="font-family:'Fraunces',serif; font-style:italic; font-weight:500; font-size:19px; line-height:1.6; color:#fff; margin:0 0 20px; text-shadow:0 2px 16px rgba(8,40,60,0.35);">"${HEAVEN_VERSE_TEXT}"</p>
-          <div style="height:1px; background:rgba(255,255,255,0.35); margin:0 8px 20px;"></div>
-          <p style="font-size:14.5px; line-height:1.55; color:#FFE9B0; font-weight:600; margin:0;">In Revelation 21, the angel shows John the image of the Kingdom of Heaven in the Spiritual Realm.</p>
-        </div>
-      </div>
-      <button class="btn btn-primary sky-bottom-btn" id="btn-heaven-next">What Does It Look Like →</button>
-    `;
-    document.getElementById("btn-heaven-next").addEventListener("click", () => setHeavenPage(2));
-    return;
-  }
-  if (heavenState.page === 2) {
-    setChrome(false);
-    document.getElementById("booth-footer-wrap").style.display = "none";
-    wrap.innerHTML = `
-      <section class="screen" style="padding-top:6px;">
-        <div class="heaven-kicker">What's actually there</div>
-        <h2 style="font-family:'Fraunces',serif; font-size:30px; line-height:1.08; margin:0 0 10px;">Revelation paints the picture</h2>
-        <p class="lede">A few details John saw when he looked at the holy city:</p>
-        <div class="heaven-details">
-          ${HEAVEN_DETAILS.map((detail, index) => `
-            <div class="heaven-detail">
-              <div class="heaven-detail-number">${index + 1}</div>
-              <div class="heaven-detail-text">${escapeHtml(detail.text)}</div>
-            </div>
-          `).join("")}
-        </div>
-        <p class="lede" style="margin-bottom:0;">Now grab paper and draw what you picture — we'll compare notes after.</p>
-        <div class="poll-nav" style="margin-top:16px;">
-          <button class="btn btn-ghost" id="btn-heaven-back">← Back</button>
-          <button class="btn btn-primary" id="btn-heaven-next">I'm ready to draw →</button>
-        </div>
-      </section>
-    `;
-    document.getElementById("btn-heaven-back").addEventListener("click", () => setHeavenPage(1));
-    document.getElementById("btn-heaven-next").addEventListener("click", () => setHeavenPage(3));
-    return;
-  }
-  setChrome(false);
-  wrap.innerHTML = `
-    <section class="screen" style="padding-top:6px;">
-      <div class="draw-ready">
-        <div style="font-size:44px; margin-bottom:8px;">🎨</div>
-        <h2 style="font-family:'Fraunces',serif; font-size:28px; margin:0 0 8px;">Create your New Jerusalem</h2>
-        <p class="lede" style="margin:0;">Use the details from Revelation as inspiration, then add the colors and feeling you imagine. Share one detail with your group if you'd like.</p>
-      </div>
-      <button class="btn btn-ghost" id="btn-heaven-back" style="margin-top:14px;">← Review the details</button>
-    </section>
-  `;
-  document.getElementById("btn-heaven-back").addEventListener("click", () => setHeavenPage(2));
-}
-
-window.getBoothExtraData = () => ({ reachedPage: heavenState.page });
-
-initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderHeaven });
-renderBoothFooter(BOOTH_ID);
-document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+window.getBoothExtraData = () => HeavenAttendee.extraData();
+initBoothRoom({
+  boothId: BOOTH_ID,
+  boothName: BOOTH_NAME,
+  roomName: BOOTH_ROOM_NAME,
+  onReady: () => HeavenAttendee.init({
+    containerId: "booth-content",
+    onCompleted: () => finishBooth(BOOTH_ID, BOOTH_NAME),
+  }),
+});
 </script>
 </body>
 </html>

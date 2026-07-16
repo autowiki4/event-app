@@ -1,7 +1,8 @@
 /* Bible Bowl's booth-leader portal is intentionally separate from the
  * generic booth presentation controls. Its three versioned sessions keep the
- * speaker in charge of question, reveal, and result timing while preserving a
- * separate leaderboard for each wristband rotation. */
+ * speaker in charge of question, reveal, and result timing. Each session can
+ * also contain multiple archived runs, so restart never combines or erases
+ * an earlier run's leaderboard. */
 function initTriviaStaff() {
   const SESSION_COUNT = 3;
   const QUESTION_COUNT = 15;
@@ -70,6 +71,22 @@ function initTriviaStaff() {
     return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Assigned" };
   }
 
+  function normalizedArchivedRun(raw, fallbackRunNumber) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    return {
+      runId: String(source.runId || ""),
+      runNumber: Math.max(1, integer(source.runNumber, fallbackRunNumber)),
+      phase: safePhase(source.phase),
+      questionIndex: integer(source.questionIndex, -1),
+      participantCount: Math.max(0, integer(source.participantCount)),
+      responseCount: Math.max(0, integer(source.responseCount)),
+      startedAt: source.startedAt || null,
+      completedAt: source.completedAt || null,
+      archivedAt: source.archivedAt || null,
+      leaderboard: Array.isArray(source.leaderboard) ? source.leaderboard : [],
+    };
+  }
+
   function normalizedSession(raw, sessionNumber) {
     const source = raw && typeof raw === "object" ? raw : {};
     const rawState = source.state && typeof source.state === "object" ? source.state : {};
@@ -86,6 +103,8 @@ function initTriviaStaff() {
       },
       assignedCount: Math.max(0, integer(source.assignedCount)),
       state: {
+        runId: String(rawState.runId || source.runId || ""),
+        runNumber: Math.max(1, integer(rawState.runNumber, integer(source.runNumber, 1))),
         phase: safePhase(rawState.phase),
         questionIndex: integer(rawState.questionIndex, -1),
         version: Math.max(0, integer(rawState.version)),
@@ -105,6 +124,9 @@ function initTriviaStaff() {
       responseCount: Math.max(0, integer(source.responseCount)),
       questionsRevealed: Math.max(0, integer(source.questionsRevealed)),
       leaderboard: Array.isArray(source.leaderboard) ? source.leaderboard : [],
+      archivedRuns: (Array.isArray(source.archivedRuns) ? source.archivedRuns : [])
+        .map((run, index) => normalizedArchivedRun(run, index + 1))
+        .sort((a, b) => b.runNumber - a.runNumber),
     };
   }
 
@@ -158,7 +180,8 @@ function initTriviaStaff() {
       const phase = session ? phaseLabel(session.state.phase) : "Loading";
       const time = session ? session.sessionLabel : (sessionSchedule(sessionNumber) || {}).label || "";
       tab.querySelector("b").textContent = `Session ${sessionNumber} · ${label}`;
-      tab.querySelector("small").textContent = `${time} · ${phase}`;
+      const run = session ? `Run ${session.state.runNumber}` : "";
+      tab.querySelector("small").textContent = [time, run, phase].filter(Boolean).join(" · ");
     });
     const panel = document.getElementById("trivia-session-panel");
     panel.setAttribute("aria-labelledby", `trivia-tab-${selectedSessionNumber}`);
@@ -178,8 +201,8 @@ function initTriviaStaff() {
     if (phase === "complete") {
       stage.innerHTML = `
         <div class="trivia-stage-icon" aria-hidden="true">🎉</div>
-        <h3>Results are on attendee screens.</h3>
-        <p>This session is finished. Guests can see how many they answered correctly, finish the booth, and return to their timed route.</p>
+        <h3>Run ${session.state.runNumber} results are on attendee screens.</h3>
+        <p>This run is finished. Guests can see how many they answered correctly, finish the booth, and return to their timed route. Archive it only after the group is done.</p>
       `;
       return;
     }
@@ -240,7 +263,7 @@ function initTriviaStaff() {
   }
 
   function renderLeaderboard(session) {
-    document.getElementById("trivia-leaderboard-title").textContent = `Session ${session.sessionNumber} leaderboard`;
+    document.getElementById("trivia-leaderboard-title").textContent = `Session ${session.sessionNumber} · Run ${session.state.runNumber} leaderboard`;
     const body = document.querySelector("#trivia-leaderboard tbody");
     if (!session.leaderboard.length) {
       body.innerHTML = `<tr><td colspan="4" class="trivia-empty">No answers in Session ${session.sessionNumber} yet. This leaderboard stays separate from the other rotations.</td></tr>`;
@@ -261,6 +284,57 @@ function initTriviaStaff() {
     }).join("");
   }
 
+  function formatArchiveTime(value) {
+    if (!value) return "Saved";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Saved";
+    return `Saved ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  function archivedLeaderboard(run) {
+    if (!run.leaderboard.length) {
+      return `<div class="trivia-empty">No answers were recorded in this run.</div>`;
+    }
+    const rows = run.leaderboard.map((entry, index) => {
+      const correctCount = Math.max(0, integer(entry && entry.correctCount));
+      const totalQuestions = Math.max(0, integer(entry && entry.totalQuestions));
+      return `
+        <tr>
+          <td class="rank">${Math.max(1, integer(entry && entry.rank, index + 1))}</td>
+          <td>${escapeHtml((entry && entry.name) || "Guest")}</td>
+          <td class="raffle">#${escapeHtml((entry && entry.raffleNumber) || "----")}</td>
+          <td class="score">${totalQuestions > 0 ? `${correctCount}/${totalQuestions}` : "—"}</td>
+        </tr>
+      `;
+    }).join("");
+    return `
+      <div class="trivia-leaderboard-wrap">
+        <table class="dash-table trivia-leaderboard">
+          <thead><tr><th>#</th><th>Attendee</th><th>Raffle</th><th>Correct</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderArchivedRuns(session) {
+    const target = document.getElementById("trivia-archive-list");
+    if (!target) return;
+    if (!session.archivedRuns.length) {
+      target.innerHTML = `<div class="trivia-empty">No previous runs have been archived for Session ${session.sessionNumber}.</div>`;
+      return;
+    }
+    target.innerHTML = session.archivedRuns.map((run) => `
+      <details class="trivia-archive-run">
+        <summary>
+          <span>Run ${run.runNumber} · ${escapeHtml(phaseLabel(run.phase))}</span>
+          <span class="trivia-archive-meta">${run.participantCount} ${run.participantCount === 1 ? "player" : "players"} · ${escapeHtml(formatArchiveTime(run.archivedAt))}</span>
+        </summary>
+        <div class="trivia-archive-body">${archivedLeaderboard(run)}</div>
+      </details>
+    `).join("");
+  }
+
   function renderSelectedSession() {
     renderTabs();
     const session = sessionByNumber();
@@ -271,7 +345,7 @@ function initTriviaStaff() {
     }
 
     const phase = session.state.phase;
-    document.getElementById("trivia-control-title").textContent = `Session ${session.sessionNumber}`;
+    document.getElementById("trivia-control-title").textContent = `Session ${session.sessionNumber} · Run ${session.state.runNumber}`;
     const phasePill = document.getElementById("trivia-phase-pill");
     phasePill.textContent = phaseLabel(phase);
     phasePill.className = `trivia-phase-pill ${phase}`;
@@ -286,6 +360,10 @@ function initTriviaStaff() {
     renderQuestion(session);
     renderActions(session);
     renderLeaderboard(session);
+    renderArchivedRuns(session);
+    resetButton.textContent = session.state.phase === "complete"
+      ? "Save this run & start another"
+      : "Archive run & start another";
     renderSchedule();
     syncBusyState();
   }
@@ -316,7 +394,7 @@ function initTriviaStaff() {
     } else if (current.phase === "active" && selectedIndex < current.sessionIndex) {
       timerValue = "Closed";
       timerLabel = "Rotation passed";
-      noteText = `You are reviewing an earlier session. Its leaderboard remains separate; reset it only if you intentionally want to erase that session's game and answers.`;
+      noteText = `You are reviewing an earlier session. Its current and archived run leaderboards remain separate and saved.`;
     } else if (current.phase === "active" && selectedIndex > current.sessionIndex) {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
@@ -450,7 +528,7 @@ function initTriviaStaff() {
     const organizerKey = OrganizerAuth.key();
     if (!session || !organizerKey) return;
     const approved = window.confirm(
-      `Reset Bible Bowl Session ${session.sessionNumber}?\n\nThis permanently returns that session to its welcome screen and erases only Session ${session.sessionNumber}'s answers and leaderboard. The other two sessions will not change.`
+      `Archive Bible Bowl Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nThe current answers and leaderboard will stay saved under the previous run. The other two sessions will not change.${session.state.phase === "complete" ? "" : "\n\nThis run is not finished yet, so only continue if you intentionally want to close it early."}`
     );
     if (!approved) return;
     if (typeof EventAPI === "undefined" || typeof EventAPI.resetTriviaSession !== "function") {
@@ -463,16 +541,20 @@ function initTriviaStaff() {
     activeRefreshId += 1;
     refreshInFlight = false;
     syncBusyState();
-    setStatus(`Resetting Session ${session.sessionNumber}…`);
+    setStatus(`Saving Run ${session.state.runNumber} and preparing the next run…`);
     try {
-      await EventAPI.resetTriviaSession(session.sessionNumber, organizerKey);
+      await EventAPI.resetTriviaSession(
+        session.sessionNumber,
+        session.state.version,
+        organizerKey
+      );
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
-      toast(`Session ${session.sessionNumber} reset.`);
+      toast(`Run ${session.state.runNumber} saved. Run ${session.state.runNumber + 1} is ready.`);
     } catch (error) {
       console.error(error);
       if (OrganizerAuth.handleError(error, authGeneration)) return;
-      toast("Couldn't reset this Bible Bowl session.");
-      setStatus("Nothing was erased. Check the connection and try again.", "error");
+      toast("Couldn't start another Bible Bowl run.");
+      setStatus("Nothing changed. Check the connection and try again.", "error");
     } finally {
       if (OrganizerAuth.isCurrent(authGeneration)) {
         controlBusy = false;
@@ -505,6 +587,8 @@ function initTriviaStaff() {
     stage.innerHTML = `<div class="trivia-empty">Unlock Bible Bowl to load the session controls.</div>`;
     actions.innerHTML = "";
     document.querySelector("#trivia-leaderboard tbody").innerHTML = `<tr><td colspan="4" class="trivia-empty">Unlock Bible Bowl to load the leaderboards.</td></tr>`;
+    const archiveList = document.getElementById("trivia-archive-list");
+    if (archiveList) archiveList.innerHTML = `<div class="trivia-empty">Unlock Bible Bowl to load saved runs.</div>`;
     document.getElementById("staff-last-updated").textContent = "";
     showSyncNote("");
     setStatus("Unlock Bible Bowl to load the session controls.");

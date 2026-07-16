@@ -1075,23 +1075,96 @@ async function runTriviaApiRegression(port) {
   session1 = sessionSummary(res.body, 1);
   session2 = sessionSummary(res.body, 2);
   assert.deepEqual(session1.leaderboard.map((row) => row.name), ["Red Reader", "Red Scholar"]);
+  const triviaSession1Run1Id = session1.state.runId;
+  assert.equal(session1.state.runNumber, 1);
   assert.equal(session2.leaderboard.length, 1);
   assert.deepEqual(
     [session2.leaderboard[0].name, session2.leaderboard[0].correctCount, session2.leaderboard[0].totalQuestions],
     ["Blue Scholar", TRIVIA_QUESTIONS.length, TRIVIA_QUESTIONS.length]
   );
 
-  // Resetting one rotation erases only that session. The protected overall
-  // reset then removes every game, answer, leaderboard, and completion.
+  // Starting another game archives the completed run instead of deleting its
+  // answers. The active leaderboard resets cleanly while the prior run stays
+  // available to staff, and another session remains unchanged.
   res = await request(port, "resetTriviaSession", { sessionNumber: 1, organizerKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 2);
+  assert.notEqual(res.body.state.runId, triviaSession1Run1Id);
   assert.deepEqual(res.body.leaderboard, []);
+  assert.equal(res.body.archivedRuns.length, 1);
+  assert.equal(res.body.archivedRuns[0].runId, triviaSession1Run1Id);
+  assert.equal(res.body.archivedRuns[0].runNumber, 1);
+  assert.equal(res.body.archivedRuns[0].phase, "complete");
+  assert.equal(res.body.archivedRuns[0].participantCount, 2);
+  assert.equal(res.body.archivedRuns[0].responseCount, 2);
+  assert.deepEqual(
+    res.body.archivedRuns[0].leaderboard.map((row) => [row.name, row.correctCount]),
+    [["Red Reader", 1], ["Red Scholar", 0]]
+  );
+  const triviaSession1Run2Id = res.body.state.runId;
+  const triviaSession1Run2Version = res.body.state.version;
   res = await request(port, "triviaDashboardData", { organizerKey });
   assert.deepEqual(sessionSummary(res.body, 1).leaderboard, []);
+  assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 1);
   assert.equal(sessionSummary(res.body, 2).state.phase, "complete");
   assert.equal(sessionSummary(res.body, 2).leaderboard.length, 1);
 
+  // The same attendee can answer the same question in the fresh run. State,
+  // idempotency, and scoring are keyed by runId rather than leaking run 1.
+  res = await request(port, "setDemoClock", {
+    mode: "session1",
+    targetIso: "2026-07-18T20:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.runId, triviaSession1Run2Id);
+  assert.equal(res.body.runNumber, 2);
+  assert.equal(res.body.answer, null);
+  assert.equal(res.body.score.correctCount, 0);
+  assert.equal(res.body.score.answeredCount, 0);
+  res = await advance(1, "start", triviaSession1Run2Version);
+  assert.equal(res.status, 200);
+  let triviaSession1Run2ActiveVersion = res.body.state.version;
+  res = await request(port, "submitTriviaAnswer", {
+    attendeeId: "trivia-red-a",
+    questionId: TRIVIA_QUESTIONS[0].id,
+    answerIndex: TRIVIA_QUESTIONS[0].correctIndex,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.equal(res.body.runId, triviaSession1Run2Id);
+  res = await advance(1, "reveal", triviaSession1Run2ActiveVersion);
+  assert.equal(res.status, 200);
+  triviaSession1Run2ActiveVersion = res.body.state.version;
+  res = await advance(1, "finish", triviaSession1Run2ActiveVersion);
+  assert.equal(res.status, 200);
+  res = await request(port, "completeTrivia", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.runId, triviaSession1Run2Id);
+  assert.deepEqual(res.body.score, { correctCount: 1, answeredCount: 1, totalQuestions: 1 });
+
+  // Resetting the second game archives it as well; history is newest-first and
+  // the original two-player run remains fully intact.
+  res = await request(port, "resetTriviaSession", { sessionNumber: 1, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.runNumber, 3);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.deepEqual(res.body.leaderboard, []);
+  assert.deepEqual(res.body.archivedRuns.map((run) => [run.runNumber, run.phase]), [
+    [2, "complete"],
+    [1, "complete"],
+  ]);
+  assert.equal(res.body.archivedRuns[0].runId, triviaSession1Run2Id);
+  assert.equal(res.body.archivedRuns[0].participantCount, 1);
+  assert.equal(res.body.archivedRuns[0].responseCount, 1);
+  assert.equal(res.body.archivedRuns[1].runId, triviaSession1Run1Id);
+  assert.equal(res.body.archivedRuns[1].participantCount, 2);
+
+  // The protected overall reset is the only destructive reset; it removes
+  // every active game, archived game, answer, leaderboard, and completion.
   res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
   res = await request(port, "triviaDashboardData", { organizerKey });
@@ -1102,7 +1175,430 @@ async function runTriviaApiRegression(port) {
   const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
   assert.deepEqual(resetDb.triviaSessions, {});
   assert.deepEqual(resetDb.triviaAnswers, []);
+  assert.deepEqual(resetDb.triviaRunHistory, []);
   assert.equal(resetDb.boothCheckins.length, 0);
+}
+
+async function runHeavenApiRegression(port) {
+  const organizerKey = "test-organizer-key";
+  const confirmationActions = [
+    "drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done",
+  ];
+  const emptyConfirmations = Object.fromEntries(confirmationActions.map((action) => [action, false]));
+  const sessionSummary = (dashboard, sessionNumber) => (
+    dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
+  );
+  const advance = (sessionNumber, action, version, key = organizerKey) => request(
+    port,
+    "advanceHeavenSession",
+    { sessionNumber, action, version, organizerKey: key }
+  );
+
+  let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+
+  async function registerHeavenAttendee(attendeeId, name, wristbandColor) {
+    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    assert.equal(registration.status, 200);
+    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    assert.equal(confirmation.status, 200);
+    return registration.body;
+  }
+
+  await registerHeavenAttendee("heaven-blue-a", "Blue Artist", "blue");
+  await registerHeavenAttendee("heaven-blue-b", "Blue Dreamer", "blue");
+  await registerHeavenAttendee("heaven-red-a", "Red Artist", "red");
+  await registerHeavenAttendee("heaven-green-a", "Green Artist", "green");
+
+  // The attendee API is also tied to the shared timed rotation. A leader may
+  // prepare controls before the event, but attendee confirmations stay closed
+  // in the waiting lobby and for wristbands assigned to another booth.
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_SESSION_CLOSED");
+
+  res = await request(port, "setDemoClock", {
+    mode: "session1",
+    targetIso: "2026-07-18T20:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+
+  // Staff reads, transitions, and resets are protected. The three Draw
+  // Heaven rotations start with independent run 1 welcome states.
+  res = await request(port, "heavenDashboardData", { organizerKey: "wrong" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(1, "start", 0, "wrong");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "resetHeavenSession", {
+    sessionNumber: 1,
+    organizerKey: "wrong",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "heavenDashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessions.length, 3);
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.sessionNumber,
+      session.assignedColor.id,
+      session.state.phase,
+      session.state.runNumber,
+      session.participantCount,
+      session.archivedRuns.length,
+    ]),
+    [
+      [1, "blue", "welcome", 1, 0, 0],
+      [2, "red", "welcome", 1, 0, 0],
+      [3, "green", "welcome", 1, 0, 0],
+    ]
+  );
+  assert.deepEqual(res.body.sessions.map((session) => session.assignedCount), [2, 1, 1]);
+
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 1);
+  assert.equal(res.body.assignedColor.id, "blue");
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.version, 0);
+  assert.equal(res.body.runNumber, 1);
+  assert.equal(typeof res.body.runId, "string");
+  assert.deepEqual(res.body.participant.confirmations, emptyConfirmations);
+  assert.deepEqual(res.body.participant.confirmedAt, {});
+  assert.equal("participants" in res.body, false);
+  const session1Run1Id = res.body.runId;
+
+  res = await request(port, "heavenState", { attendeeId: "heaven-red-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "HEAVEN_NOT_ASSIGNED");
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_CONFIRMATION_CLOSED");
+
+  // Invalid controls and stale versions never move the speaker. Only the
+  // legal action for the current global phase can advance every attendee.
+  res = await request(port, "advanceHeavenSession", {
+    sessionNumber: 4,
+    action: "start",
+    version: 0,
+    organizerKey,
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_HEAVEN_SESSION");
+  res = await advance(1, "not_an_action", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_HEAVEN_ACTION");
+  res = await advance(1, "show_verse", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "INVALID_HEAVEN_TRANSITION");
+  res = await advance(1, "start", 99);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_SESSION_CONFLICT");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "drawing");
+  assert.equal(res.body.state.version, 1);
+  assert.equal(res.body.state.runId, session1Run1Id);
+  assertIsoTimestamp(res.body.state.startedAt, "Draw Heaven run start");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_SESSION_CONFLICT");
+
+  // The first drawing confirmation unlocks the description response for that
+  // attendee only. Repeating a confirmation is idempotent and preserves its
+  // original timestamp, including after a refresh or leader phase change.
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "invalid",
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_HEAVEN_CONFIRMATION");
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "description_yes",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_CONFIRMATION_PREREQUISITE");
+
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  const firstDrawingConfirmedAt = res.body.confirmedAt;
+  assertIsoTimestamp(firstDrawingConfirmedAt, "first Draw Heaven confirmation");
+  assert.equal(res.body.state.participant.confirmations.drawing_complete, true);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.confirmedAt, firstDrawingConfirmedAt);
+
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "description_yes",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-b",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.body.phase, "drawing");
+  assert.equal(res.body.runId, session1Run1Id);
+  assert.deepEqual(res.body.participant.confirmations, {
+    drawing_complete: true,
+    description_yes: true,
+    size_yes: false,
+    impact_yes: false,
+    programs_done: false,
+  });
+  assert.equal(res.body.participant.confirmedAt.drawing_complete, firstDrawingConfirmedAt);
+
+  res = await request(port, "heavenDashboardData", { organizerKey });
+  let heavenSession1 = sessionSummary(res.body, 1);
+  assert.equal(heavenSession1.participantCount, 2);
+  assert.equal(heavenSession1.confirmationCounts.drawing_complete, 2);
+  assert.equal(heavenSession1.confirmationCounts.description_yes, 1);
+  assert.deepEqual(
+    heavenSession1.participants.map((participant) => [participant.name, participant.completedActionCount]),
+    [["Blue Artist", 2], ["Blue Dreamer", 1]]
+  );
+
+  // Each staff transition opens its matching gate. Earlier confirmations
+  // remain restorable, while later confirmations are still closed until the
+  // leader reaches their minimum phase.
+  res = await advance(1, "show_verse", 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "verse");
+  assert.equal(res.body.state.version, 2);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "description_yes",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-b",
+    action: "impact_yes",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_CONFIRMATION_CLOSED");
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "size_yes",
+  });
+  assert.equal(res.status, 200);
+
+  res = await advance(1, "show_comparison", 2);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "comparison");
+  assert.equal(res.body.state.version, 3);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "impact_yes",
+  });
+  assert.equal(res.status, 200);
+
+  res = await advance(1, "show_impact", 3);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "reflection");
+  assert.equal(res.body.state.version, 4);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "programs_done",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_CONFIRMATION_CLOSED");
+
+  res = await advance(1, "show_programs", 4);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "programs");
+  assert.equal(res.body.state.version, 5);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "programs_done",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.participant.completedAt, res.body.confirmedAt);
+
+  res = await advance(1, "finish", 5);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "complete");
+  assert.equal(res.body.state.version, 6);
+  assertIsoTimestamp(res.body.state.completedAt, "Draw Heaven run completion");
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.body.phase, "complete");
+  assert.equal(res.body.participant.confirmations.programs_done, true);
+  assert.equal(res.body.participant.confirmations.description_yes, true);
+
+  // A late attendee is not stranded when the speaker has moved ahead. They
+  // can catch up from the earliest missing response in prerequisite order,
+  // even after the global screen reaches complete.
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-b",
+    action: "programs_done",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_CONFIRMATION_PREREQUISITE");
+  for (const action of ["description_yes", "size_yes", "impact_yes", "programs_done"]) {
+    res = await request(port, "confirmHeavenStep", {
+      attendeeId: "heaven-blue-b",
+      action,
+    });
+    assert.equal(res.status, 200, action);
+    assert.equal(res.body.idempotent, false, action);
+    assert.equal(res.body.state.phase, "complete", action);
+  }
+  assert.equal(
+    Object.values(res.body.state.participant.confirmations).every(Boolean),
+    true
+  );
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-b",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.state.phase, "complete");
+
+  // Starting another run archives the completed run instead of deleting it.
+  // The new active run is clean, has a new identity, and allows the same phone
+  // to confirm its steps again without colliding with old idempotency records.
+  res = await request(port, "resetHeavenSession", { sessionNumber: 1, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 2);
+  assert.equal(res.body.state.version, 7);
+  assert.notEqual(res.body.state.runId, session1Run1Id);
+  assert.equal(res.body.participantCount, 0);
+  assert.equal(res.body.archivedRuns.length, 1);
+  const archivedHeavenRun1 = res.body.archivedRuns[0];
+  assert.equal(archivedHeavenRun1.runId, session1Run1Id);
+  assert.equal(archivedHeavenRun1.runNumber, 1);
+  assert.equal(archivedHeavenRun1.phase, "complete");
+  assert.equal(archivedHeavenRun1.participantCount, 2);
+  assert.equal(archivedHeavenRun1.confirmationCounts.drawing_complete, 2);
+  assert.equal(archivedHeavenRun1.confirmationCounts.programs_done, 2);
+  assert.deepEqual(
+    archivedHeavenRun1.participants.map((participant) => [participant.name, participant.done]),
+    [["Blue Artist", true], ["Blue Dreamer", true]]
+  );
+  const session1Run2Id = res.body.state.runId;
+  assert.equal(res.body.participants.every((participant) => (
+    confirmationActions.every((action) => participant.confirmations[action] === false)
+  )), true);
+
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.body.runId, session1Run2Id);
+  assert.equal(res.body.runNumber, 2);
+  assert.deepEqual(res.body.participant.confirmations, emptyConfirmations);
+  res = await advance(1, "start", 7);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.runId, session1Run2Id);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-blue-a",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.notEqual(res.body.confirmedAt, firstDrawingConfirmedAt);
+
+  // Reset also archives an incomplete rehearsal. Run 1 remains intact beside
+  // run 2, and the newest active state advances to run 3 without old answers.
+  res = await request(port, "resetHeavenSession", { sessionNumber: 1, organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 3);
+  assert.equal(res.body.state.version, 9);
+  assert.equal(res.body.archivedRuns.length, 2);
+  assert.deepEqual(res.body.archivedRuns.map((run) => [run.runNumber, run.phase]), [
+    [2, "drawing"],
+    [1, "complete"],
+  ]);
+  assert.equal(res.body.archivedRuns[0].participantCount, 1);
+  assert.equal(res.body.archivedRuns[0].confirmationCounts.drawing_complete, 1);
+  assert.equal(res.body.archivedRuns[1].runId, session1Run1Id);
+
+  // Session 2 is still an untouched run 1. Moving the shared clock changes the
+  // eligible wristband group without changing Session 1 active/history data.
+  res = await request(port, "setDemoClock", {
+    mode: "session2",
+    targetIso: "2026-07-18T20:35:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "heavenState", { attendeeId: "heaven-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 2);
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.runNumber, 1);
+  res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "HEAVEN_NOT_ASSIGNED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 200);
+  res = await request(port, "confirmHeavenStep", {
+    attendeeId: "heaven-red-a",
+    action: "drawing_complete",
+  });
+  assert.equal(res.status, 200);
+
+  res = await request(port, "heavenDashboardData", { organizerKey });
+  heavenSession1 = sessionSummary(res.body, 1);
+  const heavenSession2 = sessionSummary(res.body, 2);
+  const heavenSession3 = sessionSummary(res.body, 3);
+  assert.equal(heavenSession1.state.runNumber, 3);
+  assert.equal(heavenSession1.archivedRuns.length, 2);
+  assert.equal(heavenSession1.participantCount, 0);
+  assert.equal(heavenSession2.state.phase, "drawing");
+  assert.equal(heavenSession2.participantCount, 1);
+  assert.equal(heavenSession2.confirmationCounts.drawing_complete, 1);
+  assert.equal(heavenSession2.archivedRuns.length, 0);
+  assert.equal(heavenSession3.state.phase, "welcome");
+  assert.equal(heavenSession3.participantCount, 0);
+
+  // The overall reset is the only destructive reset: it clears active runs,
+  // archived runs, and every attendee confirmation across all sessions.
+  res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "heavenDashboardData", { organizerKey });
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.state.phase,
+      session.state.runNumber,
+      session.state.version,
+      session.participantCount,
+      session.archivedRuns.length,
+    ]),
+    [
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+    ]
+  );
+  const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.deepEqual(resetDb.heavenSessions, {});
+  assert.deepEqual(resetDb.heavenConfirmations, []);
+  assert.deepEqual(resetDb.heavenRunHistory, []);
 }
 
 async function runCapacityRegression(port) {
@@ -1537,6 +2033,11 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.advanceTriviaSession, "function");
   assert.equal(typeof apiContext.__eventApi.resetTriviaSession, "function");
   assert.equal(typeof apiContext.__eventApi.completeTrivia, "function");
+  assert.equal(typeof apiContext.__eventApi.heavenState, "function");
+  assert.equal(typeof apiContext.__eventApi.confirmHeavenStep, "function");
+  assert.equal(typeof apiContext.__eventApi.heavenDashboardData, "function");
+  assert.equal(typeof apiContext.__eventApi.advanceHeavenSession, "function");
+  assert.equal(typeof apiContext.__eventApi.resetHeavenSession, "function");
   assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
   assert.equal(typeof apiContext.__eventApi.eventClock, "function");
   assert.equal(typeof apiContext.__eventApi.setDemoClock, "function");
@@ -1689,6 +2190,10 @@ async function runFrontendContractRegression() {
   const triviaAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "trivia-attendee.js"), "utf8");
   const triviaStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "trivia.html"), "utf8");
   const triviaStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "trivia-staff.js"), "utf8");
+  const heavenRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-heaven.html"), "utf8");
+  const heavenAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "heaven-attendee.js"), "utf8");
+  const heavenStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "heaven.html"), "utf8");
+  const heavenStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "heaven-staff.js"), "utf8");
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
   vm.createContext(boothsConfigContext);
@@ -1744,8 +2249,8 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
   assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
-  assert.match(phase2Source, /const completionLivesInActivity = currentBooth\.id === "trivia"/);
-  assert.match(phase2Source, /Finish Bible Bowl from its final results screen/);
+  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven"\]\.includes\(currentBooth\.id\)/);
+  assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -1783,6 +2288,10 @@ async function runFrontendContractRegression() {
   assert.match(triviaAttendeeSource, /data-trivia-answer/);
   assert.match(triviaAttendeeSource, /btn-trivia-done/);
   assert.match(triviaAttendeeSource, /I wonder if it's correct/);
+  assert.match(triviaAttendeeSource, /runId: String\(raw\.runId \|\| ""\)/);
+  assert.match(triviaAttendeeSource, /runNumber: Math\.max\(1, integer\(raw\.runNumber, 1\)\)/);
+  assert.match(triviaAttendeeSource, /runId: value\.runId/);
+  assert.match(triviaAttendeeSource, /runNumber: value\.runNumber/);
   assert.match(triviaAttendeeSource, /next\.version < state\.version/);
 
   // The booth leader gets a specialized three-session controller with
@@ -1792,10 +2301,82 @@ async function runFrontendContractRegression() {
   assert.match(triviaStaffPageSource, /data-session-number="2"/);
   assert.match(triviaStaffPageSource, /data-session-number="3"/);
   assert.match(triviaStaffPageSource, /id="trivia-leaderboard"/);
+  assert.match(triviaStaffPageSource, /id="trivia-archive-list"/);
   assert.match(triviaStaffSource, /EventAPI\.triviaDashboardData\(organizerKey\)/);
   assert.match(triviaStaffSource, /EventAPI\.advanceTriviaSession\(session\.sessionNumber, action, session\.state\.version, organizerKey\)/);
-  assert.match(triviaStaffSource, /EventAPI\.resetTriviaSession\(session\.sessionNumber, organizerKey\)/);
-  assert.match(triviaStaffSource, /Session \$\{session\.sessionNumber\} leaderboard/);
+  assert.match(triviaStaffSource, /EventAPI\.resetTriviaSession\([\s\S]*session\.sessionNumber,[\s\S]*session\.state\.version,[\s\S]*organizerKey[\s\S]*\)/);
+  assert.match(triviaStaffSource, /Session \$\{session\.sessionNumber\} · Run \$\{session\.state\.runNumber\} leaderboard/);
+  assert.match(triviaStaffSource, /source\.archivedRuns/);
+  assert.match(triviaStaffSource, /session\.archivedRuns\.map/);
+  assert.match(triviaStaffSource, /Archive Bible Bowl Session \$\{session\.sessionNumber\}, Run \$\{session\.state\.runNumber\}/);
+
+  // Draw Heaven is also server-authoritative and paced by its booth leader.
+  // Attendees submit only ordered readiness confirmations, then finish the
+  // booth from the shared final screen with the run identity attached.
+  assert.match(heavenRoomSource, /shared\/heaven-attendee\.js/);
+  assert.match(heavenRoomSource, /HeavenAttendee\.init\(/);
+  assert.match(heavenRoomSource, /onCompleted: \(\) => finishBooth\(BOOTH_ID, BOOTH_NAME\)/);
+  assert.match(heavenRoomSource, /window\.getBoothExtraData = \(\) => HeavenAttendee\.extraData\(\)/);
+  assert.doesNotMatch(heavenRoomSource, /_DRAFT_SCOPE|setHeavenPage|renderBoothFooter\(/);
+  assert.match(heavenAttendeeSource, /new Set\(\[\s*"welcome",\s*"drawing",\s*"verse",\s*"comparison",\s*"reflection",\s*"programs",\s*"complete",?\s*\]\)/);
+  assert.match(heavenAttendeeSource, /EventAPI\.heavenState\(identity\.attendeeId\)/);
+  assert.match(heavenAttendeeSource, /EventAPI\.confirmHeavenStep\(identity\.attendeeId, action\)/);
+  assert.match(heavenAttendeeSource, /data-heaven-confirm=/);
+  ["drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done"].forEach((action) => {
+    assert.match(heavenAttendeeSource, new RegExp(action));
+  });
+  assert.match(heavenAttendeeSource, /\{ action: "drawing_complete", minimumPhase: "drawing", stage: "drawing" \}/);
+  assert.match(heavenAttendeeSource, /\{ action: "description_yes", minimumPhase: "drawing", stage: "drawing" \}/);
+  assert.match(heavenAttendeeSource, /\{ action: "size_yes", minimumPhase: "verse", stage: "verse" \}/);
+  assert.match(heavenAttendeeSource, /\{ action: "impact_yes", minimumPhase: "comparison", stage: "comparison" \}/);
+  assert.match(heavenAttendeeSource, /\{ action: "programs_done", minimumPhase: "programs", stage: "reflection" \}/);
+  assert.match(heavenAttendeeSource, /function nextCatchUpAction\(value\)[\s\S]*CONFIRMATION_GATES\.find[\s\S]*phaseAtLeast\(value, gate\.minimumPhase\)[\s\S]*!confirmations\[gate\.action\]/);
+  assert.match(heavenAttendeeSource, /const catchUp = nextCatchUpAction\(value\);[\s\S]*if \(catchUp\) return catchUp\.stage/);
+  assert.match(heavenAttendeeSource, /return value\.participant\.confirmations\.programs_done \? "complete" : "reflection"/);
+  assert.match(heavenAttendeeSource, /id="btn-heaven-open-programs"/);
+  assert.match(heavenAttendeeSource, /event\.target\.closest\("#btn-heaven-open-programs"\)[\s\S]*confirmStep\("programs_done"\)/);
+  assert.match(heavenAttendeeSource, /I have completed my drawing/);
+  assert.match(heavenAttendeeSource, /Would you like to see its relative size\?/);
+  assert.match(heavenAttendeeSource, /Nashville Christian Collective programs/);
+  assert.match(heavenAttendeeSource, /renderTransition\("confetti", state\)/);
+  assert.match(heavenAttendeeSource, /renderTransition\("explosion", state\)/);
+  assert.match(heavenAttendeeSource, /id="btn-heaven-image"/);
+  assert.match(heavenAttendeeSource, /dialog\.id = "heaven-image-dialog"/);
+  assert.match(heavenAttendeeSource, /class="heaven-image-close"/);
+  assert.match(heavenAttendeeSource, /id="btn-booth-done"/);
+  assert.match(heavenAttendeeSource, /state\.runId === next\.runId/);
+  assert.match(heavenAttendeeSource, /next\.version < state\.version/);
+  assert.match(heavenAttendeeSource, /sessionNumber: state\.sessionNumber/);
+  assert.match(heavenAttendeeSource, /runId: state\.runId/);
+  assert.match(heavenAttendeeSource, /runNumber: state\.runNumber/);
+  assert.match(heavenAttendeeSource, /phase: state\.phase/);
+  assert.match(heavenAttendeeSource, /confirmations: \{ \.\.\.state\.participant\.confirmations \}/);
+  assert.equal(
+    fs.existsSync(path.join(__dirname, "..", "..", "web", "assets", "new-jerusalem-comparison.jpeg")),
+    true
+  );
+
+  // The Heaven staff portal owns three isolated, versioned active runs and
+  // their read-only archives instead of using the generic booth controller.
+  assert.match(heavenStaffPageSource, /shared\/heaven-staff\.js/);
+  assert.match(heavenStaffPageSource, /id="heaven-session-tabs"/);
+  assert.match(heavenStaffPageSource, /data-heaven-session="1"/);
+  assert.match(heavenStaffPageSource, /data-heaven-session="2"/);
+  assert.match(heavenStaffPageSource, /data-heaven-session="3"/);
+  assert.match(heavenStaffPageSource, /id="heaven-stage"/);
+  assert.match(heavenStaffPageSource, /id="heaven-actions"/);
+  assert.match(heavenStaffPageSource, /id="heaven-progress-table"/);
+  assert.match(heavenStaffPageSource, /id="heaven-run-history"/);
+  assert.match(heavenStaffPageSource, /id="btn-heaven-restart"/);
+  assert.match(heavenStaffPageSource, /id="btn-heaven-refresh"/);
+  assert.doesNotMatch(heavenStaffPageSource, /initBoothStaff\("heaven"\)/);
+  assert.match(heavenStaffSource, /EventAPI\.heavenDashboardData\(organizerKey\)/);
+  assert.match(heavenStaffSource, /EventAPI\.advanceHeavenSession\(session\.sessionNumber, action, session\.state\.version, organizerKey\)/);
+  assert.match(heavenStaffSource, /EventAPI\.resetHeavenSession\([\s\S]*session\.sessionNumber,[\s\S]*session\.state\.version,[\s\S]*organizerKey[\s\S]*\)/);
+  assert.match(heavenStaffSource, /data-heaven-action=/);
+  assert.match(heavenStaffSource, /confirmationCounts: normalizeCounts\(source\.confirmationCounts\)/);
+  assert.match(heavenStaffSource, /source\.archivedRuns/);
+  assert.match(heavenStaffSource, /session\.archivedRuns\.map/);
   assert.match(newSongSource, /Vote counted for the booth leader/);
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
   assert.match(phase3Source, /\["phase3-name", "phase3-raffle"\]/);
@@ -2080,7 +2661,7 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
-  ["heaven", "story", "art", "newsong"].forEach((boothId) => {
+  ["story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
     assert.match(source, /id="staff-settings"/);
@@ -2138,7 +2719,7 @@ function runBoothDraftPersistenceRegression() {
   assert.match(boothCommonSource, /note\.addEventListener\("input"/);
   assert.match(boothCommonSource, /rating: _boothStars/);
 
-  ["heaven", "story", "art", "newsong"].forEach((boothId) => {
+  ["story", "art", "newsong"].forEach((boothId) => {
     const source = fs.readFileSync(
       path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
       "utf8"
@@ -2164,6 +2745,16 @@ function runBoothDraftPersistenceRegression() {
   );
   assert.doesNotMatch(triviaSource, /_DRAFT_SCOPE|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
   assert.match(triviaSource, /shared\/trivia-attendee\.js/);
+
+  // Draw Heaven is the same kind of deliberate exception. Its active run and
+  // five confirmations restore from the backend; local JourneyState is used
+  // only by the shared controller for one-time decorative motion per run.
+  const heavenSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-heaven.html"),
+    "utf8"
+  );
+  assert.doesNotMatch(heavenSource, /_DRAFT_SCOPE|setHeavenPage|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
+  assert.match(heavenSource, /shared\/heaven-attendee\.js/);
 }
 
 function runAppsScriptRegression() {
@@ -2663,6 +3254,7 @@ async function main() {
     const port = server.address().port;
     await runApiRegression(port);
     await runTriviaApiRegression(port);
+    await runHeavenApiRegression(port);
     await runCapacityRegression(port);
     await runFrontendContractRegression();
     runBoothDraftPersistenceRegression();

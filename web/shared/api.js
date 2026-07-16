@@ -75,11 +75,26 @@ const EventAPI = (function () {
       version,
       organizerKey,
     }),
-    resetTriviaSession: (sessionNumber, organizerKey) => call("resetTriviaSession", {
+    resetTriviaSession: (sessionNumber, version, organizerKey) => call("resetTriviaSession", {
       sessionNumber,
+      version,
       organizerKey,
     }),
     completeTrivia: (attendeeId) => call("completeTrivia", { attendeeId }),
+    heavenState: (attendeeId) => call("heavenState", { attendeeId }),
+    confirmHeavenStep: (attendeeId, action) => call("confirmHeavenStep", { attendeeId, action }),
+    heavenDashboardData: (organizerKey) => call("heavenDashboardData", { organizerKey }),
+    advanceHeavenSession: (sessionNumber, action, version, organizerKey) => call("advanceHeavenSession", {
+      sessionNumber,
+      action,
+      version,
+      organizerKey,
+    }),
+    resetHeavenSession: (sessionNumber, version, organizerKey) => call("resetHeavenSession", {
+      sessionNumber,
+      version,
+      organizerKey,
+    }),
     eventClock: () => call("eventClock", {}),
     setDemoClock: (mode, targetIso, organizerKey) => call("setDemoClock", {
       mode,

@@ -124,6 +124,8 @@ The server creates `db.json` on first write. It contains:
 - New Song votes saved as soon as an attendee taps a song;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
 - one current presentation state per booth;
+- versioned Session 1–3 controllers, attendee responses, and archived prior
+  runs for Bible Bowl and Draw Heaven;
 - the raffle counter; and
 - a durable `dataResetAt` marker used to invalidate attendee browser identity
   after an organizer starts fresh.
@@ -215,13 +217,33 @@ Bible Bowl adds a Node-service-only, leader-paced API:
 - `completeTrivia` records the server-verified final result
 - `triviaDashboardData` returns protected Session 1–3 leaderboards
 - `advanceTriviaSession` starts, reveals, advances, or finishes one session
-- `resetTriviaSession` clears only the selected session for rehearsal
+- `resetTriviaSession` archives the selected run and opens a fresh run without
+  mixing its answers or leaderboard with the previous run
+
+Draw Heaven uses the same Node-only, leader-paced run model:
+
+- `heavenState` returns the current global phase plus the attendee's saved
+  confirmations
+- `confirmHeavenStep` idempotently saves the attendee response that is open in
+  the current leader phase
+- `heavenDashboardData` returns protected progress for all three rotations and
+  their archived runs
+- `advanceHeavenSession` moves one rotation through welcome, drawing, verse,
+  comparison, reflection, programs, and completion using optimistic versions
+- `resetHeavenSession` archives the current run and opens a clean welcome run
+
+Session reset preserves prior-run answers/confirmations for staff review while
+keeping the active run's results isolated. The overall `resetDemo` action is
+the deliberate deletion boundary: it clears active and archived runs for both
+activities along with all other event data.
 
 The question answer key stays outside `web/`, and the public attendee state
 does not include the correct answer until the booth leader reveals it. Each
-session and leaderboard is persisted separately in `triviaSessions` and
-`triviaAnswers`. Run one Node instance with a persistent `EVENT_APP_DB_PATH`;
-the Apps Script adapter does not implement this synchronized trivia workflow.
+session and leaderboard is persisted separately in `triviaSessions`,
+`triviaAnswers`, and `triviaRunHistory`. Draw Heaven uses matching session,
+confirmation, and run-history collections. Run one Node instance with a
+persistent `EVENT_APP_DB_PATH`; the Apps Script adapter does not implement
+either synchronized booth workflow.
 
 The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,

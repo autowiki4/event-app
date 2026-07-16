@@ -3,64 +3,160 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Heaven Booth — Staff</title>
+  <title>Draw Heaven — Booth Leader</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <style>
-    :root {
-      --phase-color: var(--teal);
-      --phase-color-deep: var(--teal-deep);
+    :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+    .heaven-leader-intro{
+      display:flex; align-items:center; justify-content:space-between; gap:16px; margin:15px 0 18px; padding:15px 16px;
+      border:1px solid rgba(108,78,150,.2); border-radius:15px; background:linear-gradient(145deg,#fff9e8,#f2f8f7 54%,#f1ecf8);
+    }
+    .heaven-leader-intro strong{ display:block; color:var(--ink); font-family:'Fraunces',serif; font-size:18px; }
+    .heaven-leader-intro span{ display:block; max-width:700px; margin-top:4px; color:var(--ink-soft); font-size:12px; line-height:1.45; }
+    .heaven-leader-intro .btn{ flex:none; }
+    .heaven-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:10px 0 16px; }
+    .heaven-session-tab{
+      appearance:none; min-width:0; padding:12px 10px; border:1.5px solid var(--line); border-radius:13px;
+      background:rgba(255,255,255,.78); color:var(--ink-soft); cursor:pointer; font:inherit; text-align:left;
+      transition:border-color .15s,background .15s,box-shadow .15s,transform .12s;
+    }
+    .heaven-session-tab:hover{ border-color:rgba(29,122,120,.55); }.heaven-session-tab:active{ transform:scale(.985); }
+    .heaven-session-tab:focus-visible{ outline:3px solid rgba(240,168,60,.34); outline-offset:2px; }
+    .heaven-session-tab[aria-selected="true"]{ border-color:var(--teal); background:var(--teal-deep); color:#fff; box-shadow:0 10px 22px -14px rgba(29,122,120,.9); }
+    .heaven-session-tab b,.heaven-session-tab small{ display:block; overflow:hidden; text-overflow:ellipsis; }
+    .heaven-session-tab b{ font-size:13px; }.heaven-session-tab small{ margin-top:3px; font-size:10px; line-height:1.35; opacity:.8; }
+    .heaven-layout{ display:grid; grid-template-columns:minmax(0,1.05fr) minmax(390px,.95fr); align-items:start; gap:16px; }
+    .heaven-panel{ min-width:0; padding:18px; border:1.5px solid var(--line); border-radius:17px; background:#fff; }
+    .heaven-panel-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:14px; }
+    .heaven-panel-head h2{ margin:4px 0 0; color:var(--ink); font-family:'Fraunces',serif; font-size:21px; line-height:1.2; }
+    .heaven-panel-kicker{ color:var(--teal-deep); font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+    .heaven-phase-pill{ flex:none; padding:5px 10px; border-radius:999px; background:#fff0d4; color:#7a4e0f; font-size:10px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+    .heaven-phase-pill.drawing{ background:#ffe7dd; color:#8b321f; }.heaven-phase-pill.verse{ background:#eee8f7; color:var(--violet-deep); }
+    .heaven-phase-pill.comparison{ background:#e4f2fa; color:#1f6082; }.heaven-phase-pill.reflection{ background:#fff0d4; color:#7a4e0f; }
+    .heaven-phase-pill.programs{ background:#e4f5ee; color:#226a42; }.heaven-phase-pill.complete{ background:#e9edf4; color:var(--ink-soft); }
+    .heaven-schedule-card{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px 18px; margin-bottom:14px; padding:14px 15px; border-radius:14px; background:linear-gradient(135deg,#163b59,#315e78); color:#fff; }
+    .heaven-schedule-card strong{ display:block; font-size:14px; }.heaven-schedule-card span{ display:block; margin-top:3px; color:#c7dce6; font-size:11px; }
+    .heaven-session-timer{ color:#ffdf8c; font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:700; text-align:right; }
+    .heaven-session-timer small{ display:block; margin-top:3px; color:#c7dce6; font-family:'Inter',sans-serif; font-size:8px; letter-spacing:.08em; text-transform:uppercase; }
+    .heaven-band-dot{ display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:50%; background:var(--band-color,#8b97b8); box-shadow:inset 0 0 0 1px rgba(0,0,0,.12); }
+    .heaven-session-note{ margin:-4px 0 14px; padding:10px 12px; border:1px solid #e8c76f; border-radius:10px; background:#fff4d7; color:#7a4e0f; font-size:11.5px; line-height:1.42; }
+    .heaven-stats{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:14px; }
+    .heaven-stat{ padding:11px; border:1px solid var(--line); border-radius:12px; background:var(--parchment-dim); }
+    .heaven-stat b{ display:block; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:19px; }
+    .heaven-stat span{ display:block; margin-top:3px; color:var(--ink-soft); font-size:8px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    .heaven-stage{ min-height:220px; padding:17px; border-radius:15px; background:linear-gradient(145deg,#fffaf0,#f0f8f7); }
+    .heaven-stage-icon{ display:grid; place-items:center; width:48px; height:48px; margin-bottom:11px; border-radius:16px; background:#fff; font-size:25px; box-shadow:0 11px 20px -17px rgba(21,42,78,.8); }
+    .heaven-stage-copy h3{ margin:0 0 7px; color:var(--ink); font-family:'Fraunces',serif; font-size:22px; line-height:1.2; }
+    .heaven-stage-copy p{ margin:0; color:var(--ink-soft); font-size:12.5px; line-height:1.5; }
+    .heaven-readiness{ display:grid; gap:8px; margin-top:15px; }
+    .heaven-readiness-row{ display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:9px 10px; border:1px solid rgba(21,42,78,.1); border-radius:11px; background:#fff; }
+    .heaven-readiness-row > span{ font-size:19px; }.heaven-readiness-row strong{ display:block; margin-bottom:5px; color:var(--ink); font-size:10.5px; }
+    .heaven-readiness-row > b{ color:var(--teal-deep); font-family:'JetBrains Mono',monospace; font-size:11px; }
+    .heaven-meter{ height:5px; overflow:hidden; border-radius:999px; background:#e5e9eb; }.heaven-meter i{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--teal),#71c895); }
+    .heaven-actions{ display:flex; flex-wrap:wrap; gap:9px; margin-top:14px; }.heaven-actions .btn{ flex:1 1 220px; }
+    .heaven-finished-note{ margin:0; padding:11px 12px; border-radius:11px; background:#e9f4ef; color:#226a42; font-size:11.5px; line-height:1.45; }
+    .heaven-publish-state{ min-height:18px; margin:11px 0 0; color:var(--ink-soft); font-size:11.5px; line-height:1.4; }
+    .heaven-table-wrap{ overflow-x:auto; }.heaven-progress-table{ min-width:610px; }
+    .heaven-progress-table th:not(:first-child):not(:nth-child(2)),.heaven-progress-cell{ text-align:center; }
+    .heaven-raffle{ white-space:nowrap; color:var(--ink-soft); font-family:'JetBrains Mono',monospace; font-size:10.5px; }
+    .heaven-progress-cell{ width:56px; font-family:'JetBrains Mono',monospace; font-size:16px; font-weight:800; }
+    .heaven-progress-cell.yes{ color:#2f8a57; background:rgba(47,138,87,.06); }.heaven-progress-cell.no{ color:#b8bec7; }
+    .heaven-empty{ padding:24px 14px; color:var(--ink-soft); font-size:12px; line-height:1.5; text-align:center; }
+    .heaven-history-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:22px 0 10px; }
+    .heaven-history-head h2{ margin:3px 0 0; color:var(--ink); font-family:'Fraunces',serif; font-size:20px; }.heaven-history-head span{ color:var(--ink-soft); font-size:10.5px; }
+    .heaven-run-history{ display:grid; gap:9px; }
+    .heaven-archive-run{ overflow:hidden; border:1px solid var(--line); border-radius:13px; background:#fff; }
+    .heaven-archive-run summary{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; cursor:pointer; color:var(--ink); font-size:12px; }
+    .heaven-archive-run summary small{ color:var(--ink-soft); font-size:10px; font-weight:500; text-align:right; }
+    .heaven-archive-body{ padding:0 14px 14px; border-top:1px solid var(--line); }.heaven-archive-body > p{ margin:11px 0; color:var(--ink-soft); font-size:10.5px; }
+    .heaven-archive-counts{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }.heaven-archive-counts span{ padding:6px 8px; border-radius:999px; background:var(--parchment-dim); color:var(--ink-soft); font-size:9px; }.heaven-archive-counts b{ color:var(--teal-deep); }
+    .heaven-footer-actions{ display:flex; flex-wrap:wrap; gap:9px; margin-top:17px; }.heaven-footer-actions .btn{ flex:0 1 auto; }
+    .heaven-danger{ color:var(--coral-deep); border-color:rgba(225,91,61,.38); background:rgba(225,91,61,.05); }
+    .heaven-loading-state{ opacity:.6; pointer-events:none; }
+    @media(max-width:860px){ .heaven-layout{ grid-template-columns:1fr; } }
+    @media(max-width:560px){
+      .heaven-session-tabs{ grid-template-columns:1fr; }.heaven-session-tab{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+      .heaven-session-tab small{ margin-top:0; text-align:right; }.heaven-stats{ grid-template-columns:1fr 1fr; }.heaven-panel{ padding:14px; }
+      .heaven-leader-intro{ align-items:flex-start; flex-direction:column; }.heaven-archive-run summary{ align-items:flex-start; flex-direction:column; }
+      .heaven-archive-run summary small{ text-align:left; }
     }
   </style>
 </head>
 <body>
   <div class="phone dash-wrap">
-    <div class="device-tag organizer">Booth leader</div>
+    <div class="device-tag organizer">Draw Heaven leader</div>
     <section class="screen">
       <a class="btn-link" href="../organizer/index.html">← All organizer portals</a>
-      <p class="eyebrow" id="staff-booth-mode">Booth</p>
-      <h1 class="display" id="staff-booth-name">Booth controls</h1>
-      <p class="lede" id="staff-booth-description"></p>
+      <p class="eyebrow">Booth leader portal</p>
+      <h1 class="display">🎨 <em>Draw Heaven</em></h1>
+      <p class="lede">You control every shared reveal. Attendees can complete only the prompt in front of them, and refreshes restore their individual progress.</p>
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock this booth's presentation controls and check-ins.</p>
+        <p>Unlock the three separate Draw Heaven sessions, active runs, and archived progress.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
           <div class="hint">Local demo default: <b>demo</b>.</div>
           <div class="err" id="err-organizer-key"></div>
         </div>
-        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth →</button>
+        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock Draw Heaven →</button>
       </div>
 
       <div id="organizer-content" style="display:none;">
-        <div class="staff-toolbar">
-          <button class="btn-link" id="btn-organizer-lock">Lock booth</button>
+        <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock booth</button></div>
+        <div class="heaven-leader-intro">
+          <div><strong>One speaker, one shared reveal</strong><span>Choose a session, follow the speaker's pace, and watch individual readiness. Restarting archives the current run instead of deleting it.</span></div>
+          <a class="btn btn-small btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee route ↗</a>
         </div>
-        <div class="dash-grid">
-          <div class="dash-card">
-            <div class="num" id="staff-total">0</div>
-            <div class="lbl">Check-ins at this booth</div>
-          </div>
+        <div class="sync-note" id="heaven-sync-note" role="status" aria-live="polite" style="display:none;"></div>
+
+        <div class="section-title">Choose a session</div>
+        <div class="heaven-session-tabs" id="heaven-session-tabs" role="tablist" aria-label="Draw Heaven sessions">
+          <button type="button" class="heaven-session-tab" id="heaven-tab-1" role="tab" aria-controls="heaven-session-panel" aria-selected="true" data-heaven-session="1"><b>Session 1 · Blue</b><small>3:10–3:30 PM</small></button>
+          <button type="button" class="heaven-session-tab" id="heaven-tab-2" role="tab" aria-controls="heaven-session-panel" aria-selected="false" data-heaven-session="2"><b>Session 2 · Red</b><small>3:30–3:50 PM</small></button>
+          <button type="button" class="heaven-session-tab" id="heaven-tab-3" role="tab" aria-controls="heaven-session-panel" aria-selected="false" data-heaven-session="3"><b>Session 3 · Green</b><small>3:50–4:10 PM</small></button>
         </div>
-        <div id="staff-room-launch"></div>
-        <div id="staff-kiosk-launch"></div>
-        <div class="section-title">Attendee screen controls</div>
-        <div id="staff-settings"></div>
-        <div class="section-title">Recent check-ins</div>
-        <div style="overflow-x:auto;">
-          <table class="dash-table" id="staff-roster">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Time</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+
+        <div class="heaven-layout" id="heaven-session-panel" role="tabpanel" aria-labelledby="heaven-tab-1">
+          <section class="heaven-panel" id="staff-settings">
+            <div class="heaven-panel-head">
+              <div><div class="heaven-panel-kicker" id="heaven-run-label">Active run</div><h2 id="heaven-control-title">Session 1 · Run 1</h2></div>
+              <span class="heaven-phase-pill" id="heaven-phase-pill">Welcome</span>
+            </div>
+            <div class="heaven-schedule-card">
+              <div><strong id="heaven-assigned-band"><span class="heaven-band-dot" aria-hidden="true"></span>Blue wristbands · Session 1</strong><span id="heaven-session-time">3:10–3:30 PM</span></div>
+              <div class="heaven-session-timer" id="heaven-session-timer">--:--<small>Checking event clock</small></div>
+            </div>
+            <div class="heaven-session-note" id="heaven-session-note" style="display:none;"></div>
+            <div class="heaven-stats">
+              <div class="heaven-stat"><b id="heaven-assigned-count">0</b><span>Assigned</span></div>
+              <div class="heaven-stat"><b id="heaven-participant-count">0</b><span>Participating</span></div>
+              <div class="heaven-stat"><b id="heaven-ready-count">0</b><span>Ready now</span></div>
+              <div class="heaven-stat"><b id="heaven-completed-count">0</b><span>Preview done</span></div>
+            </div>
+            <div class="heaven-stage" id="heaven-stage"><div class="heaven-empty">Unlock Draw Heaven to load the run controls.</div></div>
+            <div class="heaven-actions" id="heaven-actions"></div>
+            <p class="heaven-publish-state" id="heaven-publish-state" role="status" aria-live="polite">Unlock Draw Heaven to load the session controls.</p>
+          </section>
+
+          <section class="heaven-panel">
+            <div class="heaven-panel-head"><div><div class="heaven-panel-kicker">This active run only</div><h2 id="heaven-roster-title">Attendee progress</h2></div></div>
+            <div class="heaven-table-wrap">
+              <table class="dash-table heaven-progress-table" id="heaven-progress-table">
+                <thead><tr><th>Attendee</th><th>Raffle</th><th>Draw</th><th>See</th><th>Size</th><th>Meaning</th><th>Programs</th></tr></thead>
+                <tbody><tr><td colspan="7" class="heaven-empty">Unlock Draw Heaven to load attendee progress.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
         </div>
-        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh check-ins and controls</button>
+
+        <div class="heaven-history-head"><div><div class="heaven-panel-kicker">Selected session only</div><h2>Archived run history</h2></div><span>Read-only · prior runs never mix with the active run</span></div>
+        <div class="heaven-run-history" id="heaven-run-history"><div class="heaven-empty">Unlock Draw Heaven to load prior runs.</div></div>
+        <div class="heaven-footer-actions">
+          <button type="button" class="btn btn-small btn-ghost heaven-danger" id="btn-heaven-restart">Archive run &amp; start another</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-heaven-refresh">Refresh now</button>
+        </div>
         <p class="top-note" id="staff-last-updated" aria-live="polite"></p>
       </div>
     </section>
@@ -72,7 +168,7 @@
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
   <script src="../shared/event-schedule.js"></script>
-  <script src="../shared/booth-staff-common.js"></script>
-  <script>initBoothStaff("heaven");</script>
+  <script src="../shared/heaven-staff.js"></script>
+  <script>initHeavenStaff();</script>
 </body>
 </html>

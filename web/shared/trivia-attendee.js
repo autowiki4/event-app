@@ -67,6 +67,8 @@ const TriviaAttendee = (() => {
     return {
       sessionNumber: Math.max(0, integer(raw.sessionNumber, 0)),
       sessionLabel: String(raw.sessionLabel || ""),
+      runId: String(raw.runId || ""),
+      runNumber: Math.max(1, integer(raw.runNumber, 1)),
       assignedColor: {
         id: String(assignedColor.id || ""),
         label: String(assignedColor.label || ""),
@@ -91,6 +93,8 @@ const TriviaAttendee = (() => {
     if (!value) return "";
     return JSON.stringify({
       sessionNumber: value.sessionNumber,
+      runId: value.runId,
+      runNumber: value.runNumber,
       phase: value.phase,
       version: value.version,
       question: value.question,
@@ -104,6 +108,7 @@ const TriviaAttendee = (() => {
   function sessionLine(value) {
     const pieces = [];
     if (value.sessionNumber) pieces.push(`Session ${value.sessionNumber}`);
+    if (value.runNumber > 1) pieces.push(`Run ${value.runNumber}`);
     if (value.sessionLabel) pieces.push(value.sessionLabel);
     if (value.assignedColor.label) pieces.push(`${value.assignedColor.label} wristbands`);
     return pieces.join(" · ");

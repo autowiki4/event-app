@@ -4,3 +4,4 @@ node_modules/
 
 # Local demo data — regenerated automatically (empty) on first run.
 demo-server/db.json
+demo-server/db.json.bak

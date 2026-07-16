@@ -50,6 +50,24 @@ const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
 const TRIVIA_SESSION_NUMBERS = new Set([1, 2, 3]);
 const TRIVIA_PHASES = new Set(["welcome", "question", "reveal", "complete"]);
+const HEAVEN_SESSION_NUMBERS = new Set([1, 2, 3]);
+const HEAVEN_PHASES = new Set([
+  "welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete",
+]);
+const HEAVEN_PHASE_ORDER = Object.freeze([
+  "welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete",
+]);
+const HEAVEN_CONFIRMATION_ACTIONS = Object.freeze([
+  "drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done",
+]);
+const HEAVEN_CONFIRMATION_ACTION_SET = new Set(HEAVEN_CONFIRMATION_ACTIONS);
+const HEAVEN_CONFIRMATION_RULES = Object.freeze({
+  drawing_complete: { minimumPhase: "drawing", requires: [] },
+  description_yes: { minimumPhase: "drawing", requires: ["drawing_complete"] },
+  size_yes: { minimumPhase: "verse", requires: ["description_yes"] },
+  impact_yes: { minimumPhase: "comparison", requires: ["size_yes"] },
+  programs_done: { minimumPhase: "programs", requires: ["impact_yes"] },
+});
 const DEMO_CLOCK_MODES = new Set([
   "live",
   "custom",
@@ -101,6 +119,8 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
@@ -194,6 +214,10 @@ function emptyDb() {
     boothPresentations: {},
     triviaSessions: {},
     triviaAnswers: [],
+    triviaRunHistory: [],
+    heavenSessions: {},
+    heavenConfirmations: [],
+    heavenRunHistory: [],
     raffleCounter: 1000,
     dataResetAt: "initial",
   };
@@ -236,6 +260,21 @@ function normalizeDb(raw) {
     }
   });
   db.triviaAnswers = normalizeTriviaAnswers(source.triviaAnswers);
+  db.triviaRunHistory = normalizeActivityRunHistory(source.triviaRunHistory, "trivia");
+  const sourceHeavenSessions = source.heavenSessions
+    && typeof source.heavenSessions === "object"
+    && !Array.isArray(source.heavenSessions)
+    ? source.heavenSessions
+    : {};
+  db.heavenSessions = {};
+  HEAVEN_SESSION_NUMBERS.forEach((sessionNumber) => {
+    const key = String(sessionNumber);
+    if (sourceHeavenSessions[key]) {
+      db.heavenSessions[key] = normalizeHeavenSessionRecord(sourceHeavenSessions[key], sessionNumber);
+    }
+  });
+  db.heavenConfirmations = normalizeHeavenConfirmations(source.heavenConfirmations);
+  db.heavenRunHistory = normalizeActivityRunHistory(source.heavenRunHistory, "heaven");
   db.attendees.forEach((attendee) => {
     if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
@@ -436,6 +475,63 @@ function boothPresentationFromDb(db, boothId) {
   };
 }
 
+function normalizeRunNumber(value) {
+  const runNumber = Number(value);
+  return Number.isSafeInteger(runNumber) && runNumber > 0 ? runNumber : 1;
+}
+
+function defaultActivityRunId(activity, sessionNumber, runNumber = 1) {
+  return `${activity}-session-${sessionNumber}-run-${normalizeRunNumber(runNumber)}`;
+}
+
+function normalizeActivityRunId(value, activity, sessionNumber, runNumber) {
+  const runId = String(value || "").trim();
+  return runId || defaultActivityRunId(activity, sessionNumber, runNumber);
+}
+
+function newActivityRunId(activity, sessionNumber, runNumber) {
+  return `${activity}-session-${sessionNumber}-run-${runNumber}-${id()}`;
+}
+
+function normalizeActivityRunHistory(value, activity) {
+  if (!Array.isArray(value)) return [];
+  const validPhases = activity === "trivia" ? TRIVIA_PHASES : HEAVEN_PHASES;
+  const seen = new Set();
+  const history = [];
+  value.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const sessionNumber = Number(raw.sessionNumber);
+    if (!Number.isInteger(sessionNumber) || sessionNumber < 1 || sessionNumber > 3) return;
+    const runNumber = normalizeRunNumber(raw.runNumber);
+    const runId = normalizeActivityRunId(raw.runId, activity, sessionNumber, runNumber);
+    const key = `${sessionNumber}:${runId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const parsedVersion = Number(raw.version);
+    const parsedQuestionIndex = Number(raw.questionIndex);
+    history.push({
+      sessionNumber,
+      runId,
+      runNumber,
+      phase: validPhases.has(raw.phase) ? raw.phase : "welcome",
+      questionIndex: activity === "trivia"
+        && Number.isInteger(parsedQuestionIndex)
+        && parsedQuestionIndex >= -1
+        && parsedQuestionIndex < TRIVIA_QUESTIONS.length
+        ? parsedQuestionIndex
+        : undefined,
+      version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+      startedAt: earliestTimestamp(raw.startedAt),
+      completedAt: earliestTimestamp(raw.completedAt),
+      archivedAt: earliestTimestamp(raw.archivedAt),
+      archiveReason: String(raw.archiveReason || "reset").trim() || "reset",
+    });
+  });
+  return history.sort((a, b) => (
+    a.sessionNumber - b.sessionNumber || a.runNumber - b.runNumber
+  ));
+}
+
 function normalizeTriviaSessionNumber(value) {
   const sessionNumber = Number(value);
   return Number.isInteger(sessionNumber) && TRIVIA_SESSION_NUMBERS.has(sessionNumber)
@@ -443,14 +539,18 @@ function normalizeTriviaSessionNumber(value) {
     : null;
 }
 
-function defaultTriviaSession(sessionNumber) {
+function defaultTriviaSession(sessionNumber, options = {}) {
+  const runNumber = normalizeRunNumber(options.runNumber);
+  const parsedVersion = Number(options.version);
   return {
     sessionNumber,
+    runId: normalizeActivityRunId(options.runId, "trivia", sessionNumber, runNumber),
+    runNumber,
     phase: "welcome",
     questionIndex: -1,
-    version: 0,
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
     startedAt: null,
-    updatedAt: null,
+    updatedAt: earliestTimestamp(options.updatedAt),
     completedAt: null,
   };
 }
@@ -462,10 +562,19 @@ function normalizeTriviaSessionRecord(value, sessionNumber) {
   const hasQuestion = Number.isInteger(parsedQuestionIndex)
     && parsedQuestionIndex >= 0
     && parsedQuestionIndex < TRIVIA_QUESTIONS.length;
-  if (phase !== "welcome" && !hasQuestion) return defaultTriviaSession(sessionNumber);
   const parsedVersion = Number(raw.version);
+  const runNumber = normalizeRunNumber(raw.runNumber);
+  const fallback = defaultTriviaSession(sessionNumber, {
+    runId: raw.runId,
+    runNumber,
+    version: parsedVersion,
+    updatedAt: raw.updatedAt,
+  });
+  if (phase !== "welcome" && !hasQuestion) return fallback;
   return {
     sessionNumber,
+    runId: normalizeActivityRunId(raw.runId, "trivia", sessionNumber, runNumber),
+    runNumber,
     phase,
     questionIndex: phase === "welcome" ? -1 : parsedQuestionIndex,
     version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
@@ -483,18 +592,24 @@ function normalizeTriviaAnswers(value) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
     const attendeeId = String(raw.attendeeId || "").trim();
     const sessionNumber = normalizeTriviaSessionNumber(raw.sessionNumber);
+    const runNumber = normalizeRunNumber(raw.runNumber);
+    const runId = sessionNumber
+      ? normalizeActivityRunId(raw.runId, "trivia", sessionNumber, runNumber)
+      : "";
     const questionId = String(raw.questionId || "").trim();
     const question = TRIVIA_QUESTIONS.find((item) => item.id === questionId);
     const answerIndex = Number(raw.answerIndex);
     if (!attendeeId || !sessionNumber || !question || !Number.isInteger(answerIndex)
       || answerIndex < 0 || answerIndex >= question.choices.length) return;
-    const key = `${sessionNumber}:${attendeeId}:${questionId}`;
+    const key = `${runId}:${attendeeId}:${questionId}`;
     if (seen.has(key)) return;
     seen.add(key);
     answers.push({
       id: String(raw.id || `legacy-${sessionNumber}-${attendeeId}-${questionId}`),
       attendeeId,
       sessionNumber,
+      runId,
+      runNumber,
       questionId,
       questionNumber: TRIVIA_QUESTIONS.indexOf(question) + 1,
       answerIndex,
@@ -503,6 +618,85 @@ function normalizeTriviaAnswers(value) {
     });
   });
   return answers;
+}
+
+function normalizeHeavenSessionNumber(value) {
+  const sessionNumber = Number(value);
+  return Number.isInteger(sessionNumber) && HEAVEN_SESSION_NUMBERS.has(sessionNumber)
+    ? sessionNumber
+    : null;
+}
+
+function defaultHeavenSession(sessionNumber, options = {}) {
+  const runNumber = normalizeRunNumber(options.runNumber);
+  const parsedVersion = Number(options.version);
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(options.runId, "heaven", sessionNumber, runNumber),
+    runNumber,
+    phase: "welcome",
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    startedAt: null,
+    updatedAt: earliestTimestamp(options.updatedAt),
+    completedAt: null,
+  };
+}
+
+function normalizeHeavenSessionRecord(value, sessionNumber) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const parsedVersion = Number(raw.version);
+  const runNumber = normalizeRunNumber(raw.runNumber);
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(raw.runId, "heaven", sessionNumber, runNumber),
+    runNumber,
+    phase: HEAVEN_PHASES.has(raw.phase) ? raw.phase : "welcome",
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    startedAt: earliestTimestamp(raw.startedAt),
+    updatedAt: earliestTimestamp(raw.updatedAt),
+    completedAt: raw.phase === "complete" ? earliestTimestamp(raw.completedAt) : null,
+  };
+}
+
+function normalizeHeavenConfirmations(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const confirmations = [];
+  value.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const attendeeId = String(raw.attendeeId || "").trim();
+    const sessionNumber = normalizeHeavenSessionNumber(raw.sessionNumber);
+    const action = String(raw.action || "").trim().toLowerCase();
+    const runNumber = normalizeRunNumber(raw.runNumber);
+    const runId = sessionNumber
+      ? normalizeActivityRunId(raw.runId, "heaven", sessionNumber, runNumber)
+      : "";
+    if (!attendeeId || !sessionNumber || !HEAVEN_CONFIRMATION_ACTION_SET.has(action)) return;
+    const key = `${runId}:${attendeeId}:${action}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    confirmations.push({
+      id: String(raw.id || `legacy-${runId}-${attendeeId}-${action}`),
+      attendeeId,
+      sessionNumber,
+      runId,
+      runNumber,
+      action,
+      confirmedAt: earliestTimestamp(raw.confirmedAt),
+    });
+  });
+  return confirmations;
+}
+
+function requireHeavenSessionNumber(value) {
+  const sessionNumber = normalizeHeavenSessionNumber(value);
+  return sessionNumber
+    ? { sessionNumber }
+    : { error: errorResult(400, "Choose Draw Heaven Session 1, 2, or 3.", "INVALID_HEAVEN_SESSION") };
+}
+
+function heavenSessionFromDb(db, sessionNumber) {
+  return normalizeHeavenSessionRecord(db.heavenSessions[String(sessionNumber)], sessionNumber);
 }
 
 function requireTriviaSessionNumber(value) {
@@ -550,19 +744,38 @@ function triviaSessionLabel(sessionNumber) {
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
+function heavenAssignedColorId(sessionNumber) {
+  const sessionIndex = sessionNumber - 1;
+  const entry = Object.entries(WRISTBAND_ROUTES)
+    .find(([, route]) => route[sessionIndex] === "heaven");
+  return entry ? entry[0] : null;
+}
+
+function heavenAssignedColor(sessionNumber) {
+  const id = heavenAssignedColorId(sessionNumber);
+  return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
+}
+
+function heavenSessionLabel(sessionNumber) {
+  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  return session ? session.label : `Session ${sessionNumber}`;
+}
+
 function triviaQuestionsRevealed(session) {
   if (session.questionIndex < 0) return 0;
   return session.phase === "question" ? session.questionIndex : session.questionIndex + 1;
 }
 
-function triviaAnswersFor(db, attendeeId, sessionNumber) {
+function triviaAnswersFor(db, attendeeId, sessionNumber, runId) {
   return db.triviaAnswers.filter((answer) => (
-    answer.attendeeId === attendeeId && answer.sessionNumber === sessionNumber
+    answer.attendeeId === attendeeId
+      && answer.sessionNumber === sessionNumber
+      && (!runId || answer.runId === runId)
   ));
 }
 
 function triviaScore(db, attendeeId, sessionNumber, session) {
-  const answers = triviaAnswersFor(db, attendeeId, sessionNumber);
+  const answers = triviaAnswersFor(db, attendeeId, sessionNumber, session.runId);
   const revealedCount = triviaQuestionsRevealed(session);
   const scoredAnswers = answers.filter((answer) => answer.questionNumber <= revealedCount);
   return {
@@ -592,6 +805,100 @@ function attendeeTriviaContext(db, attendeeId) {
   return { attendee, eventState, sessionNumber: eventState.sessionNumber };
 }
 
+function attendeeHeavenContext(db, attendeeId) {
+  if (!attendeeId) return { error: errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED") };
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
+  const eventState = eventSessionState();
+  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+    return { error: errorResult(409, "Draw Heaven is not in an active booth session.", "HEAVEN_SESSION_CLOSED") };
+  }
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
+    : null;
+  if (!attendee.wristbandConfirmedAt || assignedBooth !== "heaven") {
+    return { error: errorResult(403, "Draw Heaven is not your assigned booth in this session.", "HEAVEN_NOT_ASSIGNED") };
+  }
+  return { attendee, eventState, sessionNumber: eventState.sessionNumber };
+}
+
+function attendeesAssignedToBoothSession(db, boothId, sessionNumber) {
+  const sessionIndex = sessionNumber - 1;
+  return db.attendees.filter((attendee) => {
+    const colorId = normalizeWristbandColor(attendee.wristbandColor);
+    return attendee.wristbandConfirmedAt
+      && colorId
+      && WRISTBAND_ROUTES[colorId]
+      && WRISTBAND_ROUTES[colorId][sessionIndex] === boothId;
+  });
+}
+
+function emptyHeavenConfirmationMap() {
+  return HEAVEN_CONFIRMATION_ACTIONS.reduce((result, action) => {
+    result[action] = false;
+    return result;
+  }, {});
+}
+
+function heavenConfirmationsFor(db, sessionNumber, runId, attendeeId = null) {
+  return db.heavenConfirmations.filter((confirmation) => (
+    confirmation.sessionNumber === sessionNumber
+      && confirmation.runId === runId
+      && (!attendeeId || confirmation.attendeeId === attendeeId)
+  ));
+}
+
+function heavenParticipantState(db, attendeeId, session) {
+  const rows = heavenConfirmationsFor(db, session.sessionNumber, session.runId, attendeeId);
+  const confirmations = emptyHeavenConfirmationMap();
+  const confirmedAt = {};
+  rows.forEach((row) => {
+    confirmations[row.action] = true;
+    confirmedAt[row.action] = row.confirmedAt;
+  });
+  return {
+    confirmations,
+    confirmedAt,
+    completedAt: confirmedAt.programs_done || null,
+  };
+}
+
+function archiveTriviaRun(db, session, archiveReason, archivedAt) {
+  if (db.triviaRunHistory.some((run) => (
+    run.sessionNumber === session.sessionNumber && run.runId === session.runId
+  ))) return;
+  db.triviaRunHistory.push({
+    sessionNumber: session.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    phase: session.phase,
+    questionIndex: session.questionIndex,
+    version: session.version,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    archivedAt,
+    archiveReason,
+  });
+}
+
+function archiveHeavenRun(db, session, archiveReason, archivedAt) {
+  if (db.heavenRunHistory.some((run) => (
+    run.sessionNumber === session.sessionNumber && run.runId === session.runId
+  ))) return;
+  db.heavenRunHistory.push({
+    sessionNumber: session.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    phase: session.phase,
+    version: session.version,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    archivedAt,
+    archiveReason,
+  });
+}
+
 function triviaBoothPresentation(db, eventState = eventSessionState()) {
   const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
     ? eventState.sessionNumber
@@ -613,6 +920,32 @@ function triviaBoothPresentation(db, eventState = eventSessionState()) {
   }
   return {
     boothId: "trivia",
+    stepIndex,
+    status,
+    message,
+    createdAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    version: session.version,
+  };
+}
+
+function heavenBoothPresentation(db, eventState = eventSessionState()) {
+  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+    ? eventState.sessionNumber
+    : 1;
+  const session = heavenSessionFromDb(db, sessionNumber);
+  const phaseDetails = {
+    welcome: [0, "waiting", "Welcome to Draw Heaven. The leader will begin when everyone is ready."],
+    drawing: [1, "live", "Draw what comes to mind when you picture Heaven, then respond on your screen."],
+    verse: [2, "live", "The verse and size reflection are now open on attendee screens."],
+    comparison: [3, "live", "The comparison and impact reflection are now open on attendee screens."],
+    reflection: [4, "live", "The leader is guiding the group through the final reflection."],
+    programs: [5, "live", "Explore the five programs, then confirm when you are ready."],
+    complete: [6, "complete", "Draw Heaven is complete. Attendees can finish this booth visit."],
+  };
+  const [stepIndex, status, message] = phaseDetails[session.phase];
+  return {
+    boothId: "heaven",
     stepIndex,
     status,
     message,
@@ -712,6 +1045,10 @@ function mergeAttendees(db, canonical, duplicate, phone) {
     if (duplicateIds.has(answer.attendeeId)) answer.attendeeId = canonical.attendeeId;
   });
   db.triviaAnswers = normalizeTriviaAnswers(db.triviaAnswers);
+  db.heavenConfirmations.forEach((confirmation) => {
+    if (duplicateIds.has(confirmation.attendeeId)) confirmation.attendeeId = canonical.attendeeId;
+  });
+  db.heavenConfirmations = normalizeHeavenConfirmations(db.heavenConfirmations);
   db.attendees = db.attendees.filter((attendee) => attendee !== duplicate);
   return canonical;
 }
@@ -1192,10 +1529,12 @@ function mySignupSelections(body) {
   return { status: 200, body: { optionIds, completedAt: attendee.phase3CompletedAt || null } };
 }
 
-function triviaLeaderboardForSession(db, sessionNumber, session) {
+function triviaLeaderboardForRun(db, sessionNumber, session) {
   const rowsByAttendee = new Map();
   db.triviaAnswers
-    .filter((answer) => answer.sessionNumber === sessionNumber)
+    .filter((answer) => (
+      answer.sessionNumber === sessionNumber && answer.runId === session.runId
+    ))
     .forEach((answer) => {
       if (!rowsByAttendee.has(answer.attendeeId)) rowsByAttendee.set(answer.attendeeId, []);
       rowsByAttendee.get(answer.attendeeId).push(answer);
@@ -1220,6 +1559,30 @@ function triviaLeaderboardForSession(db, sessionNumber, session) {
   return rows.map((row, index) => ({ rank: index + 1, ...row }));
 }
 
+function triviaLeaderboardForSession(db, sessionNumber, session) {
+  return triviaLeaderboardForRun(db, sessionNumber, session);
+}
+
+function triviaArchivedRunSummary(db, archivedRun) {
+  const answerRows = db.triviaAnswers.filter((answer) => (
+    answer.sessionNumber === archivedRun.sessionNumber && answer.runId === archivedRun.runId
+  ));
+  return {
+    runId: archivedRun.runId,
+    runNumber: archivedRun.runNumber,
+    phase: archivedRun.phase,
+    questionIndex: archivedRun.questionIndex,
+    version: archivedRun.version,
+    startedAt: archivedRun.startedAt,
+    completedAt: archivedRun.completedAt,
+    archivedAt: archivedRun.archivedAt,
+    archiveReason: archivedRun.archiveReason,
+    participantCount: new Set(answerRows.map((answer) => answer.attendeeId)).size,
+    responseCount: answerRows.length,
+    leaderboard: triviaLeaderboardForRun(db, archivedRun.sessionNumber, archivedRun),
+  };
+}
+
 function triviaSessionStaffSummary(db, sessionNumber) {
   const session = triviaSessionFromDb(db, sessionNumber);
   const question = session.questionIndex >= 0 && session.phase !== "complete"
@@ -1230,7 +1593,9 @@ function triviaSessionStaffSummary(db, sessionNumber) {
     : null;
   const responseCount = currentQuestionId
     ? db.triviaAnswers.filter((answer) => (
-      answer.sessionNumber === sessionNumber && answer.questionId === currentQuestionId
+      answer.sessionNumber === sessionNumber
+        && answer.runId === session.runId
+        && answer.questionId === currentQuestionId
     )).length
     : 0;
   const assignedColor = triviaAssignedColor(sessionNumber);
@@ -1246,10 +1611,15 @@ function triviaSessionStaffSummary(db, sessionNumber) {
     assignedColor,
     assignedCount,
     state: session,
+    activeRun: session,
     question,
     responseCount,
     questionsRevealed: triviaQuestionsRevealed(session),
     leaderboard: triviaLeaderboardForSession(db, sessionNumber, session),
+    archivedRuns: db.triviaRunHistory
+      .filter((run) => run.sessionNumber === sessionNumber)
+      .sort((a, b) => b.runNumber - a.runNumber)
+      .map((run) => triviaArchivedRunSummary(db, run)),
   };
 }
 
@@ -1281,6 +1651,7 @@ function triviaState(body) {
     ? db.triviaAnswers.find((answer) => (
       answer.attendeeId === context.attendee.attendeeId
         && answer.sessionNumber === context.sessionNumber
+        && answer.runId === session.runId
         && answer.questionId === question.id
     ))
     : null;
@@ -1300,6 +1671,8 @@ function triviaState(body) {
       assignedColor: triviaAssignedColor(context.sessionNumber),
       phase: session.phase,
       version: session.version,
+      runId: session.runId,
+      runNumber: session.runNumber,
       questionCount: TRIVIA_QUESTIONS.length,
       question,
       answer,
@@ -1336,6 +1709,7 @@ function submitTriviaAnswer(body) {
   const existing = db.triviaAnswers.find((answer) => (
     answer.attendeeId === context.attendee.attendeeId
       && answer.sessionNumber === context.sessionNumber
+      && answer.runId === session.runId
       && answer.questionId === question.id
   ));
   if (existing) {
@@ -1348,6 +1722,8 @@ function submitTriviaAnswer(body) {
         ok: true,
         idempotent: true,
         sessionNumber: context.sessionNumber,
+        runId: session.runId,
+        runNumber: session.runNumber,
         questionId: question.id,
         answerIndex: existing.answerIndex,
         answeredAt: existing.answeredAt,
@@ -1359,6 +1735,8 @@ function submitTriviaAnswer(body) {
     id: id(),
     attendeeId: context.attendee.attendeeId,
     sessionNumber: context.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
     questionId: question.id,
     questionNumber: session.questionIndex + 1,
     answerIndex,
@@ -1372,6 +1750,8 @@ function submitTriviaAnswer(body) {
       ok: true,
       idempotent: false,
       sessionNumber: context.sessionNumber,
+      runId: session.runId,
+      runNumber: session.runNumber,
       questionId: question.id,
       answerIndex,
       answeredAt,
@@ -1437,11 +1817,22 @@ function resetTriviaSession(body) {
   if (sessionResult.error) return sessionResult.error;
   const db = readDb();
   const previous = triviaSessionFromDb(db, sessionResult.sessionNumber);
-  const reset = defaultTriviaSession(sessionResult.sessionNumber);
-  reset.version = previous.version + 1;
-  reset.updatedAt = eventNowIso();
+  if (body && body.version !== undefined) {
+    const expectedVersion = Number(body.version);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+      return errorResult(409, "This Bible Bowl session changed in another tab. Refresh and try again.", "TRIVIA_SESSION_CONFLICT");
+    }
+  }
+  const now = eventNowIso();
+  archiveTriviaRun(db, previous, "reset", now);
+  const nextRunNumber = previous.runNumber + 1;
+  const reset = defaultTriviaSession(sessionResult.sessionNumber, {
+    runId: newActivityRunId("trivia", sessionResult.sessionNumber, nextRunNumber),
+    runNumber: nextRunNumber,
+    version: previous.version + 1,
+    updatedAt: now,
+  });
   db.triviaSessions[String(sessionResult.sessionNumber)] = reset;
-  db.triviaAnswers = db.triviaAnswers.filter((answer) => answer.sessionNumber !== sessionResult.sessionNumber);
   writeDb(db);
   return { status: 200, body: triviaSessionStaffSummary(db, sessionResult.sessionNumber) };
 }
@@ -1464,6 +1855,8 @@ function completeTrivia(body) {
     extraData: {
       sessionNumber: context.sessionNumber,
       sessionId: `session-${context.sessionNumber}`,
+      runId: session.runId,
+      runNumber: session.runNumber,
       wristbandColor: normalizeWristbandColor(context.attendee.wristbandColor),
       score: score.correctCount,
       correctCount: score.correctCount,
@@ -1478,9 +1871,272 @@ function completeTrivia(body) {
       ok: true,
       checkinId: checkin.body.checkinId,
       sessionNumber: context.sessionNumber,
+      runId: session.runId,
+      runNumber: session.runNumber,
       score,
     },
   };
+}
+
+function heavenConfirmationCounts(rows) {
+  const counts = HEAVEN_CONFIRMATION_ACTIONS.reduce((result, action) => {
+    result[action] = 0;
+    return result;
+  }, {});
+  rows.forEach((row) => { counts[row.action] += 1; });
+  return counts;
+}
+
+function heavenParticipantSummary(db, attendeeId, session) {
+  const attendee = findAttendeeById(db, attendeeId);
+  const participant = heavenParticipantState(db, attendeeId, session);
+  const completedActionCount = HEAVEN_CONFIRMATION_ACTIONS.filter(
+    (action) => participant.confirmations[action]
+  ).length;
+  return {
+    attendeeId,
+    name: attendee ? attendee.name || "Guest" : "Guest",
+    raffleNumber: attendee ? attendee.raffleNumber || "" : "",
+    confirmations: participant.confirmations,
+    confirmedAt: participant.confirmedAt,
+    completedActionCount,
+    done: participant.confirmations.programs_done,
+  };
+}
+
+function heavenArchivedRunSummary(db, archivedRun) {
+  const rows = heavenConfirmationsFor(
+    db, archivedRun.sessionNumber, archivedRun.runId
+  );
+  const attendeeIds = Array.from(new Set(rows.map((row) => row.attendeeId)));
+  return {
+    runId: archivedRun.runId,
+    runNumber: archivedRun.runNumber,
+    phase: archivedRun.phase,
+    version: archivedRun.version,
+    startedAt: archivedRun.startedAt,
+    completedAt: archivedRun.completedAt,
+    archivedAt: archivedRun.archivedAt,
+    archiveReason: archivedRun.archiveReason,
+    participantCount: attendeeIds.length,
+    confirmationCounts: heavenConfirmationCounts(rows),
+    participants: attendeeIds
+      .map((attendeeId) => heavenParticipantSummary(db, attendeeId, archivedRun))
+      .sort((a, b) => (
+        String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+          || a.name.localeCompare(b.name)
+      )),
+  };
+}
+
+function heavenSessionStaffSummary(db, sessionNumber) {
+  const session = heavenSessionFromDb(db, sessionNumber);
+  const assignedColor = heavenAssignedColor(sessionNumber);
+  const assignedAttendees = attendeesAssignedToBoothSession(db, "heaven", sessionNumber);
+  const rows = heavenConfirmationsFor(db, sessionNumber, session.runId);
+  const participantIds = new Set(rows.map((row) => row.attendeeId));
+  const participants = assignedAttendees
+    .map((attendee) => heavenParticipantSummary(db, attendee.attendeeId, session))
+    .sort((a, b) => (
+      String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+        || a.name.localeCompare(b.name)
+    ));
+  return {
+    sessionNumber,
+    sessionLabel: heavenSessionLabel(sessionNumber),
+    assignedColor,
+    assignedCount: assignedAttendees.length,
+    state: session,
+    activeRun: session,
+    participantCount: participantIds.size,
+    completedCount: rows.filter((row) => row.action === "programs_done").length,
+    confirmationCounts: heavenConfirmationCounts(rows),
+    participants,
+    archivedRuns: db.heavenRunHistory
+      .filter((run) => run.sessionNumber === sessionNumber)
+      .sort((a, b) => b.runNumber - a.runNumber)
+      .map((run) => heavenArchivedRunSummary(db, run)),
+  };
+}
+
+function heavenDashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const db = readDb();
+  return {
+    status: 200,
+    body: {
+      serverNow: eventNowIso(),
+      eventState: eventSessionState(),
+      sessions: Array.from(HEAVEN_SESSION_NUMBERS, (sessionNumber) => (
+        heavenSessionStaffSummary(db, sessionNumber)
+      )),
+    },
+  };
+}
+
+function heavenStateBody(db, context, session) {
+  return {
+    sessionNumber: context.sessionNumber,
+    sessionLabel: heavenSessionLabel(context.sessionNumber),
+    assignedColor: heavenAssignedColor(context.sessionNumber),
+    phase: session.phase,
+    version: session.version,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    participant: heavenParticipantState(db, context.attendee.attendeeId, session),
+    updatedAt: session.updatedAt,
+    serverNow: eventNowIso(),
+  };
+}
+
+function heavenState(body) {
+  const db = readDb();
+  const context = attendeeHeavenContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = heavenSessionFromDb(db, context.sessionNumber);
+  return { status: 200, body: heavenStateBody(db, context, session) };
+}
+
+function confirmHeavenStep(body) {
+  const db = readDb();
+  const context = attendeeHeavenContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const action = String((body && body.action) || "").trim().toLowerCase();
+  if (!HEAVEN_CONFIRMATION_ACTION_SET.has(action)) {
+    return errorResult(400, "Choose a valid Draw Heaven response.", "INVALID_HEAVEN_CONFIRMATION");
+  }
+  const session = heavenSessionFromDb(db, context.sessionNumber);
+  const existing = db.heavenConfirmations.find((confirmation) => (
+    confirmation.attendeeId === context.attendee.attendeeId
+      && confirmation.sessionNumber === context.sessionNumber
+      && confirmation.runId === session.runId
+      && confirmation.action === action
+  ));
+  if (existing) {
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        idempotent: true,
+        action,
+        confirmedAt: existing.confirmedAt,
+        state: heavenStateBody(db, context, session),
+      },
+    };
+  }
+  const rule = HEAVEN_CONFIRMATION_RULES[action];
+  const currentPhaseIndex = HEAVEN_PHASE_ORDER.indexOf(session.phase);
+  const minimumPhaseIndex = HEAVEN_PHASE_ORDER.indexOf(rule.minimumPhase);
+  if (currentPhaseIndex < minimumPhaseIndex) {
+    return errorResult(
+      409,
+      "That response is not open on the leader-paced screen right now.",
+      "HEAVEN_CONFIRMATION_CLOSED"
+    );
+  }
+  const participant = heavenParticipantState(db, context.attendee.attendeeId, session);
+  const missingPrerequisite = rule.requires.find(
+    (requiredAction) => !participant.confirmations[requiredAction]
+  );
+  if (missingPrerequisite) {
+    return errorResult(
+      409,
+      "Complete the current Draw Heaven step before continuing.",
+      "HEAVEN_CONFIRMATION_PREREQUISITE"
+    );
+  }
+  const confirmedAt = eventNowIso();
+  db.heavenConfirmations.push({
+    id: id(),
+    attendeeId: context.attendee.attendeeId,
+    sessionNumber: context.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    action,
+    confirmedAt,
+  });
+  writeDb(db);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      idempotent: false,
+      action,
+      confirmedAt,
+      state: heavenStateBody(db, context, session),
+    },
+  };
+}
+
+function advanceHeavenSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireHeavenSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const action = String((body && body.action) || "").trim().toLowerCase();
+  const transitions = {
+    start: ["welcome", "drawing"],
+    show_verse: ["drawing", "verse"],
+    show_comparison: ["verse", "comparison"],
+    show_impact: ["comparison", "reflection"],
+    show_programs: ["reflection", "programs"],
+    finish: ["programs", "complete"],
+  };
+  if (!Object.prototype.hasOwnProperty.call(transitions, action)) {
+    return errorResult(400, "Choose a valid Draw Heaven control action.", "INVALID_HEAVEN_ACTION");
+  }
+  const db = readDb();
+  const previous = heavenSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This Draw Heaven session changed in another tab. Refresh and try again.", "HEAVEN_SESSION_CONFLICT");
+  }
+  const [requiredPhase, nextPhase] = transitions[action];
+  if (previous.phase !== requiredPhase) {
+    return errorResult(409, "That control is not available at this point in the activity.", "INVALID_HEAVEN_TRANSITION");
+  }
+  const now = eventNowIso();
+  const next = {
+    ...previous,
+    phase: nextPhase,
+    version: previous.version + 1,
+    startedAt: action === "start" ? previous.startedAt || now : previous.startedAt,
+    updatedAt: now,
+    completedAt: action === "finish" ? now : null,
+  };
+  db.heavenSessions[String(sessionResult.sessionNumber)] = next;
+  writeDb(db);
+  return { status: 200, body: heavenSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function resetHeavenSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireHeavenSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const db = readDb();
+  const previous = heavenSessionFromDb(db, sessionResult.sessionNumber);
+  if (body && body.version !== undefined) {
+    const expectedVersion = Number(body.version);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+      return errorResult(409, "This Draw Heaven session changed in another tab. Refresh and try again.", "HEAVEN_SESSION_CONFLICT");
+    }
+  }
+  const now = eventNowIso();
+  archiveHeavenRun(db, previous, "reset", now);
+  const nextRunNumber = previous.runNumber + 1;
+  db.heavenSessions[String(sessionResult.sessionNumber)] = defaultHeavenSession(
+    sessionResult.sessionNumber,
+    {
+      runId: newActivityRunId("heaven", sessionResult.sessionNumber, nextRunNumber),
+      runNumber: nextRunNumber,
+      version: previous.version + 1,
+      updatedAt: now,
+    }
+  );
+  writeDb(db);
+  return { status: 200, body: heavenSessionStaffSummary(db, sessionResult.sessionNumber) };
 }
 
 function wristbandGroupsForDashboard(db, eventState) {
@@ -1600,7 +2256,9 @@ function boothPresentation(body) {
   const db = readDb();
   const presentation = boothResult.boothId === "trivia"
     ? triviaBoothPresentation(db)
-    : boothPresentationFromDb(db, boothResult.boothId);
+    : boothResult.boothId === "heaven"
+      ? heavenBoothPresentation(db)
+      : boothPresentationFromDb(db, boothResult.boothId);
   return {
     status: 200,
     body: Object.assign(
@@ -1680,7 +2338,9 @@ function boothDashboardData(body) {
       boothId,
       presentation: boothId === "trivia"
         ? triviaBoothPresentation(db)
-        : boothPresentationFromDb(db, boothId),
+        : boothId === "heaven"
+          ? heavenBoothPresentation(db)
+          : boothPresentationFromDb(db, boothId),
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
@@ -1794,7 +2454,8 @@ const POST_ACTIONS = {
   boothCheckin, saveSongVote, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
   triviaState, submitTriviaAnswer, triviaDashboardData, advanceTriviaSession, resetTriviaSession,
-  completeTrivia, myCheckins, mySignupSelections, eventClock, setDemoClock,
+  completeTrivia, heavenState, confirmHeavenStep, heavenDashboardData, advanceHeavenSession,
+  resetHeavenSession, myCheckins, mySignupSelections, eventClock, setDemoClock,
 };
 const GET_ACTIONS = { eventClock, health };
 

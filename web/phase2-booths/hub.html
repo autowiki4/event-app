@@ -285,8 +285,8 @@ function displayPresentation(booth) {
     : status === "paused"
       ? "Keep this page open. The leader will continue the activity shortly."
       : status === "complete"
-        ? booth.id === "trivia"
-          ? "Open Bible Bowl above to see your score and tap Done. Your next booth stays locked until its session begins."
+        ? ["trivia", "heaven"].includes(booth.id)
+          ? `Open ${booth.title} above and tap Done on its final screen. Your next booth stays locked until its session begins.`
           : "Mark your visit complete below, then check your route for what comes next."
         : step.body;
   const message = document.getElementById("leader-message");
@@ -428,11 +428,11 @@ function renderSchedule() {
         ? `Reopen ${currentBooth.title} activity →`
         : `Open ${currentBooth.title} activity →`;
       const alreadyComplete = completedBooths.has(currentBooth.id);
-      const completionLivesInActivity = currentBooth.id === "trivia";
+      const completionLivesInActivity = ["trivia", "heaven"].includes(currentBooth.id);
       completeButton.hidden = completionLivesInActivity;
       completeButton.disabled = completionLivesInActivity || alreadyComplete;
       completeButton.textContent = completionLivesInActivity
-        ? "Finish Bible Bowl from the final results screen"
+        ? `Finish ${currentBooth.title} from its final screen`
         : alreadyComplete
           ? "Completed ✓ · Open until session ends"
           : "Mark this booth complete ✓";
@@ -501,8 +501,8 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
     toast("The session just changed. Check your newly active booth before finishing.");
     return;
   }
-  if (booth.id === "trivia") {
-    toast("Finish Bible Bowl from its final results screen so your score is saved.");
+  if (["trivia", "heaven"].includes(booth.id)) {
+    toast(`Finish ${booth.title} from its final screen so your visit is saved.`);
     window.location.href = EventSchedule.linkWithPreview(booth.page);
     return;
   }

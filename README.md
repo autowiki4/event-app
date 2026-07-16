@@ -261,14 +261,18 @@ Script adapter does not implement it.
   leader controls, live voting, and Phase 3 remain online-only.
 - Phase 3 eligibility is enforced by the browser from saved check-ins and the
   shared clock, not as an authentication or authorization boundary at the API.
-- Booth leaders share one organizer key, and their controls are one current
-  state per booth rather than a historical show-control system.
+- Booth leaders share one organizer key. Generic booth controls retain only
+  one current state; Bible Bowl and Draw Heaven additionally preserve
+  session-isolated prior runs, but this is still not a full audited
+  show-control system.
 - The shared clock controls are Node-service rehearsal helpers, available when
   the site and `/api` share the local or Render origin. The Apps Script path
   has no remote time override or matching full-data reset.
 - The leader-paced Bible Bowl, immediate answer saving, answer reveals, and
   session-separated leaderboards also require that same Node/Render backend;
   they are not implemented by the Apps Script sketch.
+- Draw Heaven's leader-paced phases, attendee confirmations, catch-up flow,
+  and archived run summaries likewise require the Node/Render backend.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 
