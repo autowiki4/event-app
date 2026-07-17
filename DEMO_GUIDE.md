@@ -62,8 +62,11 @@ has no remote clock or reset actions.
 
 In Window A:
 
-1. Enter `Jordan` and continue.
-2. Point out the backend-assigned raffle number.
+1. Enter `Jordan` and a test mobile number, then choose **Text my event pass**.
+2. In local console mode, copy the six-digit code from Window B's terminal;
+   in a Twilio-connected rehearsal, read it from the phone. Verify it and
+   point out that the same welcome message carries the raffle number and
+   `/attend` return link.
 3. Select the **Blue** wristband.
 4. Check the Guardian Angel handoff box and choose **Complete Phase 1 &
    continue**. The same attendee identity opens directly in the Phase 2 hub;
@@ -200,7 +203,7 @@ question.
 ### Recover on a second device
 
 Open the Phase 2 hub in a separate private window. It asks once for Jordan's
-Phase 1 name and raffle number, then restores the Blue route. This demonstrates
+registration name and mobile number, then restores the same raffle and Blue route. This demonstrates
 cross-device recovery without creating a second attendee.
 
 ### Try another color
@@ -240,8 +243,9 @@ a shared time, that Node-controlled time takes precedence.
 - **Can a leader control only their booth?** The data endpoint and page are
   booth-scoped, but all staff pages currently share one organizer key. Anyone
   with that key can open another booth or the overall dashboard.
-- **Is name plus raffle number secure login?** No. It is lightweight event
-  record recovery for this mock.
+- **Is name plus phone secure login?** The phone is OTP-verified at first
+  registration, but later name-plus-phone recovery is still lightweight mock
+  access rather than strong ongoing authentication. The raffle is display-only.
 - **What if the event date changes?** Edit `BOOTH_SESSIONS` in
   `web/shared/booths-config.js`; the current July 18, 2026 Nashville date is an
   assumption copied into the mock.

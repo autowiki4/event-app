@@ -1,5 +1,5 @@
 /* Each attendee booth is its own Phase 2 room. This module mounts a blank
- * name + raffle login, enforces the attendee's timed route, and leaves the
+ * name + phone login, enforces the attendee's timed route, and leaves the
  * room-specific activity to booth-common.js. Staff and kiosk pages do not
  * load this module, so their controls are not affected by the attendee gate. */
 function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
@@ -19,14 +19,14 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   login.innerHTML = `
     <p class="eyebrow">Phase 2 · Booth room</p>
     <h1 class="display">Welcome to the <em id="booth-login-room-name"></em> room.</h1>
-    <p class="lede">On a new device or direct link, enter the name and raffle number from Phase 1. Opening this room from your schedule skips this step.</p>
+    <p class="lede">On a new device or direct link, enter the name and mobile number used at registration. Opening this room from your schedule skips this step.</p>
     <div class="field">
       <label for="booth-login-name">Name used in Phase 1</label>
       <input id="booth-login-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
-      <label for="booth-login-raffle">Raffle number</label>
-      <input id="booth-login-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <label for="booth-login-phone">Mobile number</label>
+      <input id="booth-login-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="hint">Both fields are required when the room cannot restore your event sign-in.</div>
       <div class="err" id="booth-login-error"></div>
     </div>
@@ -107,10 +107,11 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   completeName.textContent = boothName;
 
   const nameInput = document.getElementById("booth-login-name");
-  const raffleInput = document.getElementById("booth-login-raffle");
+  const phoneInput = document.getElementById("booth-login-phone");
   const loginError = document.getElementById("booth-login-error");
   nameInput.value = "";
-  raffleInput.value = "";
+  phoneInput.value = "";
+  Phone.bind(phoneInput);
   let currentIdentity = null;
   let roomStarted = false;
   let roomCompleted = false;
@@ -184,7 +185,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     showOnly("login");
     if (clearFields) {
       nameInput.value = "";
-      raffleInput.value = "";
+      phoneInput.value = "";
     }
     loginError.textContent = message || "";
     loginError.style.display = message ? "block" : "none";
@@ -256,16 +257,16 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   async function submitLogin() {
     const name = nameInput.value.trim();
-    const raffleNumber = raffleInput.value.trim();
-    if (!name || !raffleNumber) {
-      showLogin("Enter both your Phase 1 name and raffle number.");
+    const phone = Phone.digits(phoneInput);
+    if (!name || !Phone.isValid(phoneInput)) {
+      showLogin("Enter the name and 10-digit mobile number used at registration.");
       return;
     }
     loginButton.disabled = true;
     loginButton.textContent = "Finding your session…";
     try {
       await demoClockReady;
-      await restoreRoomState(await AttendeePortal.signIn(portal, name, raffleNumber));
+      await restoreRoomState(await AttendeePortal.signIn(portal, name, phone));
     } catch (error) {
       console.error(error);
       if (["ATTENDEE_LOGIN_FAILED", "LOGIN_FIELDS_REQUIRED", "PHASE1_INCOMPLETE"].includes(error.code)) {
@@ -280,7 +281,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   }
 
   loginButton.addEventListener("click", submitLogin);
-  [nameInput, raffleInput].forEach((input) => input.addEventListener("keydown", (event) => {
+  [nameInput, phoneInput].forEach((input) => input.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== "Return") return;
     if (event.isComposing || event.repeat) return;
     event.preventDefault();

@@ -81,7 +81,7 @@ const AttendeePortal = (() => {
     try { sessionStorage.removeItem(markerKey(portal)); } catch (e) { /* optional tab session */ }
   }
 
-  function saveSession(result, previous, requestStartedMs, responseReceivedMs) {
+  function saveSession(result, previous, requestStartedMs, responseReceivedMs, submittedPhone) {
     acceptDataReset(result.dataResetAt);
     if (result.serverNow && typeof EventSchedule !== "undefined" && EventSchedule.sync) {
       EventSchedule.sync(result.serverNow, requestStartedMs, responseReceivedMs);
@@ -90,23 +90,25 @@ const AttendeePortal = (() => {
     if (!sameAttendee) {
       try { sessionStorage.removeItem("eventapp.chosen"); } catch (e) { /* optional recap state */ }
     }
+    const loginPhone = String(submittedPhone || "").replace(/\D/g, "").slice(0, 10);
+    const savedPhone = loginPhone || (sameAttendee ? previous.phone || "" : "");
     return Identity.replace({
       attendeeId: result.attendeeId,
       name: result.name,
       raffleNumber: String(result.raffleNumber),
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
-      phone: sameAttendee ? previous.phone || "" : "",
-      phoneLinked: !!result.phoneLinked,
-      phoneSkipped: result.phoneLinked ? false : sameAttendee ? !!previous.phoneSkipped : false,
+      phone: savedPhone,
+      phoneLinked: !!result.phoneLinked || savedPhone.length === 10,
+      phoneVerified: result.phoneVerified !== false && (!!result.phoneLinked || savedPhone.length === 10),
       email: sameAttendee ? previous.email || "" : "",
     });
   }
 
-  async function signIn(portal, name, raffleNumber) {
+  async function signIn(portal, name, phone) {
     const previous = Identity.peek();
     const requestStartedMs = Date.now();
-    const result = await EventAPI.loginAttendee(name, raffleNumber, backendPortal(portal));
-    const identity = saveSession(result, previous, requestStartedMs, Date.now());
+    const result = await EventAPI.loginAttendee(name, phone, backendPortal(portal));
+    const identity = saveSession(result, previous, requestStartedMs, Date.now(), phone);
     setAccess(portal, identity.attendeeId);
     return identity;
   }

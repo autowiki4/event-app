@@ -31,8 +31,10 @@ Event app demo server running: http://localhost:3000
   Local organizer key:  demo
 ```
 
-Start with Phase 1. Assign a wristband color and complete the handoff; the same
-attendee identity continues directly into the single Phase 2 hub. The old
+Start with Phase 1. Enter a name and mobile number, then use the welcome code
+printed in this local server terminal. Assign a wristband color and complete
+the handoff; the same attendee identity continues directly into the single
+Phase 2 hub. The old
 direct booth-room and kiosk URLs are still served, but they are optional
 fallbacks rather than the primary attendee route.
 
@@ -113,12 +115,26 @@ browser journey. Prefer the organizer clock for multi-window rehearsals. Once
 an organizer-controlled shared mode is active, it takes precedence over query
 preview; otherwise the app uses query preview or the real synchronized clock.
 
+## Welcome text and recovery login
+
+Local development defaults to safe console delivery: it masks the phone
+number and prints the complete welcome text/code in this terminal. A live
+Render deployment disables that fallback and needs Twilio credentials. See
+`SMS_SETUP.md` for the exact environment variables and compliance checklist.
+
+The text carries the six-digit code, raffle number, and `/attend` link. The
+link returns to the shared schedule; its server clock decides which booth or
+waiting/final state to show. A new browser recovers the pass using name plus
+phone. Raffle numbers are display-only, and booth pages never ask for the
+phone again.
+
 ## `db.json`
 
 The server creates `db.json` on first write. It contains:
 
-- attendees, including raffle number, assigned wristband color, and persisted
-  Phase 3 completion time;
+- verified attendees, including phone, raffle number, assigned wristband
+  color, and persisted Phase 3 completion time;
+- short-lived HMAC-only phone-code challenges and resend/attempt state;
 - booth check-ins, including scheduled visits created by attendee completion
   taps;
 - run-scoped New Song votes, Session 1–3 controllers, and archived runs;
@@ -156,7 +172,8 @@ curl -X POST -H "Content-Type: application/json" \
 The organizer dashboard exposes the same protected action as **Clear all
 attendee data & start fresh**. It deletes attendees and wristbands, booth
 check-ins and scores, New Song sessions, votes, and run history, Phase 3
-sign-ups, all booth presentation and control state, and the raffle counter. It
+sign-ups, pending phone-code challenges, all booth presentation and control
+state, and the raffle counter. It
 replaces `db.json.bak` with the same empty state and advances the durable reset
 marker. On their next sync, connected or reopened attendee browsers clear
 their old identity and return to Phase 1. The reset deliberately leaves the
@@ -191,6 +208,10 @@ replacement reconciles identity merges, updated check-ins, removed Phase 3
 choices, and protected resets without duplicate rows. An attendee who chooses
 **No thanks** still appears in `Live_Attendees` with `phase3CompletedAt`, even
 though no sign-up row exists.
+
+Only verified attendee records reach this mirror. OTP challenge hashes,
+attempt counters, expiry times, and Twilio message IDs remain solely in the
+Node data file and are never included in an export snapshot.
 
 `Live_BoothResults.extraData` mirrors only allowlisted operational metadata;
 attendee-entered Story answers and Art reflections remain out of the Sheet.
@@ -233,9 +254,11 @@ real-device, venue-network, accessibility, or multi-staff rehearsal.
 
 The current primary attendee actions are:
 
-- `registerAttendee`
+- `startAttendeeRegistration`
+- `verifyAttendeePhone`
+- `resendAttendeePhoneCode`
 - `confirmWristband`
-- `loginAttendee`
+- `loginAttendee` (name plus phone; raffle is never accepted as login)
 - `attendeePortalSession`
 - `myCheckins`
 - `boothPresentation`
@@ -337,12 +360,12 @@ The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,
 `eventClock`, and `setDemoClock` deliberately have no Apps Script counterpart.
 
-Legacy phone/kiosk actions also remain for the optional fallback pages. The
-core attendee and staff journey actions have matching implementations in
-`../apps-script/Code.gs`; the three Node-only actions called out above do not.
-`../web/shared/api.js` can still call either backend for legacy compatibility;
-pointing it directly at Apps Script requires changing `API_BASE_URL` and loses
-the Node-only capabilities described above.
+Legacy registration and phone/kiosk actions remain for optional staff fallback
+pages. First-time welcome SMS/OTP is Node/Render-only; the Apps Script adapter
+does not implement it. `../web/shared/api.js` retains older actions for
+compatibility, but pointing the frontend directly at Apps Script loses phone
+verification, shared clock/reset, and the synchronized booth controllers.
+Keep `API_BASE_URL: "/api"` for the current attendee journey.
 
 The Apps Script adapter is a deployment-shaped mock backend, not a production
 approval. Confirm the event date, venue connectivity, staff authentication,

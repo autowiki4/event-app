@@ -9,8 +9,9 @@ review.
 
 The attendee journey is now one continuous flow:
 
-1. **Phase 1 — entry:** enter a name, receive a raffle number, and have a
-   Guardian Angel assign and confirm the physical wristband color. Confirmation
+1. **Phase 1 — entry:** enter a name and mobile number, verify the six-digit
+   welcome text, receive the raffle number carried in that same message, and
+   have a Guardian Angel confirm the physical wristband color. Confirmation
    continues directly into Phase 2 with the same attendee identity.
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
@@ -79,11 +80,13 @@ Event app demo server running: http://localhost:3000
   Local organizer key:  demo
 ```
 
-Start at Phase 1. Confirming the wristband continues directly into the hub,
-and Phase 3 reuses that same saved attendee identity. On another device, the
-attendee enters their Phase 1 name and raffle number once to recover the same
-route. The name and raffle number stay visible at the top of the hub and Phase
-3 as a reminder. Refreshing or reopening the same phone restores the attendee,
+Start at Phase 1. In local console mode, read the welcome code printed in the
+server terminal; live delivery is configured separately. Confirming the
+wristband continues directly into the hub, and Phase 3 reuses that same saved
+attendee identity. On another device, the attendee enters their registration
+name and mobile number to recover the same route. The raffle number stays
+visible but is never used as a login credential. Refreshing or reopening the
+same phone restores the attendee,
 the schedule's current timed stop, and unfinished booth/Phase 3 choices. The
 attendee stays signed in until they tap their name at the top-right and choose
 **Log out on this device**.
@@ -142,6 +145,20 @@ Wi-Fi drops at a session boundary. The regression suite uses a concurrent
 150-attendee journey as a representative load check, with 90 live New Song
 votes and 450 booth completions; that test number is not an application cap.
 
+### Welcome text and phone verification
+
+The welcome code, raffle number, and stable `/attend` return link are delivered
+through Twilio Programmable Messaging in a live deployment. The link opens the
+entry/resume screen: it restores an unfinished wristband step or continues a
+fully checked-in attendee to the shared hub, which derives the current
+waiting/session/ended state from the same server clock. Phase 2 does not
+collect the phone again.
+
+Render needs `EVENT_APP_SMS_MODE=twilio`, a random
+`EVENT_APP_OTP_PEPPER`, Twilio credentials, and either a Messaging Service SID
+or SMS-capable sender number. See `demo-server/SMS_SETUP.md` for the exact
+variables, local console behavior, compliance prerequisites, and test steps.
+
 ### Optional live Google Sheets export
 
 The same-origin Node/Render service can mirror its current event data into a
@@ -152,7 +169,8 @@ and replaces seven `Live_*` tabs for attendees, booth results, Phase 3
 sign-ups, Bible Bowl answers, Draw Heaven confirmations, New Song votes, and
 export metadata.
 
-The Sheet mirror excludes attendee-entered Story answers and Art reflections;
+The Sheet mirror excludes attendee-entered Story answers, Art reflections,
+OTP challenges, code digests, and SMS provider IDs;
 `Live_BoothResults.extraData` contains only allowlisted operational metadata.
 `Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.
 
@@ -342,8 +360,8 @@ Script adapter does not implement it.
 
 ## Known mock limitations
 
-- Name plus raffle number is convenient record recovery, not strong identity
-  verification.
+- Name plus phone is lightweight record recovery after the first OTP, not
+  strong ongoing authentication. The raffle number is display-only.
 - The synchronized experience still needs working network access. Booth
   completion taps have a narrow two-minute retry queue, but registration,
   leader controls, live voting, and Phase 3 remain online-only.
@@ -381,6 +399,7 @@ Script adapter does not implement it.
 | `ARCHITECTURE.md` | How identity, schedule synchronization, routing, and booth controls connect |
 | `DEMO_GUIDE.md` | How to present the unified flow using the shared timeline |
 | `demo-server/README.md` | Node backend, data file, reset, and API differences |
+| `demo-server/SMS_SETUP.md` | Twilio welcome-text credentials, privacy, and verification setup |
 | `apps-script/README.md` | Google Apps Script deployment sketch |
 | `apps-script/SHEET_SCHEMA.md` | Sheet tabs and columns |
 | `qr/QR_PLAN.md` | Unified-flow QR destinations, placement, and print checklist |

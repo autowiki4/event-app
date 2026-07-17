@@ -672,15 +672,18 @@ function attendeePortalResult(attendee) {
 
 function actionLoginAttendee(payload) {
   const normalizedName = normalizeAttendeeName(payload && payload.name);
-  const raffleNumber = normalizeRaffleNumber(payload && payload.raffleNumber);
-  if (!normalizedName || !raffleNumber) {
-    throw apiError("name and raffle number are required", "LOGIN_FIELDS_REQUIRED");
+  const phone = digitsOnly(payload && payload.phone);
+  if (!normalizedName || phone.length !== 10) {
+    throw apiError("name and a 10-digit phone number are required", "LOGIN_FIELDS_REQUIRED");
   }
   return withScriptLock(() => {
     const attendees = readRows(SHEET_NAMES.ATTENDEES);
-    const attendee = findAttendeeByRaffleInRows(attendees, raffleNumber);
-    if (!attendee || normalizeAttendeeName(attendee.name) !== normalizedName) {
-      throw apiError("We couldn't match that name and raffle number.", "ATTENDEE_LOGIN_FAILED");
+    const attendee = attendees.find((row) => (
+      digitsOnly(row.phone) === phone
+        && normalizeAttendeeName(row.name) === normalizedName
+    ));
+    if (!attendee) {
+      throw apiError("We couldn't match that name and phone number.", "ATTENDEE_LOGIN_FAILED");
     }
     if (payload.portal === "phase2" && !attendee.wristbandConfirmedAt) {
       throw apiError("Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");

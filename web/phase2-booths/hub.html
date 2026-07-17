@@ -14,14 +14,14 @@
   <section class="screen" id="phase2-login" style="display:none;">
     <p class="eyebrow">Phase 2 · One attendee link</p>
     <h1 class="display">Find your <em>booth route.</em></h1>
-    <p class="lede">On a new device, enter the name and raffle number from Phase 1 once. Your wristband color will load your three scheduled booths.</p>
+    <p class="lede">On a new device, enter the name and mobile number used at registration. Your raffle number remains part of your pass, but it is not a login credential.</p>
     <div class="field">
       <label for="phase2-name">Name used in Phase 1</label>
       <input id="phase2-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
-      <label for="phase2-raffle">Raffle number</label>
-      <input id="phase2-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <label for="phase2-phone">Mobile number</label>
+      <input id="phase2-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="err" id="phase2-login-error"></div>
     </div>
     <button class="btn btn-primary" id="btn-phase2-login">Open my schedule →</button>
@@ -76,17 +76,6 @@
             <h2 id="current-booth-name">Booth</h2>
           </div>
         </div>
-        <div class="placeholder-note" id="first-booth-phone-gate" style="display:none; margin-bottom:14px;">
-          <strong>One-time event check-in</strong>
-          <p style="margin:6px 0 12px;">Enter your phone number once at your first booth. It stays connected to the name and raffle number above for the rest of the event.</p>
-          <div class="field" style="margin-bottom:10px;">
-            <label for="first-booth-phone">Your phone number</label>
-            <input id="first-booth-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
-            <div class="err" id="first-booth-phone-error"></div>
-          </div>
-          <button class="btn btn-primary" id="btn-link-first-booth-phone">Check in &amp; open this booth →</button>
-          <button class="btn btn-ghost" id="btn-skip-first-booth-phone" style="margin-top:10px;">I don't have my own number — use my raffle entry</button>
-        </div>
         <div id="booth-live-content">
           <a class="btn btn-primary" id="btn-open-booth-activity" href="#" style="display:block; text-decoration:none; margin-bottom:12px;">Open this booth activity →</a>
           <div class="leader-screen" id="leader-screen">
@@ -137,18 +126,8 @@ const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/
 const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
   ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
-const firstBoothPhoneInput = document.getElementById("first-booth-phone");
-Phone.bind(firstBoothPhoneInput);
-
-function hasLinkedPhone() {
-  return Boolean(identity && (identity.phone || identity.phoneLinked || identity.phoneSkipped));
-}
-
-function renderFirstBoothPhoneGate() {
-  const needsPhone = !hasLinkedPhone();
-  document.getElementById("first-booth-phone-gate").style.display = needsPhone ? "block" : "none";
-  document.getElementById("booth-live-content").style.display = needsPhone ? "none" : "block";
-}
+const phase2PhoneInput = document.getElementById("phase2-phone");
+Phone.bind(phase2PhoneInput);
 
 function routeIsComplete() {
   const route = identity ? EventSchedule.route(identity.wristbandColor) : [];
@@ -417,7 +396,6 @@ function renderSchedule() {
     document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
     document.getElementById("current-copy").textContent = "This screen follows your booth leader. Keep it open while the group moves through the activity.";
     card.style.display = "block";
-    renderFirstBoothPhoneGate();
     if (currentBooth) {
       document.getElementById("current-booth-icon").textContent = currentBooth.icon;
       document.getElementById("current-booth-name").textContent = currentBooth.title;
@@ -482,18 +460,10 @@ document.getElementById("attendee-route").addEventListener("click", (event) => {
   card.scrollIntoView({ behavior: "smooth", block: "start" });
   card.classList.remove("focus-pulse");
   window.requestAnimationFrame(() => card.classList.add("focus-pulse"));
-  if (hasLinkedPhone()) {
-    window.setTimeout(() => document.getElementById("btn-open-booth-activity").focus({ preventScroll: true }), 350);
-  }
+  window.setTimeout(() => document.getElementById("btn-open-booth-activity").focus({ preventScroll: true }), 350);
 });
 
 document.getElementById("btn-complete-booth").addEventListener("click", async () => {
-  if (!hasLinkedPhone()) {
-    renderFirstBoothPhoneGate();
-    firstBoothPhoneInput.focus();
-    toast("Check in once with a phone number, or continue with your raffle entry.");
-    return;
-  }
   const snapshot = EventSchedule.current();
   const booth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
   if (!booth || snapshot.phase !== "active" || activeBoothId !== booth.id) {
@@ -538,73 +508,18 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
   }
 });
 
-document.getElementById("btn-link-first-booth-phone").addEventListener("click", async () => {
-  const error = document.getElementById("first-booth-phone-error");
-  const button = document.getElementById("btn-link-first-booth-phone");
-  const digits = Phone.digits(firstBoothPhoneInput);
-  error.textContent = "Enter a 10-digit phone number.";
-  if (!Phone.isValid(firstBoothPhoneInput)) {
-    error.style.display = "block";
-    return;
-  }
-  error.style.display = "none";
-  button.disabled = true;
-  button.textContent = "Checking in…";
-  try {
-    const result = await EventAPI.findOrRegisterByPhone(identity.attendeeId, digits, identity.name);
-    identity = Identity.set({
-      attendeeId: result.attendeeId || identity.attendeeId,
-      phone: digits,
-      phoneLinked: true,
-      phoneSkipped: false,
-      name: result.name || identity.name,
-      raffleNumber: result.raffleNumber || identity.raffleNumber,
-      wristbandColor: result.wristbandColor || identity.wristbandColor,
-    });
-    renderFirstBoothPhoneGate();
-    toast("Checked in — you won't be asked again.");
-  } catch (linkError) {
-    console.error(linkError);
-    if (linkError.code === "PHONE_ALREADY_LINKED") {
-      error.textContent = "That number is already connected to another registration. Ask an organizer to pair it safely.";
-      error.style.display = "block";
-    } else if (!Identity.restartIfMissing(linkError, "../phase1-entry/index.html")) {
-      error.textContent = "Couldn't save that number. Check the connection and try again.";
-      error.style.display = "block";
-    }
-  } finally {
-    button.disabled = false;
-    button.textContent = "Check in & open this booth →";
-  }
-});
-
-firstBoothPhoneInput.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== "Return") return;
-  if (event.isComposing || event.repeat) return;
-  const button = document.getElementById("btn-link-first-booth-phone");
-  event.preventDefault();
-  if (button.disabled) return;
-  button.click();
-});
-
-document.getElementById("btn-skip-first-booth-phone").addEventListener("click", () => {
-  identity = Identity.set({ phoneSkipped: true });
-  renderFirstBoothPhoneGate();
-  toast("Continuing with your name and raffle number.");
-});
-
 document.getElementById("btn-phase2-login").addEventListener("click", async () => {
   const name = document.getElementById("phase2-name").value.trim();
-  const raffleNumber = document.getElementById("phase2-raffle").value.trim();
-  if (!name || !raffleNumber) {
-    showLogin("Enter both your Phase 1 name and raffle number.");
+  const phone = Phone.digits(phase2PhoneInput);
+  if (!name || !Phone.isValid(phase2PhoneInput)) {
+    showLogin("Enter the name and 10-digit mobile number used at registration.");
     return;
   }
   const button = document.getElementById("btn-phase2-login");
   button.disabled = true;
   button.textContent = "Finding route…";
   try {
-    identity = await AttendeePortal.signIn(PORTAL, name, raffleNumber);
+    identity = await AttendeePortal.signIn(PORTAL, name, phone);
     if (!identity.wristbandColor) {
       showLogin("A wristband color has not been assigned yet. Ask the Phase 1 Guardian Angel for help.");
       return;
@@ -622,7 +537,7 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
   }
 });
 
-["phase2-name", "phase2-raffle"].forEach((inputId) => {
+["phase2-name", "phase2-phone"].forEach((inputId) => {
   document.getElementById(inputId).addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== "Return") return;
     if (event.isComposing || event.repeat) return;

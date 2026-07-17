@@ -9,6 +9,11 @@ const { once } = require("events");
 const testDb = path.join(os.tmpdir(), `event-app-test-${process.pid}.json`);
 process.env.EVENT_APP_DB_PATH = testDb;
 process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
+process.env.NODE_ENV = "test";
+process.env.EVENT_APP_SMS_MODE = "test";
+process.env.EVENT_APP_SMS_TEST_CODE = "246810";
+process.env.EVENT_APP_PUBLIC_URL = "https://event-app.test";
+process.env.EVENT_APP_OTP_PEPPER = "test-only-otp-pepper-that-is-long-enough";
 delete process.env.EVENT_APP_SHEETS_EXPORT_URL;
 delete process.env.EVENT_APP_SHEETS_EXPORT_KEY;
 
@@ -96,6 +101,25 @@ function request(port, action, payload, method = "POST") {
     if (body) req.write(body);
     req.end();
   });
+}
+
+let generatedPhoneSuffix = 1000000;
+function nextTestPhone() {
+  generatedPhoneSuffix += 1;
+  return `615${String(generatedPhoneSuffix).padStart(7, "0")}`;
+}
+
+async function registerVerifiedAttendee(port, attendeeId, name, phone = nextTestPhone()) {
+  const started = await request(port, "startAttendeeRegistration", { attendeeId, name, phone });
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  if (started.body.alreadyRegistered) return { ...started.body, phone };
+  const verified = await request(port, "verifyAttendeePhone", {
+    attendeeId: started.body.attendeeId,
+    challengeId: started.body.challengeId,
+    code: process.env.EVENT_APP_SMS_TEST_CODE,
+  });
+  assert.equal(verified.status, 200, JSON.stringify(verified.body));
+  return { ...started.body, ...verified.body, phone };
 }
 
 function rawRequest(port, action, body, headers = {}) {
@@ -719,13 +743,56 @@ async function runApiRegression(port) {
     assert.equal(res.body.code, "INVALID_PHONE");
   }
 
-  res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
+  res = await request(port, "startAttendeeRegistration", {
+    attendeeId: "entry-a", name: "Avery", phone: "615-555-0101",
+  });
+  assert.equal(res.status, 200);
   assert.equal(res.body.raffleNumber, "1001");
-  assert.equal(res.body.isNew, true);
-  assert.equal(res.body.wristbandColor, null);
+  assert.equal(res.body.maskedPhone, "(***) ***-0101");
+  assertIsoTimestamp(res.body.expiresAt, "welcome-code expiry");
+  assert.equal(res.body.deliveryMode, "test");
   assert.equal(res.body.dataResetAt, "initial");
-  res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery" });
-  assert.equal(res.body.isNew, false);
+  const entryChallengeId = res.body.challengeId;
+
+  // A lost HTTP response or mobile refresh can recover the same active
+  // challenge without sending another SMS or reserving another raffle number.
+  res = await request(port, "startAttendeeRegistration", {
+    attendeeId: "entry-a", name: "  avery ", phone: "6155550101",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.reused, true);
+  assert.equal(res.body.challengeId, entryChallengeId);
+  assert.equal(res.body.raffleNumber, "1001");
+  let otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal(otpDb.attendees.length, 0, "unverified reservations must not appear as attendees");
+  assert.equal(otpDb.otpChallenges.length, 1);
+  assert.equal(JSON.stringify(otpDb).includes(process.env.EVENT_APP_SMS_TEST_CODE), false);
+
+  res = await request(port, "verifyAttendeePhone", {
+    attendeeId: "entry-a", challengeId: entryChallengeId, code: "111111",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "OTP_INCORRECT");
+  assert.equal(res.body.attemptsRemaining, 4);
+  res = await request(port, "verifyAttendeePhone", {
+    attendeeId: "entry-a", challengeId: entryChallengeId, code: process.env.EVENT_APP_SMS_TEST_CODE,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.raffleNumber, "1001");
+  assert.equal(res.body.phoneLinked, true);
+  assert.equal(res.body.phoneVerified, true);
+  otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal(otpDb.attendees[0].phone, "6155550101");
+  assertIsoTimestamp(otpDb.attendees[0].phoneVerifiedAt, "phone verification time");
+  assert.equal(JSON.stringify(otpDb).includes(process.env.EVENT_APP_SMS_TEST_CODE), false);
+
+  res = await request(port, "startAttendeeRegistration", {
+    attendeeId: "another-device", name: "  avery  ", phone: "6155550101",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.alreadyRegistered, true);
+  assert.equal(res.body.attendeeId, "entry-a");
 
   res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Not a real option" });
   assert.equal(res.status, 400);
@@ -746,7 +813,7 @@ async function runApiRegression(port) {
 
   res = await request(port, "loginAttendee", {
     name: "  aVeRy  ",
-    raffleNumber: "#1001",
+    phone: "(615) 555-0101",
     portal: "phase2",
   });
   assert.equal(res.status, 403);
@@ -754,7 +821,7 @@ async function runApiRegression(port) {
 
   res = await request(port, "loginAttendee", {
     name: "  aVeRy  ",
-    raffleNumber: "#1001",
+    phone: "6155550101",
     portal: "phase3",
   });
   assert.equal(res.status, 200);
@@ -763,21 +830,22 @@ async function runApiRegression(port) {
   assert.equal(res.body.raffleNumber, "1001");
   assert.equal(res.body.wristbandConfirmed, false);
   assert.equal(res.body.wristbandColor, null);
-  assert.equal(res.body.phoneLinked, false);
+  assert.equal(res.body.phoneLinked, true);
+  assert.equal(res.body.phoneVerified, true);
   assert.equal(res.body.phase3CompletedAt, null);
   assertIsoTimestamp(res.body.serverNow, "attendee login serverNow");
   assert.equal("phone" in res.body, false);
 
   res = await request(port, "loginAttendee", {
     name: "Somebody Else",
-    raffleNumber: "1001",
+    phone: "6155550101",
     portal: "phase3",
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "ATTENDEE_LOGIN_FAILED");
   assert.equal("attendeeId" in res.body, false);
 
-  res = await request(port, "loginAttendee", { name: "", raffleNumber: "" });
+  res = await request(port, "loginAttendee", { name: "", phone: "" });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "LOGIN_FIELDS_REQUIRED");
   assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees.length, 1);
@@ -798,7 +866,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.code, "WRISTBAND_ALREADY_ASSIGNED");
   res = await request(port, "loginAttendee", {
     name: "Avery",
-    raffleNumber: "1001",
+    phone: "6155550101",
     portal: "phase2",
   });
   assert.equal(res.status, 200);
@@ -817,18 +885,19 @@ async function runApiRegression(port) {
     name: "Guest",
     organizerKey,
   });
-  assert.equal(res.status, 409);
-  assert.equal(res.body.code, "RAFFLE_REQUIRED");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.isNew, false);
 
   res = await request(port, "findOrRegisterByPhone", {
     phone: "615-555-0101",
     raffleNumber: "#1001",
     organizerKey,
   });
-  assert.equal(res.body.requiresPairingConfirmation, true);
+  assert.equal(res.status, 200);
   assert.equal(res.body.name, "Avery");
   assert.equal(res.body.raffleNumber, "1001");
-  assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees[0].phone, null);
+  assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees[0].phone, "6155550101");
 
   res = await request(port, "findOrRegisterByPhone", {
     phone: "615-555-0101",
@@ -843,6 +912,7 @@ async function runApiRegression(port) {
   assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees[0].phone, "6155550101");
   res = await request(port, "attendeePortalSession", { attendeeId: "entry-a", portal: "phase2" });
   assert.equal(res.body.phoneLinked, true);
+  assert.equal(res.body.phoneVerified, true);
   assert.equal("phone" in res.body, false);
 
   res = await request(port, "boothCheckin", {
@@ -937,7 +1007,9 @@ async function runApiRegression(port) {
 
   // If that visitor later registers at entry, staff pair their shown raffle
   // with the phone. The entry record wins and prior kiosk activity migrates.
-  res = await request(port, "registerAttendee", { attendeeId: "entry-c", name: "Casey" });
+  res = await request(port, "registerAttendee", {
+    attendeeId: "entry-c", name: "Casey", organizerKey,
+  });
   assert.equal(res.body.raffleNumber, "1003");
   res = await request(port, "findOrRegisterByPhone", {
     phone: "6155550202",
@@ -998,18 +1070,30 @@ async function runApiRegression(port) {
   assert.equal(res.body.presentation.boothId, "newsong");
   assert.equal(res.body.presentation.version, 0);
 
-  // A public attendee cannot claim somebody else's phone and receives no PII.
-  res = await request(port, "registerAttendee", { attendeeId: "entry-d", name: "Drew" });
+  // Legacy record creation and phone pairing are staff-only. A public caller
+  // cannot claim a phone or receive attendee details.
+  res = await request(port, "registerAttendee", {
+    attendeeId: "entry-d", name: "Drew", organizerKey,
+  });
   assert.equal(res.body.raffleNumber, "1004");
   res = await request(port, "findOrRegisterByPhone", {
     attendeeId: "entry-d",
     phone: "6155550101",
     name: "Drew",
   });
-  assert.equal(res.status, 409);
-  assert.equal(res.body.code, "PHONE_ALREADY_LINKED");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
   assert.equal("name" in res.body, false);
   assert.equal("raffleNumber" in res.body, false);
+
+  res = await request(port, "findOrRegisterByPhone", {
+    attendeeId: "entry-d",
+    phone: "6155550404",
+    name: "Drew",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-d");
 
   res = await request(port, "mySignupSelections", { attendeeId: "entry-d" });
   assert.deepEqual(res.body.optionIds, []);
@@ -1063,15 +1147,15 @@ async function runApiRegression(port) {
   assert.deepEqual(res.body.optionIds, []);
   assert.equal(res.body.completedAt, drewPhase3CompletedAt);
 
-  // A self-service page opened without completing Entry cannot create a
-  // hidden raffle record (including after a rehearsal reset).
+  // The legacy phone-linking endpoint is not available to self-service pages,
+  // so an incomplete entry cannot create a hidden raffle record.
   res = await request(port, "findOrRegisterByPhone", {
     attendeeId: "missing-public-id",
     phone: "6155550999",
     name: "Bypass",
   });
-  assert.equal(res.status, 404);
-  assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
 
   res = await request(port, "submitSignup", {
     attendeeId: "entry-a",
@@ -1154,23 +1238,60 @@ async function runApiRegression(port) {
   res = await request(port, "myCheckins", { attendeeId: "entry-a" });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
-  res = await request(port, "registerAttendee", { attendeeId: "entry-a", name: "Avery Again" });
-  assert.equal(res.body.isNew, true);
-
-  res = await request(port, "registerAttendee", { attendeeId: "entry-z", name: "Avery Again" });
-  assert.equal(res.body.raffleNumber, "1002");
+  const recoveredA = await registerVerifiedAttendee(
+    port, "entry-a", "Avery Again", "6155550301"
+  );
+  assert.equal(recoveredA.raffleNumber, "1001");
+  const recoveredZ = await registerVerifiedAttendee(
+    port, "entry-z", "Avery Again", "6155550302"
+  );
+  assert.equal(recoveredZ.raffleNumber, "1002");
   res = await request(port, "loginAttendee", {
     name: "avery again",
-    raffleNumber: "1001",
+    phone: "6155550301",
     portal: "phase3",
   });
   assert.equal(res.body.attendeeId, "entry-a");
   res = await request(port, "loginAttendee", {
     name: "Avery Again",
-    raffleNumber: "1002",
+    phone: "6155550302",
     portal: "phase3",
   });
   assert.equal(res.body.attendeeId, "entry-z");
+
+  // Name + phone is the identity pair: household members may share a phone,
+  // while the exact same pair recovers the existing attendee.
+  otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  otpDb.otpChallenges.forEach((challenge) => {
+    if (challenge.phone !== "6155550301") return;
+    const oldSend = new Date(Date.now() - 61 * 1000).toISOString();
+    challenge.sendTimestamps = [oldSend];
+    challenge.lastSentAt = oldSend;
+  });
+  fs.writeFileSync(testDb, JSON.stringify(otpDb, null, 2));
+  res = await request(port, "startAttendeeRegistration", {
+    attendeeId: "entry-household", name: "Blake", phone: "6155550301",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.raffleNumber, "1003");
+  const householdChallengeId = res.body.challengeId;
+  res = await request(port, "verifyAttendeePhone", {
+    attendeeId: "entry-household",
+    challengeId: householdChallengeId,
+    code: process.env.EVENT_APP_SMS_TEST_CODE,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-household");
+  res = await request(port, "loginAttendee", {
+    name: "Blake", phone: "6155550301", portal: "phase3",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-household");
+  res = await request(port, "loginAttendee", {
+    name: "Avery Again", phone: "6155550301", portal: "phase3",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.attendeeId, "entry-a");
   res = await request(port, "submitSignup", {
     attendeeId: "entry-z",
     phone: "",
@@ -1202,6 +1323,9 @@ async function runApiRegression(port) {
     assert.equal(page.status, 200, pathname);
     assert.match(page.body, /<!DOCTYPE html>/i, pathname);
   }
+  const attendeeReturnLink = await getPage(port, "/attend?preview=1");
+  assert.equal(attendeeReturnLink.status, 302);
+  assert.equal(attendeeReturnLink.headers.location, "/phase1-entry/index.html?preview=1&resume=1");
 
   const newSongArtwork = await getPage(port, "/assets/revelation-14-3-new-song.webp");
   assert.equal(newSongArtwork.status, 200);
@@ -1232,9 +1356,11 @@ async function runTriviaApiRegression(port) {
   assert.equal(res.status, 200);
 
   async function registerTriviaAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
     assert.equal(registration.status, 200);
-    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    const confirmation = await request(port, "confirmWristband", {
+      attendeeId, wristbandColor, organizerKey,
+    });
     assert.equal(confirmation.status, 200);
     return registration.body;
   }
@@ -1627,9 +1753,11 @@ async function runHeavenApiRegression(port) {
   assert.equal(res.status, 200);
 
   async function registerHeavenAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
     assert.equal(registration.status, 200);
-    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    const confirmation = await request(port, "confirmWristband", {
+      attendeeId, wristbandColor, organizerKey,
+    });
     assert.equal(confirmation.status, 200);
     return registration.body;
   }
@@ -2065,9 +2193,11 @@ async function runArtApiRegression(port) {
   assert.equal(res.status, 200);
 
   async function registerArtAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
     assert.equal(registration.status, 200);
-    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    const confirmation = await request(port, "confirmWristband", {
+      attendeeId, wristbandColor, organizerKey,
+    });
     assert.equal(confirmation.status, 200);
     return registration.body;
   }
@@ -2516,9 +2646,11 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.status, 200);
 
   async function registerNewSongAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
     assert.equal(registration.status, 200);
-    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    const confirmation = await request(port, "confirmWristband", {
+      attendeeId, wristbandColor, organizerKey,
+    });
     assert.equal(confirmation.status, 200);
     return registration.body;
   }
@@ -3000,6 +3132,7 @@ async function runCapacityRegression(port) {
     request(port, "registerAttendee", {
       attendeeId: `capacity-${index + 1}`,
       name: `Capacity Guest ${index + 1}`,
+      organizerKey,
     })
   )));
   assert.equal(registrations.every((result) => result.status === 200), true);
@@ -3014,6 +3147,7 @@ async function runCapacityRegression(port) {
     request(port, "confirmWristband", {
       attendeeId: assignment.attendeeId,
       wristbandColor: assignment.colorId,
+      organizerKey,
     })
   )));
   assert.equal(confirmations.every((result) => result.status === 200), true);
@@ -3378,14 +3512,15 @@ async function runFrontendContractRegression() {
     localStorage: identityStorage,
     sessionStorage: portalStorage,
     EventAPI: {
-      loginAttendee: async (name, raffleNumber, portal) => {
+      loginAttendee: async (name, phone, portal) => {
         backendPortalCalls.push(["login", portal]);
         return {
           attendeeId: "portal-attendee",
           name: name.trim(),
-          raffleNumber,
+          raffleNumber: "1001",
           wristbandColor: "blue",
-          phoneLinked: false,
+          phoneLinked: true,
+          phoneVerified: true,
           serverNow: "2026-07-18T20:10:00.000Z",
           dataResetAt: "initial",
         };
@@ -3420,9 +3555,10 @@ async function runFrontendContractRegression() {
   const attendeePortalSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "attendee-portal.js"), "utf8");
   vm.runInContext(`${attendeePortalSource}\nthis.__attendeePortal = AttendeePortal;`, identityContext);
   const attendeePortal = identityContext.__attendeePortal;
-  let portalIdentity = await attendeePortal.signIn("phase2.heaven", "Jordan Lee", "1001");
+  let portalIdentity = await attendeePortal.signIn("phase2.heaven", "Jordan Lee", "6155550101");
   assert.equal(portalIdentity.attendeeId, "portal-attendee");
   assert.equal(portalIdentity.wristbandColor, "blue");
+  assert.equal(portalIdentity.phone, "6155550101");
   assert.equal(identityStorage.getItem("eventapp.data-reset-at"), "initial");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), false);
@@ -3445,13 +3581,13 @@ async function runFrontendContractRegression() {
   assert.equal(portalIdentity.wristbandColor, "blue");
   assert.equal(attendeePortal.hasAccess("phase2"), true);
   assert.deepEqual(backendPortalCalls[2], ["restore", "phase2"]);
-  await attendeePortal.signIn("phase2.trivia", "Jordan Lee", "1001");
+  await attendeePortal.signIn("phase2.trivia", "Jordan Lee", "6155550101");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), true);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
   attendeePortal.clearAccess("phase2.heaven");
   assert.equal(attendeePortal.hasAccess("phase2.heaven"), false);
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
-  await attendeePortal.signIn("phase3", "Jordan Lee", "1001");
+  await attendeePortal.signIn("phase3", "Jordan Lee", "6155550101");
   assert.equal(attendeePortal.hasAccess("phase2.trivia"), true);
   assert.equal(attendeePortal.hasAccess("phase3"), true);
   assert.equal(typeof attendeePortal.acceptDataReset, "function");
@@ -3730,7 +3866,14 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /AttendeePortal\.acceptDataReset\(result\.dataResetAt\)/);
   assert.match(phase1Source, /id="event-reset-note"/);
   assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
-  assert.match(phase1Source, /getElementById\("in-name"\)\.addEventListener\("keydown"/);
+  assert.match(phase1Source, /id="in-phone"[^>]*autocomplete="tel-national"/);
+  assert.match(phase1Source, /id="in-otp"[^>]*autocomplete="one-time-code"/);
+  assert.match(phase1Source, /EventAPI\.startAttendeeRegistration/);
+  assert.match(phase1Source, /returnLinkMode[\s\S]*EventAPI\.loginAttendee\(name, phone, "phase1"\)/);
+  assert.match(phase1Source, /EventAPI\.verifyAttendeePhone/);
+  assert.match(phase1Source, /EventAPI\.resendAttendeePhoneCode/);
+  assert.doesNotMatch(phase1Source, /addEventListener\("eventapp:data-reset", clearPendingRegistration\)/);
+  assert.match(phase1Source, /\[\["in-name", "btn-welcome-next"\], \["in-phone", "btn-welcome-next"\]/);
   assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
   assert.match(phase2Source, /shared\/event-schedule\.js/);
@@ -3742,7 +3885,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /EventSchedule\.linkWithPreview\(currentBooth\.page\)/);
   assert.match(phase2Source, /presentationPollMs = Math\.round\(5000 \* \(0\.85 \+ Math\.random\(\) \* 0\.3\)\)/);
   assert.match(phase2Source, /if \(!document\.hidden && activeBoothId\) loadPresentation/);
-  assert.match(phase2Source, /id="btn-skip-first-booth-phone"/);
+  assert.doesNotMatch(phase2Source, /first-booth-phone|btn-skip-first-booth-phone|findOrRegisterByPhone/);
   assert.match(phase2Source, /id="attendee-name"/);
   assert.match(phase2Source, /id="attendee-raffle"/);
   assert.match(phase2Source, /id="session-countdown"/);
@@ -3754,8 +3897,8 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /data-open-current/);
   assert.match(phase2Source, /Ended · Not visited/);
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
-  assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
-  assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
+  assert.match(phase2Source, /\["phase2-name", "phase2-phone"\]/);
+  assert.match(phase2Source, /id="phase2-phone"[^>]*autocomplete="tel-national"/);
   assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "art", "newsong"\]\.includes\(currentBooth\.id\)/);
   assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
@@ -3768,13 +3911,16 @@ async function runFrontendContractRegression() {
   assert.match(boothRoomSource, /roomCompleted = roomCompleted \|\| \(checkins\.boothIds \|\| \[\]\)\.includes\(boothId\)/);
   assert.match(boothRoomSource, /id="booth-welcome-raffle"/);
   assert.match(boothRoomSource, /id="booth-login-name"[^>]*autocomplete="off"/);
-  assert.match(boothRoomSource, /id="booth-login-raffle"[^>]*autocomplete="off"/);
-  assert.match(boothRoomSource, /\[nameInput, raffleInput\][\s\S]*addEventListener\("keydown"/);
-  assert.match(boothCommonSource, /phoneInput\.addEventListener\("keydown"/);
+  assert.match(boothRoomSource, /id="booth-login-phone"[^>]*autocomplete="tel-national"/);
+  assert.match(boothRoomSource, /\[nameInput, phoneInput\][\s\S]*addEventListener\("keydown"/);
+  assert.doesNotMatch(boothCommonSource, /findOrRegisterByPhone|booth-phone-input|btn-booth-checkin/);
   assert.doesNotMatch(boothCommonSource, /hub\.html/);
   assert.match(boothCommonSource, /completeBoothRoom/);
   assert.match(boothCommonSource, /const identity = _boothIdentity \|\| Identity\.peek\(\)/);
-  assert.match(boothCommonSource, /phoneSkipped/);
+  assert.doesNotMatch(boothCommonSource, /phoneSkipped/);
+  [artRoomSource, storyRoomSource, newSongSource, triviaRoomSource, heavenRoomSource].forEach((source) => {
+    assert.doesNotMatch(source, /id="booth-phone-input"|id="btn-booth-checkin"/);
+  });
 
   // Bible Bowl questions are now speaker-controlled and server-scored. The
   // attendee bundle has no answer-key data or local Next-question mechanism;
@@ -4023,11 +4169,12 @@ async function runFrontendContractRegression() {
   );
 
   assert.match(phase3Source, /AttendeePortal\.signIn\("phase3"/);
-  assert.match(phase3Source, /\["phase3-name", "phase3-raffle"\]/);
+  assert.match(phase3Source, /\["phase3-name", "phase3-phone"\]/);
   assert.match(phase3Source, /AttendeePortal\.continueAs\("phase3"\)/);
   assert.match(phase3Source, /shared\/event-schedule\.js/);
   assert.doesNotMatch(phase3Source, /AttendeePortal\.prefill/);
   assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="name"/);
+  assert.match(phase3Source, /id="phase3-phone"[^>]*autocomplete="tel-national"/);
   assert.match(phase3Source, /id="btn-return-phase2"/);
   assert.match(phase3Source, /role="checkbox"/);
   assert.match(phase3Source, /Tick and go/i);
@@ -4293,7 +4440,7 @@ async function runFrontendContractRegression() {
     assert.match(source, /shared\/phone\.js/);
     assert.match(source, /shared\/attendee-portal\.js/);
     assert.match(source, /shared\/booth-room\.js/);
-    assert.match(source, /maxlength="14"/);
+    assert.doesNotMatch(source, /id="booth-phone-input"|id="btn-booth-checkin"/);
     assert.match(source, new RegExp(`const BOOTH_ID = "${boothId}"`));
     assert.match(source, /initBoothRoom\(/);
     assert.doesNotMatch(source, /href="hub\.html"|Back to Gym/);
@@ -4593,18 +4740,11 @@ function runAppsScriptRegression() {
   assert.equal(result.isNew, false);
 
   assert.throws(
-    () => gas.actionLoginAttendee({ name: " aVeRy ", raffleNumber: "#1001", portal: "phase2" }),
-    (error) => error.code === "PHASE1_INCOMPLETE"
+    () => gas.actionLoginAttendee({ name: " aVeRy ", phone: "6155550101", portal: "phase3" }),
+    (error) => error.code === "ATTENDEE_LOGIN_FAILED"
   );
-  result = gas.actionLoginAttendee({ name: " aVeRy ", raffleNumber: "#1001", portal: "phase3" });
-  assert.equal(result.attendeeId, "gas-entry-a");
-  assert.equal(result.wristbandColor, null);
-  assert.equal(result.phoneLinked, false);
-  assert.equal(result.phase3CompletedAt, null);
-  assertIsoTimestamp(result.serverNow, "Apps Script attendee serverNow");
-  assert.equal("phone" in result, false);
   assert.throws(
-    () => gas.actionLoginAttendee({ name: "Wrong", raffleNumber: "1001", portal: "phase3" }),
+    () => gas.actionLoginAttendee({ name: "Wrong", phone: "6155550101", portal: "phase3" }),
     (error) => error.code === "ATTENDEE_LOGIN_FAILED"
   );
 
@@ -4648,6 +4788,17 @@ function runAppsScriptRegression() {
   });
   assert.equal(result.attendeeId, "gas-entry-a");
   assert.equal(result.raffleNumber, "1001");
+  assert.throws(
+    () => gas.actionLoginAttendee({ name: " aVeRy ", phone: "6155550101", portal: "phase2" }),
+    (error) => error.code === "PHASE1_INCOMPLETE"
+  );
+  result = gas.actionLoginAttendee({ name: " aVeRy ", phone: "6155550101", portal: "phase3" });
+  assert.equal(result.attendeeId, "gas-entry-a");
+  assert.equal(result.wristbandColor, null);
+  assert.equal(result.phoneLinked, true);
+  assert.equal(result.phase3CompletedAt, null);
+  assertIsoTimestamp(result.serverNow, "Apps Script attendee serverNow");
+  assert.equal("phone" in result, false);
 
   const beforeAttendeeDependentWrites = lockState.acquisitions;
   assert.throws(
@@ -4673,7 +4824,7 @@ function runAppsScriptRegression() {
     organizerKey: "gas-organizer-key",
   });
   assert.equal(lockState.acquisitions, beforeAttendeeDependentWrites + 3);
-  result = gas.actionLoginAttendee({ name: "Avery", raffleNumber: "1001", portal: "phase2" });
+  result = gas.actionLoginAttendee({ name: "Avery", phone: "6155550101", portal: "phase2" });
   assert.equal(result.wristbandConfirmed, true);
   assert.equal(result.wristbandColor, "blue");
   assertIsoTimestamp(result.serverNow, "Apps Script Phase 2 login serverNow");
@@ -5135,7 +5286,14 @@ function runAppsScriptRegression() {
   assert.equal(JSON.stringify(liveAttendees.rows), previousLiveAttendees);
 
   assert.equal(post("registerAttendee", { attendeeId: "gas-http-entry", name: "HTTP" }).raffleNumber, "1004");
-  assert.equal(post("loginAttendee", { name: "HTTP", raffleNumber: "1004", portal: "phase3" }).attendeeId, "gas-http-entry");
+  assert.equal(post("findOrRegisterByPhone", {
+    phone: "6155550404", raffleNumber: "1004", organizerKey: "gas-organizer-key",
+  }).requiresPairingConfirmation, true);
+  assert.equal(post("findOrRegisterByPhone", {
+    phone: "6155550404", raffleNumber: "1004", confirmPairing: true,
+    organizerKey: "gas-organizer-key",
+  }).attendeeId, "gas-http-entry");
+  assert.equal(post("loginAttendee", { name: "HTTP", phone: "6155550404", portal: "phase3" }).attendeeId, "gas-http-entry");
   assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Firm Foundation" }).songTitle, "Firm Foundation");
   assert.equal(post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt, null);
   const httpPhase3Finish = post("saveSignupSelections", { attendeeId: "gas-http-entry", optionIds: [] });

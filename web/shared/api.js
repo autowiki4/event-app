@@ -1,6 +1,6 @@
-/* Thin fetch wrapper around the backend API. Core journey actions work with
-   demo-server/server.js (plain Node + JSON) or apps-script/Code.gs; the Node
-   service additionally supplies the shared-clock and reset actions. */
+/* Thin fetch wrapper around the backend API. The current phone-verification,
+   shared-clock, reset, and leader-paced journey uses demo-server/server.js.
+   apps-script/Code.gs remains a limited legacy adapter and Sheet export sink. */
 const EventAPI = (function () {
   function base() {
     return window.EVENT_APP_CONFIG.API_BASE_URL;
@@ -20,6 +20,12 @@ const EventAPI = (function () {
       const err = new Error((data && data.error) || (action + " failed: " + res.status));
       err.code = (data && data.code) || "REQUEST_FAILED";
       err.status = res.status;
+      if (data && Number.isFinite(Number(data.retryAfterSeconds))) {
+        err.retryAfterSeconds = Math.max(0, Number(data.retryAfterSeconds));
+      }
+      if (data && Number.isFinite(Number(data.attemptsRemaining))) {
+        err.attemptsRemaining = Math.max(0, Number(data.attemptsRemaining));
+      }
       throw err;
     }
     return data;
@@ -40,8 +46,22 @@ const EventAPI = (function () {
 
   return {
     registerAttendee: (attendeeId, name) => call("registerAttendee", { attendeeId, name }),
+    startAttendeeRegistration: (attendeeId, name, phone) => call("startAttendeeRegistration", {
+      attendeeId,
+      name,
+      phone,
+    }),
+    verifyAttendeePhone: (attendeeId, challengeId, code) => call("verifyAttendeePhone", {
+      attendeeId,
+      challengeId,
+      code,
+    }),
+    resendAttendeePhoneCode: (attendeeId, challengeId) => call("resendAttendeePhoneCode", {
+      attendeeId,
+      challengeId,
+    }),
     confirmWristband: (attendeeId, wristbandColor) => call("confirmWristband", { attendeeId, wristbandColor }),
-    loginAttendee: (name, raffleNumber, portal) => call("loginAttendee", { name, raffleNumber, portal }),
+    loginAttendee: (name, phone, portal) => call("loginAttendee", { name, phone, portal }),
     attendeePortalSession: (attendeeId, portal) => call("attendeePortalSession", { attendeeId, portal }),
     findOrRegisterByPhone: (attendeeId, phone, name, options) => call("findOrRegisterByPhone", {
       attendeeId,

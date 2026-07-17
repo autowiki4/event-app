@@ -10,6 +10,10 @@ The Node JSON database remains the source of truth. Apps Script receives a
 debounced full snapshot and replaces seven `Live_*` tabs. Do **not** point
 `web/shared/config.js` at Apps Script for this arrangement.
 
+Verified attendee phone numbers appear in the live operational rows. Pending
+welcome-code challenges, code digests, attempt counters, and Twilio message
+IDs are intentionally absent from the snapshot and never reach this Sheet.
+
 ## Access required
 
 You need a Google account that can:
@@ -163,8 +167,8 @@ The `/exec` URL stays the same.
 `Code.gs` still includes the older attendee and staff API actions for
 compatibility testing. Pointing `API_BASE_URL` directly at its `/exec` URL is
 not the recommended current deployment: that mode lacks the Node shared clock,
-full reset, and specialized leader-paced run controllers. Use the export-sink
-setup above for the full experience.
+full reset, first-time welcome SMS/OTP, and specialized leader-paced run
+controllers. Use the export-sink setup above for the full experience.
 
 See `SHEET_SCHEMA.md` for the exact export columns and the separate legacy tab
 schemas.

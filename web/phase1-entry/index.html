@@ -16,9 +16,9 @@
   <div class="progress" id="progress"></div>
 
   <section class="screen" id="s-welcome">
-    <p class="eyebrow">Lobby · Registration (Phase 1 of 3)</p>
-    <h1 class="display">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
-    <p class="lede">Scan this QR code once at the door. Enter your name, receive your raffle number, and keep this same experience open as you move through the event.</p>
+    <p class="eyebrow" id="welcome-eyebrow">Lobby · Registration (Phase 1 of 3)</p>
+    <h1 class="display" id="welcome-title">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
+    <p class="lede" id="welcome-copy">Scan this QR code once at the door. Enter your name and mobile number, then we’ll text your welcome code, raffle number, and link back to your live event schedule.</p>
     <div class="placeholder-note" id="event-reset-note" style="display:none; margin-bottom:16px;">
       <strong>The organizer started a fresh event.</strong>
       <p style="margin:5px 0 0;">Previous rehearsal data was cleared. Register again to receive a new raffle number.</p>
@@ -27,11 +27,33 @@
     <div class="field">
       <label for="in-name">Your name</label>
       <input id="in-name" type="text" placeholder="e.g. Jordan Lee" autocomplete="name">
-      <div class="err" id="err-name">Enter your name to continue.</div>
+    </div>
+    <div class="field">
+      <label for="in-phone">Your mobile number</label>
+      <input id="in-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
+      <div class="err" id="err-registration">Enter your name and a valid 10-digit mobile number.</div>
     </div>
 
-    <button class="btn btn-primary" id="btn-welcome-next">Experience Heaven →</button>
-    <p class="top-note">Your name, raffle number, wristband route, and booth schedule stay together on this device.</p>
+    <button class="btn btn-primary" id="btn-welcome-next">Text my event pass →</button>
+    <p class="top-note" id="welcome-note">We’ll send one transactional welcome/verification text. Message and data rates may apply. Your number is also used to restore your event pass; it is not a booth question.</p>
+  </section>
+
+  <section class="screen" id="s-code" style="display:none;">
+    <p class="eyebrow">One quick check</p>
+    <h1 class="display">Check your <em>messages.</em></h1>
+    <p class="lede">We sent a 6-digit code to <strong id="otp-phone">your phone</strong>. That same welcome text includes your raffle number and a link you can tap anytime to reopen this event guide.</p>
+    <div class="placeholder-note" id="otp-console-note" style="display:none; margin-bottom:16px;">
+      <strong>Local rehearsal mode</strong>
+      <p style="margin:5px 0 0;">The code is printed in the terminal running the Node server because live SMS credentials are not being used locally.</p>
+    </div>
+    <div class="field">
+      <label for="in-otp">Welcome code</label>
+      <input id="in-otp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code">
+      <div class="err" id="err-otp"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-verify-otp">Verify &amp; show my raffle pass →</button>
+    <button class="btn btn-ghost" id="btn-resend-otp" style="margin-top:10px;" disabled>Send another code in 60s</button>
+    <button class="btn-link" id="btn-change-phone" type="button" style="display:block; width:100%; text-align:center; margin-top:14px; border:0; background:none;">Change name or number</button>
   </section>
 
   <section class="screen" id="s-pass" style="display:none;">
@@ -77,6 +99,7 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/phone.js"></script>
 <script src="../shared/identity.js"></script>
 <script src="../shared/toast.js"></script>
 <script src="../shared/booths-config.js"></script>
@@ -85,11 +108,24 @@
 <script src="../shared/attendee-menu.js"></script>
 <script>
 const phase1DemoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
+const phase1Params = new URLSearchParams(window.location.search);
+const returnLinkMode = phase1Params.get("resume") === "1" && !phase1Params.has("eventReset");
 const phase1DemoClockReady = phase1DemoBackend && typeof EventSchedule.startDemoClockSync === "function"
   ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
-if (new URLSearchParams(window.location.search).has("eventReset")) {
+if (phase1Params.has("eventReset")) {
   document.getElementById("event-reset-note").style.display = "block";
+}
+if (returnLinkMode) {
+  document.getElementById("welcome-eyebrow").textContent = "Attendee return link";
+  document.getElementById("welcome-title").innerHTML = "Welcome <em>back.</em>";
+  document.getElementById("welcome-copy").textContent = "Enter the same name and mobile number you used at registration. We’ll reopen your raffle pass and take you to the right point in the event.";
+  document.getElementById("welcome-note").textContent = "No raffle number or new verification code is needed. Your phone number is only used to match the event pass you already verified.";
+  document.getElementById("btn-welcome-next").textContent = "Open my event pass →";
+}
+
+function welcomeButtonLabel() {
+  return returnLinkMode ? "Open my event pass →" : "Text my event pass →";
 }
 
 function renderProgress(phaseIndex) {
@@ -104,6 +140,12 @@ function renderProgress(phaseIndex) {
 renderProgress(0);
 
 let selectedWristbandColor = "";
+let pendingRegistration = null;
+let resendTimer = null;
+let otpExpiryTimer = null;
+const PENDING_REGISTRATION_KEY = "eventapp.pending-registration.v1";
+const registrationPhoneInput = document.getElementById("in-phone");
+Phone.bind(registrationPhoneInput);
 const wristbandPicker = document.getElementById("wristband-picker");
 wristbandPicker.innerHTML = WRISTBAND_COLORS.map((color) => `
   <label class="wristband-choice" style="--wristband-color:${color.hex}">
@@ -118,9 +160,85 @@ function updateWristbandConfirmation() {
   document.getElementById("btn-enter-gym").disabled = !(handedOver && selectedWristbandColor);
 }
 
+function persistPendingRegistration() {
+  if (!pendingRegistration) return false;
+  // Store only the server-issued challenge metadata needed to survive a
+  // mobile refresh. The six-digit OTP is never written to browser storage.
+  const stored = {
+    attendeeId: pendingRegistration.attendeeId,
+    challengeId: pendingRegistration.challengeId,
+    name: pendingRegistration.name,
+    phone: pendingRegistration.phone,
+    maskedPhone: pendingRegistration.maskedPhone || "",
+    deliveryMode: pendingRegistration.deliveryMode || "",
+    expiresAt: pendingRegistration.expiresAt,
+    resendAvailableAt: pendingRegistration.resendAvailableAt,
+  };
+  try {
+    localStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify(stored));
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function clearPendingRegistration() {
+  pendingRegistration = null;
+  if (resendTimer) window.clearInterval(resendTimer);
+  if (otpExpiryTimer) window.clearTimeout(otpExpiryTimer);
+  resendTimer = null;
+  otpExpiryTimer = null;
+  try { localStorage.removeItem(PENDING_REGISTRATION_KEY); } catch (error) { /* best effort */ }
+}
+
+function expirePendingRegistration() {
+  if (!pendingRegistration) return;
+  const expiresMs = Date.parse(pendingRegistration.expiresAt);
+  if (Number.isFinite(expiresMs) && expiresMs > Date.now()) {
+    schedulePendingRegistrationExpiry();
+    return;
+  }
+  const expired = pendingRegistration;
+  clearPendingRegistration();
+  document.getElementById("in-name").value = expired.name || "";
+  registrationPhoneInput.value = Phone.formatInput(expired.phone || "");
+  document.getElementById("s-code").style.display = "none";
+  document.getElementById("s-pass").style.display = "none";
+  document.getElementById("s-welcome").style.display = "block";
+  const error = document.getElementById("err-registration");
+  error.textContent = "That welcome code expired. Request a new text to continue.";
+  error.style.display = "block";
+  const button = document.getElementById("btn-welcome-next");
+  button.disabled = false;
+  button.textContent = welcomeButtonLabel();
+}
+
+function schedulePendingRegistrationExpiry() {
+  if (otpExpiryTimer) window.clearTimeout(otpExpiryTimer);
+  if (!pendingRegistration) return;
+  const expiresMs = Date.parse(pendingRegistration.expiresAt);
+  if (!Number.isFinite(expiresMs)) {
+    clearPendingRegistration();
+    return;
+  }
+  const remainingMs = expiresMs - Date.now();
+  if (remainingMs <= 0) {
+    expirePendingRegistration();
+    return;
+  }
+  otpExpiryTimer = window.setTimeout(expirePendingRegistration, remainingMs + 50);
+}
+
 function showRegistration(attendeeIdentity) {
   const saved = attendeeIdentity || Identity.peek();
-  if (!saved.attendeeId || !saved.name || !saved.raffleNumber) return false;
+  if (
+    !saved.attendeeId
+      || !saved.name
+      || !saved.raffleNumber
+      || !saved.phone
+      || !(saved.phoneVerified || saved.phoneLinked)
+  ) return false;
+  clearPendingRegistration();
   document.getElementById("ticket-name").textContent = "Hey, " + saved.name + ".";
   document.getElementById("ticket-number").textContent = "#" + saved.raffleNumber;
   document.getElementById("phase1-attendee-name").textContent = saved.name;
@@ -137,6 +255,112 @@ function showRegistration(attendeeIdentity) {
   return true;
 }
 
+function setResendCountdown(seconds) {
+  if (resendTimer) window.clearInterval(resendTimer);
+  const button = document.getElementById("btn-resend-otp");
+  const availableAt = Date.now() + (Math.max(0, Number(seconds) || 0) * 1000);
+  function render() {
+    const remaining = Math.max(0, Math.ceil((availableAt - Date.now()) / 1000));
+    button.disabled = remaining > 0;
+    button.textContent = remaining > 0
+      ? `Send another code in ${remaining}s`
+      : "Send another welcome code";
+    return remaining;
+  }
+  if (!render()) return;
+  resendTimer = window.setInterval(() => {
+    if (!render()) {
+      window.clearInterval(resendTimer);
+      resendTimer = null;
+    }
+  }, 1000);
+}
+
+function renderOtpChallenge({ focus = true } = {}) {
+  if (!pendingRegistration) return false;
+  document.getElementById("otp-phone").textContent = pendingRegistration.maskedPhone
+    || Phone.formatDisplay(pendingRegistration.phone);
+  document.getElementById("otp-console-note").style.display = pendingRegistration.deliveryMode === "console" ? "block" : "none";
+  document.getElementById("err-otp").style.display = "none";
+  document.getElementById("in-otp").value = "";
+  document.getElementById("s-welcome").style.display = "none";
+  document.getElementById("s-pass").style.display = "none";
+  document.getElementById("s-code").style.display = "block";
+  const resendMs = Number(pendingRegistration.resendAvailableAt) || Date.now();
+  setResendCountdown(Math.max(0, Math.ceil((resendMs - Date.now()) / 1000)));
+  schedulePendingRegistrationExpiry();
+  if (focus) document.getElementById("in-otp").focus();
+  return true;
+}
+
+function showOtpChallenge(result, name, phone) {
+  const now = Date.now();
+  const prior = pendingRegistration;
+  pendingRegistration = {
+    attendeeId: result.attendeeId,
+    challengeId: result.challengeId,
+    name,
+    phone,
+    maskedPhone: result.maskedPhone || (prior && prior.maskedPhone) || "",
+    deliveryMode: result.deliveryMode || (prior && prior.deliveryMode) || "",
+    expiresAt: result.expiresAt || (prior && prior.expiresAt) || new Date(now + (10 * 60 * 1000)).toISOString(),
+    resendAvailableAt: now + (Math.max(0, Number(result.resendAfterSeconds) || 0) * 1000),
+  };
+  persistPendingRegistration();
+  renderOtpChallenge();
+}
+
+function restorePendingRegistration() {
+  let stored;
+  try { stored = JSON.parse(localStorage.getItem(PENDING_REGISTRATION_KEY) || "null"); }
+  catch (error) { stored = null; }
+  const saved = Identity.peek();
+  const phone = Phone.digits(stored && stored.phone);
+  const expiresMs = Date.parse(stored && stored.expiresAt);
+  const valid = stored
+    && typeof stored === "object"
+    && String(stored.attendeeId || "")
+    && String(stored.challengeId || "")
+    && String(stored.name || "").trim()
+    && phone.length === 10
+    && saved.attendeeId === stored.attendeeId
+    && Number.isFinite(expiresMs);
+  if (!valid) {
+    clearPendingRegistration();
+    return false;
+  }
+  pendingRegistration = {
+    attendeeId: String(stored.attendeeId),
+    challengeId: String(stored.challengeId),
+    name: String(stored.name).trim(),
+    phone,
+    maskedPhone: String(stored.maskedPhone || ""),
+    deliveryMode: String(stored.deliveryMode || ""),
+    expiresAt: new Date(expiresMs).toISOString(),
+    resendAvailableAt: Number(stored.resendAvailableAt) || Date.now(),
+  };
+  if (expiresMs <= Date.now()) {
+    expirePendingRegistration();
+    return false;
+  }
+  document.getElementById("in-name").value = pendingRegistration.name;
+  registrationPhoneInput.value = Phone.formatInput(pendingRegistration.phone);
+  return renderOtpChallenge({ focus: false });
+}
+
+function saveVerifiedIdentity(result, pending) {
+  return Identity.replace({
+    attendeeId: result.attendeeId || pending.attendeeId,
+    name: result.name || pending.name,
+    raffleNumber: String(result.raffleNumber),
+    wristbandColor: result.wristbandColor || "",
+    phone: pending.phone,
+    phoneLinked: true,
+    phoneVerified: true,
+    email: "",
+  });
+}
+
 wristbandPicker.querySelectorAll('input[name="wristband-color"]').forEach((input) => {
   input.addEventListener("change", (event) => {
     selectedWristbandColor = event.target.value;
@@ -146,46 +370,153 @@ wristbandPicker.querySelectorAll('input[name="wristband-color"]').forEach((input
 });
 
 document.getElementById("btn-welcome-next").addEventListener("click", async () => {
-  const val = document.getElementById("in-name").value.trim();
-  const err = document.getElementById("err-name");
-  if (!val) { err.style.display = "block"; return; }
+  const name = document.getElementById("in-name").value.trim();
+  const phone = Phone.digits(registrationPhoneInput);
+  const err = document.getElementById("err-registration");
+  if (!name || !Phone.isValid(registrationPhoneInput)) {
+    err.textContent = "Enter your name and a valid 10-digit mobile number.";
+    err.style.display = "block";
+    return;
+  }
   err.style.display = "none";
 
   const btn = document.getElementById("btn-welcome-next");
-  btn.disabled = true; btn.textContent = "Registering…";
+  btn.disabled = true;
+  btn.textContent = returnLinkMode ? "Opening event pass…" : "Sending welcome text…";
   try {
     const identity = Identity.get();
-    const result = await EventAPI.registerAttendee(identity.attendeeId, val);
+    if (returnLinkMode) {
+      const result = await EventAPI.loginAttendee(name, phone, "phase1");
+      AttendeePortal.acceptDataReset(result.dataResetAt);
+      const savedIdentity = saveVerifiedIdentity(result, {
+        attendeeId: result.attendeeId || identity.attendeeId,
+        name,
+        phone,
+      });
+      if (savedIdentity.wristbandColor) {
+        window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+        return;
+      }
+      showRegistration(savedIdentity);
+      return;
+    }
+    const result = await EventAPI.startAttendeeRegistration(identity.attendeeId, name, phone);
     AttendeePortal.acceptDataReset(result.dataResetAt);
-    const savedIdentity = Identity.replace({
-      attendeeId: result.attendeeId || identity.attendeeId,
-      name: val,
-      raffleNumber: result.raffleNumber,
-      wristbandColor: result.wristbandColor || "",
-      phone: result.isNew ? "" : identity.phone || "",
-      phoneLinked: result.isNew ? false : !!(identity.phone || identity.phoneLinked),
-      email: result.isNew ? "" : identity.email || "",
-    });
+    if (result.alreadyRegistered) {
+      clearPendingRegistration();
+      const savedIdentity = saveVerifiedIdentity(result, {
+        attendeeId: result.attendeeId || identity.attendeeId,
+        name,
+        phone,
+      });
+      if (savedIdentity.wristbandColor) {
+        window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+        return;
+      }
+      showRegistration(savedIdentity);
+      return;
+    }
+    showOtpChallenge(result, name, phone);
+  } catch (e) {
+    console.error(e);
+    err.textContent = e.message || "Couldn't send the welcome text. Check the connection and try again.";
+    err.style.display = "block";
+    btn.disabled = false; btn.textContent = welcomeButtonLabel();
+  }
+});
+
+document.getElementById("btn-verify-otp").addEventListener("click", async () => {
+  if (!pendingRegistration) return;
+  const registration = pendingRegistration;
+  const code = document.getElementById("in-otp").value.replace(/\D/g, "");
+  const error = document.getElementById("err-otp");
+  if (code.length !== 6) {
+    error.textContent = "Enter the 6-digit code from your welcome text.";
+    error.style.display = "block";
+    return;
+  }
+  error.style.display = "none";
+  const button = document.getElementById("btn-verify-otp");
+  button.disabled = true;
+  button.textContent = "Verifying…";
+  try {
+    const result = await EventAPI.verifyAttendeePhone(
+      registration.attendeeId,
+      registration.challengeId,
+      code
+    );
+    if (!pendingRegistration || pendingRegistration.challengeId !== registration.challengeId) return;
+    clearPendingRegistration();
+    const savedIdentity = saveVerifiedIdentity(result, registration);
+    document.getElementById("s-code").style.display = "none";
     if (savedIdentity.wristbandColor) {
       window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
       return;
     }
     showRegistration(savedIdentity);
-  } catch (e) {
-    console.error(e);
-    toast("Couldn't register — check the connection and try again.");
-    btn.disabled = false; btn.textContent = "Experience Heaven →";
+  } catch (verifyError) {
+    console.error(verifyError);
+    error.textContent = verifyError.message || "That code could not be verified.";
+    error.style.display = "block";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Verify & show my raffle pass →";
   }
 });
 
-document.getElementById("in-name").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== "Return") return;
-  if (event.isComposing || event.repeat) return;
-  const button = document.getElementById("btn-welcome-next");
-  event.preventDefault();
-  if (button.disabled) return;
-  button.click();
+document.getElementById("btn-resend-otp").addEventListener("click", async () => {
+  if (!pendingRegistration) return;
+  const registration = pendingRegistration;
+  const button = document.getElementById("btn-resend-otp");
+  const error = document.getElementById("err-otp");
+  button.disabled = true;
+  button.textContent = "Sending…";
+  error.style.display = "none";
+  try {
+    const result = await EventAPI.resendAttendeePhoneCode(
+      registration.attendeeId,
+      registration.challengeId
+    );
+    if (!pendingRegistration || pendingRegistration.challengeId !== registration.challengeId) return;
+    showOtpChallenge(result, registration.name, registration.phone);
+    toast("A new welcome code is on its way.");
+  } catch (resendError) {
+    if (!pendingRegistration || pendingRegistration.challengeId !== registration.challengeId) return;
+    console.error(resendError);
+    error.textContent = resendError.message || "Couldn't send another code yet.";
+    error.style.display = "block";
+    const retryAfterSeconds = resendError.code === "OTP_RATE_LIMITED"
+      ? Math.max(1, Number(resendError.retryAfterSeconds) || 60)
+      : 10;
+    if (pendingRegistration) {
+      pendingRegistration.resendAvailableAt = Date.now() + (retryAfterSeconds * 1000);
+      persistPendingRegistration();
+    }
+    setResendCountdown(retryAfterSeconds);
+  }
 });
+
+document.getElementById("btn-change-phone").addEventListener("click", () => {
+  clearPendingRegistration();
+  document.getElementById("s-code").style.display = "none";
+  document.getElementById("s-welcome").style.display = "block";
+  const welcomeButton = document.getElementById("btn-welcome-next");
+  welcomeButton.disabled = false;
+  welcomeButton.textContent = welcomeButtonLabel();
+  document.getElementById("in-name").focus();
+});
+
+[["in-name", "btn-welcome-next"], ["in-phone", "btn-welcome-next"], ["in-otp", "btn-verify-otp"]]
+  .forEach(([inputId, buttonId]) => {
+    document.getElementById(inputId).addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== "Return") return;
+      if (event.isComposing || event.repeat) return;
+      const button = document.getElementById(buttonId);
+      event.preventDefault();
+      if (button.disabled) return;
+      button.click();
+    });
+  });
 
 document.getElementById("in-wristband").addEventListener("change", (e) => {
   updateWristbandConfirmation();
@@ -215,14 +546,29 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
 async function resumeSavedAttendee() {
   await phase1DemoClockReady;
   const saved = Identity.peek();
-  if (!saved.attendeeId || !saved.name || !saved.raffleNumber) return;
-  if (saved.wristbandColor) {
-    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+  const hasVerifiedIdentity = Boolean(
+    saved.attendeeId
+      && saved.name
+      && saved.raffleNumber
+      && saved.phone
+      && (saved.phoneVerified || saved.phoneLinked)
+  );
+  if (hasVerifiedIdentity) {
+    clearPendingRegistration();
+    if (saved.wristbandColor) {
+      window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+      return;
+    }
+    showRegistration(saved);
     return;
   }
-  showRegistration(saved);
+  restorePendingRegistration();
 }
 
+if (phase1Params.has("eventReset")) clearPendingRegistration();
+// AttendeePortal owns reset detection and redirects here with `eventReset=1`.
+// Do not clear on every clock-sync event: the first sync after a mobile reload
+// also reports a changed in-memory marker even when no organizer reset occurred.
 resumeSavedAttendee();
 </script>
 </body>

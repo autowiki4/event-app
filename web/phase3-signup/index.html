@@ -14,14 +14,14 @@
   <section class="screen" id="phase3-login" style="display:none;">
     <p class="eyebrow">Phase 3 · New device</p>
     <h1 class="display">Find your <em>registration.</em></h1>
-    <p class="lede">Enter your Phase 1 name and raffle number once. If you stayed on the same device, this step is skipped automatically.</p>
+    <p class="lede">Enter the name and mobile number used at registration. Your raffle number is still shown on your pass, but it is not used to sign in.</p>
     <div class="field">
       <label for="phase3-name">Name used in Phase 1</label>
       <input id="phase3-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
-      <label for="phase3-raffle">Raffle number</label>
-      <input id="phase3-raffle" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 1001">
+      <label for="phase3-phone">Mobile number</label>
+      <input id="phase3-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="err" id="phase3-login-error"></div>
     </div>
     <button class="btn btn-primary" id="btn-phase3-login">Open Phase 3 →</button>
@@ -54,6 +54,7 @@
 
 <script src="../shared/config.js"></script>
 <script src="../shared/api.js"></script>
+<script src="../shared/phone.js"></script>
 <script src="../shared/identity.js"></script>
 <script src="../shared/journey-state.js"></script>
 <script src="../shared/toast.js"></script>
@@ -83,6 +84,8 @@ let completedBooths = new Set();
 let phase2RouteComplete = false;
 let scheduleRedirecting = false;
 let portalReady = false;
+const phase3PhoneInput = document.getElementById("phase3-phone");
+Phone.bind(phase3PhoneInput);
 
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
 const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync === "function"
@@ -214,16 +217,16 @@ document.getElementById("btn-skip").addEventListener("click", () => finish([]));
 
 document.getElementById("btn-phase3-login").addEventListener("click", async () => {
   const name = document.getElementById("phase3-name").value.trim();
-  const raffleNumber = document.getElementById("phase3-raffle").value.trim();
-  if (!name || !raffleNumber) {
-    showLogin("Enter both your Phase 1 name and raffle number.");
+  const phone = Phone.digits(phase3PhoneInput);
+  if (!name || !Phone.isValid(phase3PhoneInput)) {
+    showLogin("Enter the name and 10-digit mobile number used at registration.");
     return;
   }
   const button = document.getElementById("btn-phase3-login");
   button.disabled = true;
   button.textContent = "Finding registration…";
   try {
-    await showPortal(await AttendeePortal.signIn("phase3", name, raffleNumber));
+    await showPortal(await AttendeePortal.signIn("phase3", name, phone));
   } catch (error) {
     console.error(error);
     showLogin(error.message || "We couldn't find that registration.");
@@ -233,7 +236,7 @@ document.getElementById("btn-phase3-login").addEventListener("click", async () =
   }
 });
 
-["phase3-name", "phase3-raffle"].forEach((inputId) => {
+["phase3-name", "phase3-phone"].forEach((inputId) => {
   document.getElementById(inputId).addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== "Return") return;
     if (event.isComposing || event.repeat) return;

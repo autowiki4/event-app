@@ -148,6 +148,10 @@ cannot collide with the tabs used when Apps Script itself is the app backend:
 | attendeeId | aliasIds | name | phone | raffleNumber | wristbandColor | registeredAt | wristbandConfirmedAt | phase3CompletedAt | completedBoothIds | completedBoothCount | signupOptionIds |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 
+The Node server creates an attendee only after the first-time phone code is
+verified. Pending OTP challenges, HMAC digests, attempt/expiry state, and SMS
+provider message IDs are never included in any `Live_*` tab.
+
 ### Live_BoothResults
 
 | id | attendeeId | name | phone | raffleNumber | wristbandColor | boothId | boothName | checkedInBy | checkedInAt | sessionNumber | runId | runNumber | score | correctCount | answeredCount | totalQuestions | votedFor | featuredWinner | extraData |

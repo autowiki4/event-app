@@ -28,7 +28,8 @@ intermediate Phase 1 completion link.
 Place a small number at the help desk or central navigation signs. It is a
 recovery path for someone who closed the tab or changed devices, not a code
 that must be scanned at each booth. On a new device, the hub asks once for the
-Phase 1 name and raffle number, then restores the correct color route. The
+registration name and phone number, then restores the same raffle and correct
+color route. The
 active route row can be reopened from the hub until its session ends, including
 after that visit has been marked complete.
 
