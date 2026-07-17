@@ -10,6 +10,7 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_CREDENTIAL_BYTES = 64 * 1024;
 const MAX_ROWS_PER_TAB = 10000;
 const MAX_CELL_LENGTH = 50000;
+const MIN_MANAGED_SHEET_ROWS = 2;
 const TOKEN_REFRESH_MARGIN_MS = 60000;
 const MANAGED_TAB_NAMES = Object.freeze([
   "Attendees",
@@ -162,7 +163,28 @@ function serviceAccountJwt(configuration, nowMs = Date.now()) {
   return `${unsigned}.${base64Url(signature)}`;
 }
 
-function googleHttpError(status, hostname) {
+function safeGoogleErrorDetail(responseBody) {
+  if (!responseBody || typeof responseBody !== "string") return "";
+  let parsed;
+  try {
+    parsed = JSON.parse(responseBody);
+  } catch (error) {
+    return "";
+  }
+  const detail = parsed && parsed.error && typeof parsed.error.message === "string"
+    ? parsed.error.message
+    : "";
+  return detail
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+function googleHttpError(status, hostname, responseBody = "") {
+  const detail = hostname === "sheets.googleapis.com"
+    ? safeGoogleErrorDetail(responseBody)
+    : "";
   let message;
   if (hostname === "oauth2.googleapis.com") {
     message = status === 429
@@ -178,6 +200,10 @@ function googleHttpError(status, hostname) {
     message = "Google Sheets is temporarily rate limited and will retry automatically.";
   } else if (status >= 500) {
     message = "Google Sheets is temporarily unavailable and will retry automatically.";
+  } else if (status === 400) {
+    message = detail
+      ? `Google Sheets rejected the update (HTTP 400): ${detail}`
+      : "Google Sheets rejected the update (HTTP 400).";
   } else {
     message = `Google Sheets returned HTTP ${status}.`;
   }
@@ -228,7 +254,7 @@ function googleRequestJson(urlValue, options = {}) {
       });
       response.on("end", () => {
         if (status < 200 || status >= 300) {
-          reject(googleHttpError(status, url.hostname));
+          reject(googleHttpError(status, url.hostname, responseBody));
           return;
         }
         if (!responseBody) {
@@ -378,6 +404,7 @@ function sheetMapFromMetadata(metadata) {
     result.set(properties.title, {
       sheetId: properties.sheetId,
       title: properties.title,
+      sheetType: properties.sheetType || (properties.gridProperties ? "GRID" : ""),
       rowCount: Math.max(1, Number(grid.rowCount) || 1),
       columnCount: Math.max(1, Number(grid.columnCount) || 1),
       frozenRowCount: Math.max(0, Number(grid.frozenRowCount) || 0),
@@ -407,9 +434,16 @@ function buildAtomicSnapshotRequests(snapshot, metadata) {
   MANAGED_TAB_NAMES.forEach((name) => {
     const title = `Live_${name}`;
     const matrix = matrices[name];
-    const requiredRows = Math.max(1, matrix.length);
+    // A tab with only its header still needs one unfrozen row. Google rejects
+    // a grid where frozenRowCount equals the total rowCount.
+    const requiredRows = Math.max(MIN_MANAGED_SHEET_ROWS, matrix.length);
     const requiredColumns = matrix[0].length;
     const current = existing.get(title);
+    if (current && current.sheetType && current.sheetType !== "GRID") {
+      throw new Error(
+        `Google Sheets tab ${title} must be a standard grid sheet. Rename or delete that tab and sync again.`
+      );
+    }
     if (!current) {
       const sheet = {
         sheetId: allocateSheetId(title, usedIds),
@@ -503,7 +537,7 @@ function createGoogleSheetsServiceAccountSink(options = {}) {
     }
     const spreadsheetPath = `/spreadsheets/${encodeURIComponent(configuration.spreadsheetId)}`;
     const metadata = await api.request(
-      `${spreadsheetPath}?fields=sheets.properties(sheetId,title,gridProperties(rowCount,columnCount,frozenRowCount))`,
+      `${spreadsheetPath}?fields=sheets.properties(sheetId,title,sheetType,gridProperties(rowCount,columnCount,frozenRowCount))`,
       { method: "GET" }
     );
     const requests = buildAtomicSnapshotRequests(snapshot, metadata);
@@ -526,6 +560,7 @@ module.exports = {
   buildAtomicSnapshotRequests,
   createGoogleApiClient,
   createGoogleSheetsServiceAccountSink,
+  googleHttpError,
   googleRequestJson,
   parseServiceAccountConfiguration,
   serviceAccountJwt,

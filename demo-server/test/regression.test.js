@@ -28,6 +28,7 @@ const {
   MANAGED_TAB_NAMES,
   buildAtomicSnapshotRequests,
   createGoogleSheetsServiceAccountSink,
+  googleHttpError,
   parseServiceAccountConfiguration,
   serviceAccountJwt,
 } = require("../google-sheets-service-account");
@@ -565,6 +566,58 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal("formulaValue" in formulaNameCell.userEnteredValue, false);
   assert.equal(JSON.stringify(atomicRequests).includes('"sheetId":999'), false, "unmanaged tabs must not be changed");
 
+  const firstSyncRequests = buildAtomicSnapshotRequests(
+    buildExportSnapshot({}, { generatedAt: "2026-07-18T21:59:59.000Z" }),
+    { sheets: [] }
+  );
+  const emptyAttendeesAdd = firstSyncRequests.find((entry) => (
+    entry.addSheet && entry.addSheet.properties.title === "Live_Attendees"
+  ));
+  assert.equal(emptyAttendeesAdd.addSheet.properties.gridProperties.rowCount, 2);
+  assert.equal(emptyAttendeesAdd.addSheet.properties.gridProperties.frozenRowCount, 1);
+  const emptyAttendeesUpdate = firstSyncRequests.find((entry) => (
+    entry.updateCells
+      && entry.updateCells.range.sheetId === emptyAttendeesAdd.addSheet.properties.sheetId
+  ));
+  assert.equal(emptyAttendeesUpdate.updateCells.rows.length, 1);
+  assert.equal(emptyAttendeesUpdate.updateCells.range.endRowIndex, 2);
+
+  const detailedBadRequest = googleHttpError(
+    400,
+    "sheets.googleapis.com",
+    JSON.stringify({
+      error: {
+        code: 400,
+        message: "Invalid requests[0].addSheet: You can't freeze all rows on a sheet.\n",
+        status: "INVALID_ARGUMENT",
+      },
+    })
+  );
+  assert.equal(detailedBadRequest.statusCode, 400);
+  assert.equal(
+    detailedBadRequest.message,
+    "Google Sheets rejected the update (HTTP 400): Invalid requests[0].addSheet: You can't freeze all rows on a sheet."
+  );
+  assert.equal(
+    googleHttpError(400, "oauth2.googleapis.com", JSON.stringify({
+      error: { message: "do-not-display-oauth-details" },
+    })).message,
+    "Google service-account authentication failed. Check the JSON key and redeploy Render."
+  );
+
+  assert.throws(
+    () => buildAtomicSnapshotRequests(snapshot, {
+      sheets: [{
+        properties: {
+          sheetId: 777,
+          title: "Live_Attendees",
+          sheetType: "OBJECT",
+        },
+      }],
+    }),
+    /Live_Attendees must be a standard grid sheet/
+  );
+
   const fullMetadata = {
     sheets: MANAGED_TAB_NAMES.map((name, index) => ({
       properties: {
@@ -604,6 +657,9 @@ async function runGoogleSheetsExporterRegression() {
   await directSink.writeSnapshot(emptySnapshot);
   assert.equal(tokenCalls, 1, "the service-account token should be reused until its refresh window");
   const directBatches = serviceAccountCalls.filter((call) => call.url.endsWith(":batchUpdate"));
+  const metadataCalls = serviceAccountCalls.filter((call) => call.options.method === "GET");
+  assert.equal(metadataCalls.length, 2);
+  assert.equal(metadataCalls.every((call) => call.url.includes("sheetType")), true);
   assert.equal(directBatches.length, 2);
   directBatches.forEach((call) => {
     assert.equal(call.options.method, "POST");
