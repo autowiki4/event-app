@@ -27,6 +27,10 @@ const AttendeePortal = (() => {
       // Restricted embedded browsers use the in-memory baseline for the
       // current page. A normal browser also persists it across reopen.
     }
+    if (previous && previous !== "initial" && dataResetAt === "initial") return;
+    const previousMs = Date.parse(previous || "");
+    const incomingMs = Date.parse(dataResetAt);
+    if (Number.isFinite(previousMs) && Number.isFinite(incomingMs) && incomingMs <= previousMs) return;
     acceptDataReset(dataResetAt);
     if (!previous || previous === dataResetAt || !Identity.peek().attendeeId) return;
 
@@ -97,6 +101,7 @@ const AttendeePortal = (() => {
       name: result.name,
       raffleNumber: String(result.raffleNumber),
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
+      phase3CompletedAt: result.phase3CompletedAt || (sameAttendee ? previous.phase3CompletedAt || null : null),
       phone: savedPhone,
       phoneLinked: !!result.phoneLinked || savedPhone.length === 10,
       email: sameAttendee ? previous.email || "" : "",

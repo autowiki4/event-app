@@ -121,10 +121,9 @@ const FINAL_SIGNUP_OPTIONS = {
   friend: "Help me invite a friend",
 };
 const NEW_SONG_CHOICES = [
-  "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life", "Reckless Love",
-  "King of Kings", "Living Hope", "Graves Into Gardens", "Raise a Hallelujah", "The Blessing",
-  "O Come to the Altar", "Do It Again", "House of the Lord", "Same God", "Great Things",
-  "Battle Belongs", "Jireh", "Yes I Will", "Firm Foundation", "Champion",
+  "He Turned It", "Victory", "Brighter Day", "Praise - elevation worship",
+  "I thank God - maverick city", "Amen- Madison Ryann Ward", "Quick - Caleb Gordon",
+  "Goodbye Yesterday - elevation rhythm", "He called me", "247", "Elohim",
 ];
 
 const HEADERS = {
@@ -1181,7 +1180,6 @@ function actionDashboardData(payload) {
   return withScriptLock(() => {
     const attendees = readRows(SHEET_NAMES.ATTENDEES);
     const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS);
-    const liveSongVotes = readRows(SHEET_NAMES.SONG_VOTES);
     const signups = readRows(SHEET_NAMES.SIGNUPS);
     const eventState = eventSessionState();
 
@@ -1204,38 +1202,6 @@ function actionDashboardData(payload) {
     const boothCounts = Object.keys(boothCountsMap)
       .map((k) => boothCountsMap[k])
       .sort((a, b) => b.count - a.count);
-
-    const triviaLeaderboard = checkins
-      .filter((c) => c.boothId === "trivia" && c.extraData)
-      .map((c) => {
-        const extra = toJsonSafe(c.extraData, {});
-        return { name: c.name || "Guest", score: Number(extra.score) || 0 };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
-
-    const songVoteByAttendee = {};
-    checkins
-      .filter((c) => c.boothId === "newsong" && c.extraData)
-      .forEach((c) => {
-        const extra = toJsonSafe(c.extraData, {});
-        if (NEW_SONG_CHOICES.indexOf(extra.votedFor) !== -1) {
-          songVoteByAttendee[String(c.attendeeId)] = extra.votedFor;
-        }
-      });
-    liveSongVotes.forEach((vote) => {
-      if (NEW_SONG_CHOICES.indexOf(String(vote.songTitle)) !== -1) {
-        songVoteByAttendee[String(vote.attendeeId)] = String(vote.songTitle);
-      }
-    });
-    const songVotesMap = {};
-    Object.keys(songVoteByAttendee).forEach((attendeeId) => {
-      const title = songVoteByAttendee[attendeeId];
-      songVotesMap[title] = (songVotesMap[title] || 0) + 1;
-    });
-    const songVotes = Object.keys(songVotesMap)
-      .map((title) => ({ title, votes: songVotesMap[title] }))
-      .sort((a, b) => b.votes - a.votes);
 
     const signupsOut = signups
       .slice()
@@ -1261,8 +1227,6 @@ function actionDashboardData(payload) {
       wristbandCounts,
       wristbandGroups,
       boothCounts,
-      triviaLeaderboard,
-      songVotes,
       signups: signupsOut,
     };
   });

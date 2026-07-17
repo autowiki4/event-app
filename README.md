@@ -166,13 +166,15 @@ The same-origin Node/Render service can mirror its current event data into a
 Google Sheet without giving up the shared clock or the leader-paced Bible
 Bowl, Draw Heaven, and New Song features. The Node JSON database remains the
 source of truth. A bound Apps Script receives a debounced, complete snapshot
-and replaces seven `Live_*` tabs for attendees, booth results, Phase 3
-sign-ups, Bible Bowl answers, Draw Heaven confirmations, New Song votes, and
-export metadata.
+and replaces seven `Live_*` tabs for attendees, booth visits, Phase 3
+sign-ups, Draw Heaven confirmations, and export metadata. The existing
+`Live_TriviaAnswers` and `Live_SongVotes` contracts remain header-only so a
+sync clears older activity rows without requiring a new Apps Script URL.
 
 The Sheet mirror includes the collected attendee phone numbers but excludes
-attendee-entered Story answers and Art reflections;
-`Live_BoothResults.extraData` contains only allowlisted operational metadata.
+attendee-entered Story answers, Art reflections, Bible Bowl answers/scores,
+and New Song choices/results. `Live_BoothResults.extraData` contains only
+allowlisted non-activity operational metadata.
 `Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.
 
 This export is optional: without its two environment variables, the app keeps
@@ -268,17 +270,17 @@ Revelation 14:3, and releases the final completion action.
 
 The poll contains exactly these eleven choices:
 
-1. He Called Me — Eugy Official
-2. He Turned It
-3. Victory
-4. Brighter Day
-5. Praise — Elevation Worship
-6. 247 — Tbabz
-7. Elohim — Sondae
-8. I Thank God — Maverick City
-9. Amen — Madison Ryann Ward
-10. Quick — Caleb Gordon
-11. Goodbye Yesterday — Elevation Rhythm
+1. He Turned It
+2. Victory
+3. Brighter Day
+4. Praise - elevation worship
+5. I thank God - maverick city
+6. Amen- Madison Ryann Ward
+7. Quick - Caleb Gordon
+8. Goodbye Yesterday - elevation rhythm
+9. He called me
+10. 247
+11. Elohim
 
 Tallies update live within the current session and run. An attendee's first
 vote is locked; restarting a session opens a clean run while retaining the

@@ -7,17 +7,17 @@
 const NewSongAttendee = (() => {
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const CANONICAL_SONGS = [
-    "He Called Me — Eugy Official",
     "He Turned It",
     "Victory",
     "Brighter Day",
-    "Praise — Elevation Worship",
-    "247 — Tbabz",
-    "Elohim — Sondae",
-    "I Thank God — Maverick City",
-    "Amen — Madison Ryann Ward",
-    "Quick — Caleb Gordon",
-    "Goodbye Yesterday — Elevation Rhythm",
+    "Praise - elevation worship",
+    "I thank God - maverick city",
+    "Amen- Madison Ryann Ward",
+    "Quick - Caleb Gordon",
+    "Goodbye Yesterday - elevation rhythm",
+    "He called me",
+    "247",
+    "Elohim",
   ];
 
   let initialized = false;
@@ -243,7 +243,7 @@ const NewSongAttendee = (() => {
           <div class="newsong-winner-title"><small>New Song room winner</small><strong>${escapeHtml(featured)}</strong><span>${result ? `${result.maxVotes} ${result.maxVotes === 1 ? "vote" : "votes"}` : "Result revealed"}</span></div>
         `}
         ${value.vote ? `<p class="newsong-your-pick ${attendeePickWon ? "won" : ""}">${attendeePickWon ? "✨ Your pick reached the top!" : `Your vote: ${escapeHtml(value.vote.songTitle)}`}</p>` : `<p class="newsong-your-pick">Voting had already closed when you joined this run.</p>`}
-        ${cloudNote("There is another new song", "Stay with your speaker. Revelation 14:3 is coming next.", "📖")}
+        ${cloudNote("What could the new song be?", "Take a moment to guess with the room. Your speaker will reveal the next part when everyone is ready.", "🤔")}
         ${sessionMeta(value)}
       </div>
     `;

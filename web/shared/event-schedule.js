@@ -328,6 +328,43 @@ const EventSchedule = (() => {
     );
   }
 
+  function sessionTimeNotice(state) {
+    const snapshot = state || current();
+    if (!snapshot || snapshot.phase !== "active" || !snapshot.session) return null;
+    const remainingMs = Math.max(0, Number(snapshot.remainingMs) || 0);
+    const countdown = formatCountdown(remainingMs);
+    if (remainingMs <= 15000) {
+      return {
+        level: "urgent",
+        milestoneMinutes: 0,
+        title: "Final 15 seconds",
+        message: `${countdown} left in Session ${snapshot.session.number}. Finish the current step and prepare the group to move.`,
+      };
+    }
+    if (remainingMs <= 5 * 60 * 1000) {
+      return {
+        level: "urgent",
+        milestoneMinutes: 5,
+        title: "5-minute warning",
+        message: `${countdown} left in Session ${snapshot.session.number}. Begin wrapping the activity and leave time for attendees to finish.`,
+      };
+    }
+    if (remainingMs <= 10 * 60 * 1000) {
+      return {
+        level: "warning",
+        milestoneMinutes: 10,
+        title: "10-minute warning",
+        message: `${countdown} left in Session ${snapshot.session.number}. Check the room's pace and plan the final steps.`,
+      };
+    }
+    return {
+      level: "steady",
+      milestoneMinutes: 20,
+      title: "20-minute rotation underway",
+      message: `${countdown} left in Session ${snapshot.session.number}. Booth leaders and Guardian Angels are following the same shared clock.`,
+    };
+  }
+
   function groupForBooth(boothId, sessionIndex) {
     return wristbandForBoothSession(boothId, sessionIndex);
   }
@@ -392,6 +429,7 @@ const EventSchedule = (() => {
     deriveBoothStop,
     canOpenBooth,
     isEndingSoon,
+    sessionTimeNotice,
     groupForBooth,
     formatCountdown,
     formattedTime,

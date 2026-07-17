@@ -78,17 +78,22 @@ const ART_PHASES = new Set([
 const NEW_SONG_SESSION_NUMBERS = new Set([1, 2, 3]);
 const NEW_SONG_PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
 const NEW_SONG_CHOICES = Object.freeze([
-  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
-  "Praise — Elevation Worship",
-  "247 — Tbabz",
-  "Elohim — Sondae",
-  "I Thank God — Maverick City",
-  "Amen — Madison Ryann Ward",
-  "Quick — Caleb Gordon",
-  "Goodbye Yesterday — Elevation Rhythm",
+  "Praise - elevation worship",
+  "I thank God - maverick city",
+  "Amen- Madison Ryann Ward",
+  "Quick - Caleb Gordon",
+  "Goodbye Yesterday - elevation rhythm",
+  "He called me",
+  "247",
+  "Elohim",
+]);
+const NEW_SONG_CHOICE_ALIASES = new Map([
+  ["he called me-eugy official", "He called me"],
+  ["247-tbabz", "247"],
+  ["elohim-sondae", "Elohim"],
 ]);
 const LEGACY_NEW_SONG_CHOICES = new Set([
   "Great Are You Lord", "Way Maker", "Goodness of God", "Build My Life", "Reckless Love",
@@ -903,7 +908,9 @@ function normalizedNewSongKey(value) {
 
 function canonicalNewSongChoice(value) {
   const key = normalizedNewSongKey(value);
-  return NEW_SONG_CHOICES.find((title) => normalizedNewSongKey(title) === key) || null;
+  return NEW_SONG_CHOICES.find((title) => normalizedNewSongKey(title) === key)
+    || NEW_SONG_CHOICE_ALIASES.get(key)
+    || null;
 }
 
 function normalizeNewSongResult(value) {
@@ -1936,18 +1943,22 @@ function songVoteCounts(db) {
       const scopedToRun = Number.isInteger(Number(extraData.sessionNumber))
         && Boolean(extraData.runId);
       return checkin.boothId === "newsong"
-        && (canonicalNewSongChoice(votedFor) || LEGACY_NEW_SONG_CHOICES.has(votedFor))
+        && Boolean(canonicalNewSongChoice(votedFor))
         && (!scopedToRun || (
           Number(extraData.sessionNumber) === sessionNumber && extraData.runId === session.runId
         ));
     })
-    .forEach((checkin) => voteByAttendee.set(checkin.attendeeId, checkin.extraData.votedFor));
+    .forEach((checkin) => voteByAttendee.set(
+      checkin.attendeeId,
+      canonicalNewSongChoice(checkin.extraData.votedFor)
+    ));
   db.songVotes
     .filter((vote) => (
-      !vote.sessionNumber
-        || (vote.sessionNumber === sessionNumber && vote.runId === session.runId)
+      Boolean(canonicalNewSongChoice(vote.songTitle))
+        && (!vote.sessionNumber
+          || (vote.sessionNumber === sessionNumber && vote.runId === session.runId))
     ))
-    .forEach((vote) => voteByAttendee.set(vote.attendeeId, vote.songTitle));
+    .forEach((vote) => voteByAttendee.set(vote.attendeeId, canonicalNewSongChoice(vote.songTitle)));
   const totals = new Map();
   voteByAttendee.forEach((title) => totals.set(title, (totals.get(title) || 0) + 1));
   return Array.from(totals, ([title, votes]) => ({ title, votes }))
@@ -2089,8 +2100,7 @@ function saveSongVote(body) {
   const attendeeId = body && body.attendeeId;
   const requestedTitle = String((body && body.songTitle) || "").trim();
   const canonicalTitle = canonicalNewSongChoice(requestedTitle);
-  const songTitle = canonicalTitle
-    || (LEGACY_NEW_SONG_CHOICES.has(requestedTitle) ? requestedTitle : null);
+  const songTitle = canonicalTitle;
   if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
   if (!songTitle) return errorResult(400, "Choose a valid New Song option.", "INVALID_SONG_CHOICE");
 
@@ -2449,6 +2459,9 @@ function triviaState(body) {
         }
         : null,
       score: triviaScore(db, context.attendee.attendeeId, context.sessionNumber, session),
+      topThree: session.phase === "complete"
+        ? triviaLeaderboardForSession(db, context.sessionNumber, session).slice(0, 3)
+        : [],
       updatedAt: session.updatedAt,
       serverNow: eventNowIso(),
     },
@@ -3484,24 +3497,6 @@ function dashboardData(body) {
   });
   const boothCounts = Object.values(boothCountsMap).sort((a, b) => b.count - a.count);
 
-  const triviaLeaderboard = Array.from(TRIVIA_SESSION_NUMBERS).flatMap((sessionNumber) => {
-    const session = triviaSessionFromDb(db, sessionNumber);
-    return triviaLeaderboardForSession(db, sessionNumber, session).map((row) => ({
-      sessionNumber,
-      name: row.name,
-      score: row.correctCount,
-      answeredCount: row.answeredCount,
-      totalQuestions: row.totalQuestions,
-    }));
-  }).sort((a, b) => (
-    b.score - a.score
-      || b.answeredCount - a.answeredCount
-      || a.sessionNumber - b.sessionNumber
-      || a.name.localeCompare(b.name)
-  )).slice(0, 10);
-
-  const songVotes = songVoteCounts(db);
-
   const signups = db.signups
     .slice()
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
@@ -3523,8 +3518,6 @@ function dashboardData(body) {
       wristbandCounts,
       wristbandGroups,
       boothCounts,
-      triviaLeaderboard,
-      songVotes,
       signups,
       googleSheetsExport: googleSheetsExporter.status(),
     },
@@ -3798,7 +3791,9 @@ function serveStatic(req, res, pathname) {
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404, { "Content-Type": "text/plain" }); res.end("Not found: " + pathname); return; }
     const ext = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+    const headers = { "Content-Type": MIME[ext] || "application/octet-stream" };
+    if ([".html", ".js", ".json"].includes(ext)) headers["Cache-Control"] = "no-store";
+    res.writeHead(200, headers);
     res.end(data);
   });
 }

@@ -43,6 +43,7 @@
     <p class="eyebrow">Phase 3 · Tick and go</p>
     <h1 class="display">What's <em>next</em> for you?</h1>
     <p class="lede">Tick anything that fits, then finish. Your choices are already connected to the name and raffle number above.</p>
+    <p class="top-note" id="phase3-sync-note" role="status" style="display:none;"></p>
 
     <div class="opt-grid" id="opt-grid"></div>
     <button class="btn btn-primary" id="btn-submit" style="margin-top:16px;">Save &amp; finish →</button>
@@ -82,8 +83,10 @@ const selected = new Set();
 let identity = null;
 let completedBooths = new Set();
 let phase2RouteComplete = false;
+let progressAuthoritative = false;
 let scheduleRedirecting = false;
 let portalReady = false;
+let progressRetryTimer = null;
 const phase3PhoneInput = document.getElementById("phase3-phone");
 Phone.bind(phase3PhoneInput);
 
@@ -95,7 +98,7 @@ const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync ==
 function reevaluateScheduleAccess() {
   if (!identity || !portalReady || scheduleRedirecting) return;
   const schedule = EventSchedule.current();
-  if (!phase2RouteComplete && schedule.phase !== "ended") {
+  if (progressAuthoritative && !phase2RouteComplete && schedule.phase !== "ended") {
     scheduleRedirecting = true;
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
@@ -143,23 +146,33 @@ function renderOptions() {
 async function showPortal(attendeeIdentity) {
   identity = attendeeIdentity;
   await demoClockReady;
-  let signupState = { optionIds: [] };
-  try {
-    const [saved, checkins] = await Promise.all([
-      EventAPI.mySignupSelections(identity.attendeeId),
-      EventAPI.myCheckins(identity.attendeeId),
-    ]);
-    signupState = saved;
-    completedBooths = new Set(checkins.boothIds || []);
-  } catch (error) {
-    console.warn("Couldn't preload attendee progress", error);
+  if (identity.phase3CompletedAt) {
+    window.location.replace(EventSchedule.linkWithPreview("../done/index.html"));
+    return;
   }
+  let signupState = { optionIds: [] };
+  const [signupResult, checkinsResult] = await Promise.allSettled([
+    EventAPI.mySignupSelections(identity.attendeeId),
+    EventAPI.myCheckins(identity.attendeeId),
+  ]);
+  if (signupResult.status === "fulfilled") {
+    signupState = signupResult.value;
+    if (signupState.completedAt) {
+      Identity.set({ phase3CompletedAt: signupState.completedAt });
+      window.location.replace(EventSchedule.linkWithPreview("../done/index.html"));
+      return;
+    }
+  }
+  progressAuthoritative = checkinsResult.status === "fulfilled";
+  if (progressAuthoritative) completedBooths = new Set(checkinsResult.value.boothIds || []);
+  const preloadFailed = signupResult.status === "rejected" || checkinsResult.status === "rejected";
+  if (preloadFailed) console.warn("Couldn't preload all attendee progress", { signupResult, checkinsResult });
   const route = EventSchedule.route(identity.wristbandColor);
-  const phase2Complete = route.length === BOOTH_SESSIONS.length
+  const phase2Complete = progressAuthoritative && route.length === BOOTH_SESSIONS.length
     && route.every((boothId) => completedBooths.has(boothId));
   phase2RouteComplete = phase2Complete;
   const schedule = EventSchedule.current();
-  if (!identity.wristbandColor || (!phase2Complete && schedule.phase !== "ended")) {
+  if (!identity.wristbandColor || (progressAuthoritative && !phase2Complete && schedule.phase !== "ended")) {
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
   }
@@ -186,7 +199,19 @@ async function showPortal(attendeeIdentity) {
   const returnButton = document.getElementById("btn-return-phase2");
   returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
   returnButton.style.display = schedule.phase === "active" ? "block" : "none";
+  const syncNote = document.getElementById("phase3-sync-note");
+  syncNote.textContent = preloadFailed
+    ? "You're still signed in at Phase 3. Live progress is reconnecting; this page will not send you backward unless the saved route confirms a booth is unfinished."
+    : "";
+  syncNote.style.display = preloadFailed ? "block" : "none";
   renderOptions();
+  if (progressRetryTimer) window.clearTimeout(progressRetryTimer);
+  if (preloadFailed) {
+    progressRetryTimer = window.setTimeout(() => {
+      progressRetryTimer = null;
+      if (identity && identity.attendeeId === attendeeIdentity.attendeeId) showPortal(identity);
+    }, 3000);
+  }
 }
 
 async function finish(chosen) {
@@ -197,6 +222,7 @@ async function finish(chosen) {
   saveButton.textContent = "Saving…";
   try {
     const saved = await EventAPI.saveSignupSelections(identity.attendeeId, chosen.map((option) => option.id));
+    Identity.set({ phase3CompletedAt: saved.completedAt || new Date().toISOString() });
     JourneyState.remove("phase3.draft");
     sessionStorage.setItem("eventapp.chosen", JSON.stringify(saved.optionIds || chosen.map((option) => option.id)));
     window.location.href = EventSchedule.linkWithPreview("../done/index.html");

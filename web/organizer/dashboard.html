@@ -43,6 +43,13 @@
   .demo-timeline-actions .btn[aria-pressed="true"]:hover{ border-color:#563ba7; background:#563ba7; color:#fff; }
   .demo-timeline-actions button:disabled,.demo-boundary-buttons button:disabled,.demo-time-field input:disabled{ cursor:wait; opacity:.55; }
   .demo-clock-state{ min-height:18px; margin-top:10px !important; }
+  .organizer-rotation-alert{ display:grid; gap:3px; margin:0 0 18px; padding:13px 15px; border:1px solid #cdd9e7; border-left:6px solid #557a9d; border-radius:13px; background:#f2f7fb; color:#284760; }
+  .organizer-rotation-alert[hidden]{ display:none; }
+  .organizer-rotation-alert span{ font-size:8.5px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; opacity:.76; }
+  .organizer-rotation-alert strong{ font-family:'Fraunces',serif; font-size:18px; line-height:1.2; }
+  .organizer-rotation-alert p{ margin:1px 0 0; color:inherit; font-size:11.5px; line-height:1.45; }
+  .organizer-rotation-alert.warning{ border-color:#e6c66b; border-left-color:#d19a12; background:#fff8dc; color:#76520d; }
+  .organizer-rotation-alert.urgent{ border-color:#e7a39b; border-left-color:#c94f42; background:#fff0ed; color:#84362f; }
   .demo-reset-zone{ margin-top:28px; padding:18px; border:1px solid rgba(169,48,62,.28); border-radius:16px; background:#fff5f5; }
   .demo-reset-zone .eyebrow{ color:#9b3040; }
   .demo-reset-zone h2{ margin:5px 0 5px; color:#712733; font-size:20px; }
@@ -146,7 +153,7 @@
       <div class="demo-timeline">
         <div class="demo-timeline-selection">
           <div>
-            <span>Selected starting point</span>
+            <span>Current / selected event point</span>
             <output id="demo-clock-selected" for="demo-clock-range demo-clock-time-input">3:10:00 PM CDT</output>
             <p id="demo-clock-selected-context">Session 1 starts</p>
           </div>
@@ -212,24 +219,17 @@
     <p class="capacity-guidance" id="wristband-capacity-guidance"></p>
 
     <div class="section-title">Where each wristband is now</div>
+    <section class="organizer-rotation-alert" id="organizer-rotation-alert" role="status" aria-live="polite" hidden>
+      <span id="organizer-rotation-kicker"></span>
+      <strong id="organizer-rotation-title"></strong>
+      <p id="organizer-rotation-message"></p>
+    </section>
     <p class="wristband-context" id="wristband-event-context">Checking the current session…</p>
     <div class="wristband-live-groups" id="wristband-live-groups"></div>
 
     <div class="section-title">Booth check-ins</div>
     <table class="dash-table" id="booth-table">
       <thead><tr><th>Booth</th><th>Check-ins</th></tr></thead>
-      <tbody></tbody>
-    </table>
-
-    <div class="section-title">Bible Bowl leaderboard</div>
-    <table class="dash-table" id="trivia-table">
-      <thead><tr><th>#</th><th>Session</th><th>Name</th><th>Correct</th></tr></thead>
-      <tbody></tbody>
-    </table>
-
-    <div class="section-title">New Song votes</div>
-    <table class="dash-table" id="song-table">
-      <thead><tr><th>Song</th><th>Votes</th></tr></thead>
       <tbody></tbody>
     </table>
 
@@ -265,8 +265,6 @@ let demoClockRequestInFlight = false;
 let latestDemoClockMode = "live";
 let demoTimelineOffsetSeconds = 0;
 let demoTimelineDirty = false;
-let demoTimelineInitialized = false;
-let lastTimelineSyncToken = null;
 let latestGoogleSheetsExport = null;
 let googleSheetsExportSyncInFlight = false;
 const planningAttendeeEstimate = 150;
@@ -313,8 +311,6 @@ function exportCountLabel(key) {
     checkins: "Booth visits",
     signups: "Sign-ups",
     signupSelections: "Sign-up choices",
-    triviaAnswers: "Bible Bowl answers",
-    songVotes: "New Song votes",
   };
   if (known[key]) return known[key];
   return String(key || "Rows")
@@ -377,7 +373,11 @@ function renderGoogleSheetsExport(source, options = {}) {
 
   const latestCounts = status && (status.lastRowCounts || status.lastCounts);
   const counts = latestCounts && typeof latestCounts === "object" ? latestCounts : {};
-  const countRows = Object.entries(counts).filter(([, value]) => Number.isFinite(Number(value)));
+  const boothOnlyCountKeys = new Set(["triviaanswers", "songvotes"]);
+  const countRows = Object.entries(counts).filter(([key, value]) => (
+    !boothOnlyCountKeys.has(String(key).replace(/[_-]+/g, "").toLowerCase())
+      && Number.isFinite(Number(value))
+  ));
   document.getElementById("sheet-export-counts").innerHTML = countRows.length
     ? countRows.map(([key, value]) => `<span class="sheet-export-count">${esc(exportCountLabel(key))}: ${Number(value)}</span>`).join("")
     : `<span class="sheet-export-empty">No completed export yet.</span>`;
@@ -492,20 +492,31 @@ function renderTimelineSelection() {
 function selectTimelineOffset(offsetSeconds) {
   demoTimelineOffsetSeconds = clampTimelineOffset(offsetSeconds);
   demoTimelineDirty = true;
-  demoTimelineInitialized = true;
   renderTimelineSelection();
 }
 
 function syncTimelineSelection(state, snapshot) {
   if (demoTimelineDirty) return;
-  const syncToken = state && state.updatedAt ? state.updatedAt : "initial";
-  if (demoTimelineInitialized && syncToken === lastTimelineSyncToken) return;
-  const targetMs = state && state.targetIso ? Date.parse(state.targetIso) : snapshot.nowMs;
+  const targetMs = snapshot && snapshot.nowMs;
   if (Number.isFinite(targetMs)) {
     demoTimelineOffsetSeconds = clampTimelineOffset((targetMs - demoEventStartMs) / 1000);
   }
-  demoTimelineInitialized = true;
-  lastTimelineSyncToken = syncToken;
+}
+
+function renderOrganizerRotationAlert(snapshot) {
+  const target = document.getElementById("organizer-rotation-alert");
+  const notice = typeof EventSchedule.sessionTimeNotice === "function"
+    ? EventSchedule.sessionTimeNotice(snapshot)
+    : null;
+  if (!notice || !snapshot || !snapshot.session) {
+    target.hidden = true;
+    return;
+  }
+  target.hidden = false;
+  target.className = `organizer-rotation-alert ${notice.level}`;
+  document.getElementById("organizer-rotation-kicker").textContent = `Session ${snapshot.session.number} · all booth leaders`;
+  document.getElementById("organizer-rotation-title").textContent = notice.title;
+  document.getElementById("organizer-rotation-message").textContent = notice.message;
 }
 
 function demoClockPhaseLabel(snapshot) {
@@ -527,6 +538,7 @@ function renderDemoClock() {
   document.getElementById("demo-clock-mode").textContent = demoClockLabels[mode] || mode;
   document.getElementById("demo-clock-time").textContent = formatDemoClockTime(snapshot.nowMs);
   document.getElementById("demo-clock-phase").textContent = demoClockPhaseLabel(snapshot);
+  renderOrganizerRotationAlert(snapshot);
   renderTimelineSelection();
 }
 
@@ -567,7 +579,6 @@ async function setSharedDemoClock(mode, requestedTargetIso) {
     }
     latestDemoClockMode = response && response.mode ? response.mode : mode;
     demoTimelineDirty = false;
-    lastTimelineSyncToken = null;
     document.getElementById("demo-clock-state").textContent = mode === "live"
       ? "Live clock restored. On event day, every screen follows actual CDT."
       : mode === "before"
@@ -710,8 +721,7 @@ function clearDashboard() {
   document.getElementById("wristband-event-context").textContent = "Checking the current session…";
   document.getElementById("wristband-live-groups").innerHTML = "";
   document.querySelector("#booth-table tbody").innerHTML = "";
-  document.querySelector("#trivia-table tbody").innerHTML = "";
-  document.querySelector("#song-table tbody").innerHTML = "";
+  document.getElementById("organizer-rotation-alert").hidden = true;
   document.getElementById("signup-groups").innerHTML = "";
   latestGoogleSheetsExport = null;
   googleSheetsExportSyncInFlight = false;
@@ -785,16 +795,6 @@ async function refresh() {
   boothBody.innerHTML = data.boothCounts.length
     ? data.boothCounts.map((b) => `<tr><td>${esc(b.boothName)}</td><td>${b.count}</td></tr>`).join("")
     : `<tr><td colspan="2" style="color:var(--ink-soft);">No check-ins yet.</td></tr>`;
-
-  const triviaBody = document.querySelector("#trivia-table tbody");
-  triviaBody.innerHTML = data.triviaLeaderboard.length
-    ? data.triviaLeaderboard.map((t, i) => `<tr><td>${i + 1}</td><td>${t.sessionNumber || "—"}</td><td>${esc(t.name)}</td><td>${t.score}/${t.totalQuestions || 15}</td></tr>`).join("")
-    : `<tr><td colspan="4" style="color:var(--ink-soft);">No Bible Bowl scores yet.</td></tr>`;
-
-  const songBody = document.querySelector("#song-table tbody");
-  songBody.innerHTML = data.songVotes.length
-    ? data.songVotes.map((s) => `<tr><td>${esc(s.title)}</td><td>${s.votes}</td></tr>`).join("")
-    : `<tr><td colspan="2" style="color:var(--ink-soft);">No votes yet.</td></tr>`;
 
   const signupGroups = document.getElementById("signup-groups");
   const groupedSignups = groupSignupsByOption(data.signups);

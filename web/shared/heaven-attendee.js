@@ -295,7 +295,8 @@ const HeavenAttendee = (() => {
         <p class="heaven-script">The great reveal</p>
         <h2>John saw the holy Jerusalem.</h2>
         <blockquote>
-          <p>“And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God, having the glory of God: and her light was like unto a stone most precious, even like a jasper stone, clear as crystal.”</p>
+          <p><b class="heaven-verse-number">10</b> “And he carried me away in the spirit to a great and high mountain, and shewed me that great city, the holy Jerusalem, descending out of heaven from God,”</p>
+          <p><b class="heaven-verse-number">11</b> “Having the glory of God: and her light was like unto a stone most precious, even like a jasper stone, clear as crystal.”</p>
           <cite>Revelation 21:10–11 · KJV</cite>
         </blockquote>
         ${gate}

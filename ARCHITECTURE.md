@@ -232,11 +232,10 @@ vote from an attendee is locked. Staff see a live tally for only the active
 session/run and control when the winner, Revelation 14:3, and completion are
 shown. Restarting one session archives its current run and opens a clean one.
 
-The canonical eleven-song poll is: **He Called Me — Eugy Official**, **He
-Turned It**, **Victory**, **Brighter Day**, **Praise — Elevation Worship**,
-**247 — Tbabz**, **Elohim — Sondae**, **I Thank God — Maverick City**, **Amen —
-Madison Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye Yesterday —
-Elevation Rhythm**.
+The canonical eleven-song poll is: **He Turned It**, **Victory**, **Brighter
+Day**, **Praise - elevation worship**, **I thank God - maverick city**, **Amen-
+Madison Ryann Ward**, **Quick - Caleb Gordon**, **Goodbye Yesterday - elevation
+rhythm**, **He called me**, **247**, and **Elohim**.
 
 All booth and organizer pages currently use the same organizer key. The API
 does filter booth dashboard results by the requested booth, but the key does
@@ -306,8 +305,11 @@ snapshot is retained. The bound script strictly maps the logical export to
 replacement prevents duplicate rows and reconciles changed selections,
 identity merges, and reset deletions. The distinct `Live_*` names avoid
 colliding with tabs used if the same script is tested as the legacy backend.
-Free-text Story answers and Art reflections are excluded from the mirror;
-`Live_BoothResults.extraData` contains only allowlisted operational metadata.
+Free-text Story answers, Art reflections, Bible Bowl answer/score data, and New
+Song vote/result data are excluded from the mirror. The two activity tabs stay
+header-only so a full sync clears old rows without changing the Apps Script
+contract; `Live_BoothResults.extraData` contains only allowlisted non-activity
+operational metadata.
 `Live_ExportMeta.generatedAt` is written after the six data tabs and acts as
 the complete-snapshot commit marker. If a later-tab write fails, that marker
 does not advance and the full-snapshot retry reconciles the temporary mixed

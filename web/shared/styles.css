@@ -250,6 +250,18 @@ p.lede{ color:var(--ink-soft); font-size:15px; line-height:1.5; margin:0 0 22px;
   font:inherit; font-size:12px; font-weight:800; text-align:left; cursor:pointer;
 }
 .attendee-banner .attendee-menu-trigger{ color:#fff; }
+
+.staff-rotation-alert{
+  display:grid; gap:3px; margin:0 0 16px; padding:13px 15px; border:1px solid #cdd9e7;
+  border-left:6px solid #557a9d; border-radius:13px; background:#f2f7fb; color:#284760;
+  box-shadow:0 8px 22px rgba(43,36,74,.06);
+}
+.staff-rotation-alert[hidden]{ display:none; }
+.staff-rotation-alert span{ font-size:8.5px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; opacity:.76; }
+.staff-rotation-alert strong{ font-family:'Fraunces',serif; font-size:18px; line-height:1.2; }
+.staff-rotation-alert p{ margin:1px 0 0; font-size:11.5px; line-height:1.45; }
+.staff-rotation-alert.warning{ border-color:#e6c66b; border-left-color:#d19a12; background:#fff8dc; color:#76520d; }
+.staff-rotation-alert.urgent{ border-color:#e7a39b; border-left-color:#c94f42; background:#fff0ed; color:#84362f; }
 .wristband-chip{
   --wristband-color:#8b97b8; display:inline-flex; align-items:center; gap:6px; border-radius:99px;
   background:#fff; color:var(--ink); padding:6px 9px; font-size:10.5px; font-weight:800; white-space:nowrap;

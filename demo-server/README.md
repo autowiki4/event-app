@@ -209,6 +209,12 @@ choices, and protected resets without duplicate rows. An attendee who chooses
 **No thanks** still appears in `Live_Attendees` with `phase3CompletedAt`, even
 though no sign-up row exists.
 
+Bible Bowl answers/scores and New Song votes/results stay in their protected
+booth portals and are not exported. The `Live_TriviaAnswers` and
+`Live_SongVotes` tabs remain in the wire schema with zero data rows so the next
+successful full snapshot clears any older rows without changing the Apps
+Script deployment URL or credentials.
+
 Every registered attendee reaches this mirror, including the phone collected
 in Phase 1. The Sheet therefore contains attendee contact information and must
 use appropriately restricted access and retention rules.
@@ -326,11 +332,10 @@ the winner, Revelation 14:3, and the end. Tallies are live and isolated by
 session/run, the first attendee vote is locked, and session reset preserves an
 archived run before opening the next.
 
-The exact eleven-song poll is **He Called Me — Eugy Official**, **He Turned
-It**, **Victory**, **Brighter Day**, **Praise — Elevation Worship**, **247 —
-Tbabz**, **Elohim — Sondae**, **I Thank God — Maverick City**, **Amen — Madison
-Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye Yesterday — Elevation
-Rhythm**.
+The exact eleven-song poll is **He Turned It**, **Victory**, **Brighter Day**,
+**Praise - elevation worship**, **I thank God - maverick city**, **Amen-
+Madison Ryann Ward**, **Quick - Caleb Gordon**, **Goodbye Yesterday - elevation
+rhythm**, **He called me**, **247**, and **Elohim**.
 
 Session reset preserves prior-run answers, confirmations, Art completions,
 votes, and results

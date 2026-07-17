@@ -150,7 +150,6 @@ function showRegistration(attendeeIdentity) {
     !saved.attendeeId
       || !saved.name
       || !saved.raffleNumber
-      || Phone.digits(saved.phone).length !== 10
   ) return false;
   document.getElementById("ticket-name").textContent = "Hey, " + saved.name + ".";
   document.getElementById("ticket-number").textContent = "#" + saved.raffleNumber;
@@ -174,6 +173,7 @@ function saveAttendeeIdentity(result, submitted) {
     name: result.name || submitted.name,
     raffleNumber: String(result.raffleNumber),
     wristbandColor: result.wristbandColor || "",
+    phase3CompletedAt: result.phase3CompletedAt || null,
     phone: submitted.phone,
     phoneLinked: true,
     email: "",
@@ -214,7 +214,7 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
       phone,
     });
     if (savedIdentity.wristbandColor) {
-      window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
+      window.location.href = EventSchedule.linkWithPreview(await resumeDestination(savedIdentity));
       return;
     }
     showRegistration(savedIdentity);
@@ -262,18 +262,35 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
   }
 });
 
+async function resumeDestination(saved) {
+  if (saved.phase3CompletedAt) return "../done/index.html";
+  if (!saved.wristbandColor) return "index.html";
+  try {
+    const checkins = await EventAPI.myCheckins(saved.attendeeId);
+    const completed = new Set(checkins.boothIds || []);
+    const route = EventSchedule.route(saved.wristbandColor);
+    const routeComplete = route.length === BOOTH_SESSIONS.length
+      && route.every((boothId) => completed.has(boothId));
+    if (routeComplete || EventSchedule.current().phase === "ended") return "../phase3-signup/index.html";
+  } catch (error) {
+    console.warn("Couldn't resolve the last completed stage; reopening the saved booth route.", error);
+  }
+  return "../phase2-booths/hub.html";
+}
+
 async function resumeSavedAttendee() {
   await phase1DemoClockReady;
-  const saved = Identity.peek();
-  const hasSavedIdentity = Boolean(
-    saved.attendeeId
-      && saved.name
-      && saved.raffleNumber
-      && Phone.digits(saved.phone).length === 10
-  );
-  if (!hasSavedIdentity) return;
+  let saved = Identity.peek();
+  if (!saved.attendeeId) return;
+  try {
+    saved = await AttendeePortal.continueAs("phase1");
+  } catch (error) {
+    console.warn("Couldn't refresh the saved event pass yet.", error);
+  }
+  const hasSavedPass = Boolean(saved.attendeeId && saved.name && saved.raffleNumber);
+  if (!hasSavedPass) return;
   if (saved.wristbandColor) {
-    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    window.location.replace(EventSchedule.linkWithPreview(await resumeDestination(saved)));
     return;
   }
   showRegistration(saved);

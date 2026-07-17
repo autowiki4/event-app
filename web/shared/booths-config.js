@@ -167,17 +167,17 @@ const ART_PROMPTS = [
 
 /* ---- The New Song in Nashville ---- */
 const SONG_LIST = [
-  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
-  "Praise — Elevation Worship",
-  "247 — Tbabz",
-  "Elohim — Sondae",
-  "I Thank God — Maverick City",
-  "Amen — Madison Ryann Ward",
-  "Quick — Caleb Gordon",
-  "Goodbye Yesterday — Elevation Rhythm",
+  "Praise - elevation worship",
+  "I thank God - maverick city",
+  "Amen- Madison Ryann Ward",
+  "Quick - Caleb Gordon",
+  "Goodbye Yesterday - elevation rhythm",
+  "He called me",
+  "247",
+  "Elohim",
 ];
 
 /* ---- Phase 3 sign-up options ---- */

@@ -22,17 +22,17 @@ const {
   normalizedCell,
 } = require("../google-sheets-export");
 const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
-  "He Called Me — Eugy Official",
   "He Turned It",
   "Victory",
   "Brighter Day",
-  "Praise — Elevation Worship",
-  "247 — Tbabz",
-  "Elohim — Sondae",
-  "I Thank God — Maverick City",
-  "Amen — Madison Ryann Ward",
-  "Quick — Caleb Gordon",
-  "Goodbye Yesterday — Elevation Rhythm",
+  "Praise - elevation worship",
+  "I thank God - maverick city",
+  "Amen- Madison Ryann Ward",
+  "Quick - Caleb Gordon",
+  "Goodbye Yesterday - elevation rhythm",
+  "He called me",
+  "247",
+  "Elohim",
 ]);
 const EXPECTED_SHEETS_TAB_HEADERS = Object.freeze({
   Attendees: Object.freeze([
@@ -93,7 +93,10 @@ function request(port, action, payload, method = "POST") {
         resolve({ status: res.statusCode, body: parsed });
       });
     });
-    req.on("error", reject);
+    req.on("error", (error) => {
+      error.message = `${action}: ${error.message}`;
+      reject(error);
+    });
     if (body) req.write(body);
     req.end();
   });
@@ -329,9 +332,9 @@ async function runGoogleSheetsExporterRegression() {
     Attendees: 2,
     BoothResults: 1,
     SignUps: 1,
-    TriviaAnswers: 1,
+    TriviaAnswers: 0,
     HeavenConfirmations: 1,
-    SongVotes: 1,
+    SongVotes: 0,
   };
   assert.deepEqual(sheetDataRowCounts(snapshot), expectedCounts);
   const repeatedSnapshot = buildExportSnapshot(JSON.parse(JSON.stringify(fixture)), {
@@ -360,14 +363,16 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(boothResult.wristbandColor, "blue");
   assert.equal(boothResult.sessionNumber, 1);
   assert.equal(boothResult.runId, "trivia-session-1-run-2");
-  assert.equal(boothResult.score, 9);
-  assert.equal(boothResult.correctCount, 9);
-  assert.equal(boothResult.answeredCount, 10);
-  assert.equal(boothResult.totalQuestions, 15);
-  assert.equal(boothResult.votedFor, "Victory");
-  assert.equal(boothResult.featuredWinner, "Victory");
-  assert.equal(boothResult.extraData.includes("controlled booth prompt"), true);
-  assert.equal(boothResult.extraData.includes("closing"), true);
+  assert.equal(boothResult.score, "");
+  assert.equal(boothResult.correctCount, "");
+  assert.equal(boothResult.answeredCount, "");
+  assert.equal(boothResult.totalQuestions, "");
+  assert.equal(boothResult.votedFor, "");
+  assert.equal(boothResult.featuredWinner, "");
+  const boothMetadata = JSON.parse(boothResult.extraData);
+  ["score", "correctCount", "answeredCount", "totalQuestions", "votedFor", "featuredWinner"].forEach((field) => {
+    assert.equal(field in boothMetadata, false, `${field} must remain booth-only`);
+  });
   assert.equal(boothResult.extraData.includes("private booth feedback"), false);
   assert.equal(boothResult.extraData.includes("privateStoryAnswer"), false);
   assert.equal(boothResult.extraData.includes("privateArtReflection"), false);
@@ -378,21 +383,14 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(signup.optionTitle, "'+Keep me posted");
   assert.equal(signup.confirmedInPerson, true);
 
-  const triviaAnswer = sheetRowObject(snapshot, "TriviaAnswers");
-  assert.equal(triviaAnswer.attendeeId, "attendee-formula");
-  assert.equal(triviaAnswer.name, "'=SUM(1,1)");
-  assert.equal(triviaAnswer.questionNumber, 3);
-  assert.equal(triviaAnswer.isCorrect, true);
+  assert.equal(snapshot.tabs.TriviaAnswers.rows.length, 0);
 
   const heavenConfirmation = sheetRowObject(snapshot, "HeavenConfirmations");
   assert.equal(heavenConfirmation.attendeeId, "attendee-no-thanks");
   assert.equal(heavenConfirmation.name, "No Thanks Guest");
   assert.equal(heavenConfirmation.action, "drawing_complete");
 
-  const songVote = sheetRowObject(snapshot, "SongVotes");
-  assert.equal(songVote.attendeeId, "attendee-formula");
-  assert.equal(songVote.name, "'=SUM(1,1)");
-  assert.equal(songVote.songTitle, "'@Anthem");
+  assert.equal(snapshot.tabs.SongVotes.rows.length, 0);
 
   const exportMeta = Object.fromEntries(snapshot.tabs.ExportMeta.rows);
   assert.equal(exportMeta.schemaVersion, 1);
@@ -841,19 +839,25 @@ async function runApiRegression(port) {
   res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Not a real option" });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_SONG_CHOICE");
-  res = await request(port, "saveSongVote", { attendeeId: "missing-voter", songTitle: "Way Maker" });
+  for (const retiredTitle of ["God in me", "Jireh", "Way Maker"]) {
+    res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: retiredTitle });
+    assert.equal(res.status, 400, retiredTitle);
+    assert.equal(res.body.code, "INVALID_SONG_CHOICE", retiredTitle);
+  }
+  res = await request(port, "saveSongVote", { attendeeId: "missing-voter", songTitle: "Victory" });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
-  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Way Maker" });
+  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Victory" });
   assert.equal(res.status, 200);
   assert.equal(res.body.votes, 1);
   assert.equal(res.body.totalVotes, 1);
-  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Way Maker" });
+  res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Victory" });
   assert.equal(res.status, 200);
   assert.equal(res.body.votes, 1);
   assert.equal(res.body.totalVotes, 1);
   res = await request(port, "dashboardData", { organizerKey });
-  assert.deepEqual(res.body.songVotes, [{ title: "Way Maker", votes: 1 }]);
+  assert.equal("songVotes" in res.body, false);
+  assert.equal("triviaLeaderboard" in res.body, false);
 
   res = await request(port, "loginAttendee", {
     name: "  aVeRy  ",
@@ -1110,7 +1114,7 @@ async function runApiRegression(port) {
   res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
   assert.equal(res.body.totalCheckins, 1);
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Casey"]);
-  assert.deepEqual(res.body.songVotes, [{ title: "Way Maker", votes: 1 }]);
+  assert.deepEqual(res.body.songVotes, [{ title: "Victory", votes: 1 }]);
   assert.equal(res.body.presentation.boothId, "newsong");
   assert.equal(res.body.presentation.version, 0);
 
@@ -1373,7 +1377,11 @@ async function runApiRegression(port) {
     const page = await getPage(port, pathname);
     assert.equal(page.status, 200, pathname);
     assert.match(page.body, /<!DOCTYPE html>/i, pathname);
+    assert.equal(page.headers["cache-control"], "no-store", pathname);
   }
+  const identityBundle = await getPage(port, "/shared/identity.js");
+  assert.equal(identityBundle.status, 200);
+  assert.equal(identityBundle.headers["cache-control"], "no-store");
   const attendeeReturnLink = await getPage(port, "/attend?preview=1");
   assert.equal(attendeeReturnLink.status, 302);
   assert.equal(attendeeReturnLink.headers.location, "/phase1-entry/index.html?preview=1&resume=1");
@@ -1466,6 +1474,7 @@ async function runTriviaApiRegression(port) {
   assert.equal(res.body.question, null);
   assert.equal(res.body.answer, null);
   assert.equal(res.body.correctAnswer, null);
+  assert.deepEqual(res.body.topThree, []);
   assert.deepEqual(res.body.score, {
     correctCount: 0,
     answeredCount: 0,
@@ -1589,6 +1598,14 @@ async function runTriviaApiRegression(port) {
   assert.equal(res.status, 200);
   assert.equal(res.body.state.phase, "complete");
   assert.equal(res.body.state.version, 5);
+
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.phase, "complete");
+  assert.deepEqual(
+    res.body.topThree.map((row) => [row.rank, row.name, row.correctCount, row.totalQuestions]),
+    [[1, "Red Reader", 1, 2], [2, "Red Scholar", 0, 2]]
+  );
 
   res = await request(port, "completeTrivia", { attendeeId: "trivia-red-a" });
   assert.equal(res.status, 200);
@@ -2868,14 +2885,14 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.vote.votedAt, firstVoteAt);
   res = await request(port, "submitNewSongVote", {
     attendeeId: "song-green-a",
-    songTitle: "247 — Tbabz",
+    songTitle: "247",
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, "SONG_VOTE_LOCKED");
 
   for (const [attendeeId, songTitle] of [
     ["song-green-b", "Victory"],
-    ["song-green-c", "247 — Tbabz"],
+    ["song-green-c", "247"],
   ]) {
     res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
     assert.equal(res.status, 200, attendeeId);
@@ -2893,13 +2910,13 @@ async function runNewSongApiRegression(port) {
   assert.equal(session1.voteCount, 3);
   assert.equal(session1.participantCount, 3);
   assert.equal(voteCount(session1, "Victory"), 2);
-  assert.equal(voteCount(session1, "247 — Tbabz"), 1);
+  assert.equal(voteCount(session1, "247"), 1);
   assert.deepEqual(
     session1.voters.map((voter) => [voter.name, voter.songTitle]),
     [
       ["Green Singer", "Victory"],
       ["Green Listener", "Victory"],
-      ["Green Worshipper", "247 — Tbabz"],
+      ["Green Worshipper", "247"],
     ]
   );
   assert.equal(sessionSummary(res.body, 2).totalVotes, 0);
@@ -2986,8 +3003,8 @@ async function runNewSongApiRegression(port) {
   res = await advance(2, "start", 0);
   assert.equal(res.status, 200);
   for (const [attendeeId, songTitle] of [
-    ["song-yellow-a", "Goodbye Yesterday — Elevation Rhythm"],
-    ["song-yellow-b", "He Called Me — Eugy Official"],
+    ["song-yellow-a", "Goodbye Yesterday - elevation rhythm"],
+    ["song-yellow-b", "He called me"],
   ]) {
     res = await request(port, "submitNewSongVote", { attendeeId, songTitle });
     assert.equal(res.status, 200, attendeeId);
@@ -2997,20 +3014,20 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.result.isTie, true);
   assert.equal(res.body.result.maxVotes, 1);
   assert.deepEqual(res.body.result.tiedTitles, [
-    "He Called Me — Eugy Official", "Goodbye Yesterday — Elevation Rhythm",
+    "Goodbye Yesterday - elevation rhythm", "He called me",
   ]);
-  assert.equal(res.body.result.featuredWinner, "He Called Me — Eugy Official");
+  assert.equal(res.body.result.featuredWinner, "Goodbye Yesterday - elevation rhythm");
   assert.equal(res.body.result.tieBreakRule, "canonical-list-order");
   assert.deepEqual(res.body.winner, {
-    songTitle: "He Called Me — Eugy Official",
+    songTitle: "Goodbye Yesterday - elevation rhythm",
     voteCount: 1,
     tied: true,
-    tiedSongs: ["He Called Me — Eugy Official", "Goodbye Yesterday — Elevation Rhythm"],
+    tiedSongs: ["Goodbye Yesterday - elevation rhythm", "He called me"],
   });
   res = await request(port, "newSongState", { attendeeId: "song-yellow-a" });
   assert.equal(res.body.phase, "winner");
   assert.equal(res.body.result.isTie, true);
-  assert.equal(res.body.winner.songTitle, "He Called Me — Eugy Official");
+  assert.equal(res.body.winner.songTitle, "Goodbye Yesterday - elevation rhythm");
 
   res = await request(port, "newSongDashboardData", { organizerKey });
   session1 = sessionSummary(res.body, 1);
@@ -3035,12 +3052,12 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.phase, "voting");
   res = await request(port, "submitNewSongVote", {
     attendeeId: "song-orange-a",
-    songTitle: "Amen — Madison Ryann Ward",
+    songTitle: "Amen- Madison Ryann Ward",
   });
   assert.equal(res.status, 200);
   res = await advance(3, "show_winner", 1);
   assert.equal(res.status, 200);
-  assert.equal(res.body.result.featuredWinner, "Amen — Madison Ryann Ward");
+  assert.equal(res.body.result.featuredWinner, "Amen- Madison Ryann Ward");
 
   // Restarting archives Session 1 instead of deleting its votes. Optimistic
   // reset versions prevent an older staff tab from replacing the active run.
@@ -3130,8 +3147,8 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
   res = await request(port, "newSongDashboardData", { organizerKey });
   assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 2);
-  assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "He Called Me — Eugy Official");
-  assert.equal(sessionSummary(res.body, 3).result.featuredWinner, "Amen — Madison Ryann Ward");
+  assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "Goodbye Yesterday - elevation rhythm");
+  assert.equal(sessionSummary(res.body, 3).result.featuredWinner, "Amen- Madison Ryann Ward");
 
   // Only the overall reset destroys active rotations, archives, votes, and
   // booth completions. Every specialized session then returns to run 1.
@@ -3169,7 +3186,7 @@ async function runCapacityRegression(port) {
     green: ["newsong", "art", "heaven"],
     yellow: ["story", "newsong", "trivia"],
   };
-  const songChoices = ["He Called Me — Eugy Official", "Victory", "Elohim — Sondae"];
+  const songChoices = ["He called me", "Victory", "Elohim"];
   const artActions = [
     "start", "show_importance", "show_purpose_image", "ask_heart", "show_proverbs",
     "show_philippians", "start_art", "show_finished", "finish",
@@ -3423,8 +3440,16 @@ async function runCapacityRegression(port) {
     Object.fromEntries(res.body.boothCounts.map((entry) => [entry.boothId, entry.count])),
     { heaven: 90, trivia: 90, story: 90, art: 90, newsong: 90 }
   );
-  assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 90);
+  assert.equal("songVotes" in res.body, false);
+  assert.equal("triviaLeaderboard" in res.body, false);
   assert.equal(res.body.signups.length, 150);
+
+  res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 90);
+  res = await request(port, "triviaDashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessions.reduce((total, session) => total + session.leaderboard.length, 0), 30);
 
   res = await request(port, "health", undefined, "GET");
   assert.equal(res.status, 200);
@@ -3599,6 +3624,9 @@ async function runFrontendContractRegression() {
   vm.createContext(identityContext);
   const identitySource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "identity.js"), "utf8");
   vm.runInContext(`${identitySource}\nthis.__identity = Identity;`, identityContext);
+  assert.match(identitySource, /eventapp_attendee_id/);
+  assert.match(identitySource, /sessionStorage\.setItem\(KEY, serialized\)/);
+  assert.match(identitySource, /clearRecoveryCookie\(\)/);
   assert.equal(identityContext.__identity.peek().attendeeId, undefined);
   assert.equal(identityStorage.getItem("eventapp.identity"), null);
   assert.equal(identityContext.__identity.get().attendeeId, "generated-id");
@@ -3667,6 +3695,46 @@ async function runFrontendContractRegression() {
   assert.equal(portalStorage.getItem("eventapp.portal.phase2.trivia"), null);
   assert.equal(portalStorage.getItem("eventapp.portal.phase3"), null);
   assert.equal(identityContext.window.location.href, "/phase1-entry/index.html?eventReset=1");
+
+  // QR/in-app browsers sometimes reject localStorage. The attendee-id cookie
+  // must still survive a fresh page context, and explicit logout/reset must
+  // expire it rather than silently creating a new attendee on refresh.
+  class ThrowingStorage {
+    get length() { throw new Error("storage blocked"); }
+    getItem() { throw new Error("storage blocked"); }
+    setItem() { throw new Error("storage blocked"); }
+    removeItem() { throw new Error("storage blocked"); }
+    key() { throw new Error("storage blocked"); }
+  }
+  let recoveryCookie = "";
+  const recoveryDocument = {};
+  Object.defineProperty(recoveryDocument, "cookie", {
+    get() { return recoveryCookie; },
+    set(value) {
+      const first = String(value).split(";")[0];
+      recoveryCookie = /Max-Age=0/.test(String(value)) ? "" : first;
+    },
+  });
+  const recoveryContext = () => ({
+    window: {
+      crypto: { randomUUID: () => "cookie-attendee" },
+      location: { protocol: "https:" },
+    },
+    document: recoveryDocument,
+    localStorage: new ThrowingStorage(),
+    sessionStorage: new ThrowingStorage(),
+  });
+  const firstRecoveryContext = recoveryContext();
+  vm.createContext(firstRecoveryContext);
+  vm.runInContext(`${identitySource}\nthis.__identity = Identity;`, firstRecoveryContext);
+  assert.equal(firstRecoveryContext.__identity.get().attendeeId, "cookie-attendee");
+  assert.match(recoveryCookie, /eventapp_attendee_id=cookie-attendee/);
+  const reloadedRecoveryContext = recoveryContext();
+  vm.createContext(reloadedRecoveryContext);
+  vm.runInContext(`${identitySource}\nthis.__identity = Identity;`, reloadedRecoveryContext);
+  assert.equal(reloadedRecoveryContext.__identity.peek().attendeeId, "cookie-attendee");
+  reloadedRecoveryContext.__identity.clear();
+  assert.equal(recoveryCookie, "");
 
   const apiSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "api.js"), "utf8");
   const apiContext = {
@@ -3889,6 +3957,10 @@ async function runFrontendContractRegression() {
   assert.match(dashboardSource, /id="btn-apply-demo-time" aria-pressed="false"/);
   assert.match(dashboardSource, /latestDemoClockMode === "custom"/);
   assert.match(dashboardSource, /\.demo-timeline-actions \.btn\[aria-pressed="true"\]/);
+  assert.match(dashboardSource, /const targetMs = snapshot && snapshot\.nowMs/);
+  assert.doesNotMatch(dashboardSource, /id="trivia-table"|id="song-table"/);
+  assert.match(dashboardSource, /boothOnlyCountKeys = new Set\(\["triviaanswers", "songvotes"\]\)/);
+  assert.doesNotMatch(dashboardSource, /triviaAnswers:\s*"Bible Bowl answers"|songVotes:\s*"New Song votes"/);
   assert.ok(
     dashboardSource.indexOf("} else if (failed) {") < dashboardSource.indexOf("} else if (pending) {"),
     "a failed Sheet export should take visual priority over its queued retry"
@@ -3918,6 +3990,8 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /Complete Phase 1 &amp; continue/);
   assert.match(phase1Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/phase2-booths\/hub\.html"\)/);
   assert.match(phase1Source, /function resumeSavedAttendee\(\)/);
+  assert.match(phase1Source, /AttendeePortal\.continueAs\("phase1"\)/);
+  assert.match(phase1Source, /saved\.phase3CompletedAt/);
   assert.match(phase1Source, /await phase1DemoClockReady/);
   assert.match(phase1Source, /AttendeePortal\.acceptDataReset\(result\.dataResetAt\)/);
   assert.match(phase1Source, /id="event-reset-note"/);
@@ -4002,6 +4076,8 @@ async function runFrontendContractRegression() {
   assert.match(triviaAttendeeSource, /runId: value\.runId/);
   assert.match(triviaAttendeeSource, /runNumber: value\.runNumber/);
   assert.match(triviaAttendeeSource, /next\.version < state\.version/);
+  assert.match(triviaAttendeeSource, /topThree: phase === "complete"/);
+  assert.match(triviaAttendeeSource, /Session top 3/);
 
   // The booth leader gets a specialized three-session controller with
   // versioned actions and an explicitly session-scoped leaderboard.
@@ -4018,6 +4094,7 @@ async function runFrontendContractRegression() {
   assert.match(triviaStaffSource, /source\.archivedRuns/);
   assert.match(triviaStaffSource, /session\.archivedRuns\.map/);
   assert.match(triviaStaffSource, /Archive Bible Bowl Session \$\{session\.sessionNumber\}, Run \$\{session\.state\.runNumber\}/);
+  assert.match(triviaStaffSource, /session\.leaderboard\.slice\(0, 3\)/);
 
   // Draw Heaven is also server-authoritative and paced by its booth leader.
   // Attendees submit only ordered readiness confirmations, then finish the
@@ -4052,6 +4129,9 @@ async function runFrontendContractRegression() {
   assert.match(heavenAttendeeSource, /id="btn-heaven-image"/);
   assert.match(heavenAttendeeSource, /dialog\.id = "heaven-image-dialog"/);
   assert.match(heavenAttendeeSource, /class="heaven-image-close"/);
+  assert.match(heavenAttendeeSource, /heaven-verse-number">10/);
+  assert.match(heavenAttendeeSource, /heaven-verse-number">11/);
+  assert.match(heavenAttendeeSource, /even like a jasper stone, clear as crystal/);
   assert.match(heavenAttendeeSource, /id="btn-booth-done"/);
   assert.match(heavenAttendeeSource, /state\.runId === next\.runId/);
   assert.match(heavenAttendeeSource, /next\.version < state\.version/);
@@ -4191,6 +4271,12 @@ async function runFrontendContractRegression() {
   assert.match(newSongAttendeeSource, /result\.featuredWinner/);
   assert.match(newSongAttendeeSource, /Revelation 14:3 · KJV/);
   assert.match(newSongAttendeeSource, /revelation-14-3-new-song\.webp/);
+  const newSongWinnerBlock = newSongAttendeeSource.slice(
+    newSongAttendeeSource.indexOf("function renderWinner"),
+    newSongAttendeeSource.indexOf("function renderVerse")
+  );
+  assert.doesNotMatch(newSongWinnerBlock, /Revelation 14:3|revelation-14-3-new-song|<blockquote>/);
+  assert.match(newSongWinnerBlock, /What could the new song be\?/);
   assert.match(newSongAttendeeSource, /id="btn-newsong-done"/);
   assert.match(newSongAttendeeSource, /state\.sessionNumber === next\.sessionNumber/);
   assert.match(newSongAttendeeSource, /next\.runNumber < state\.runNumber/);
@@ -4239,8 +4325,10 @@ async function runFrontendContractRegression() {
   assert.match(phase3Source, /EventAPI\.mySignupSelections/);
   assert.match(phase3Source, /JourneyState\.save\("phase3\.draft"/);
   assert.match(phase3Source, /AttendeeMenu\.mount\("phase3-attendee-menu"/);
-  assert.match(phase3Source, /const phase2Complete = route\.length === BOOTH_SESSIONS\.length/);
-  assert.match(phase3Source, /!phase2Complete && schedule\.phase !== "ended"/);
+  assert.match(phase3Source, /const phase2Complete = progressAuthoritative && route\.length === BOOTH_SESSIONS\.length/);
+  assert.match(phase3Source, /progressAuthoritative && !phase2RouteComplete/);
+  assert.match(phase3Source, /Promise\.allSettled/);
+  assert.match(phase3Source, /Identity\.set\(\{ phase3CompletedAt:/);
   assert.match(phase3Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/done\/index\.html"\)/);
   assert.doesNotMatch(phase3Source, /id="detail-email"|id="detail-comment"|class="star-row"/);
   assert.match(doneSource, /AttendeePortal\.restore\("phase3"\)/);
@@ -4289,6 +4377,19 @@ async function runFrontendContractRegression() {
   assert.equal(atSession1.sessionIndex, 0);
   assert.equal(atSession1.session.number, 1);
   assert.equal(atSession1.remainingMs, 20 * 60 * 1000);
+  assert.equal(eventSchedule.sessionTimeNotice(atSession1).title, "20-minute rotation underway");
+  assert.equal(
+    eventSchedule.sessionTimeNotice(eventSchedule.stateAt(Date.parse("2026-07-18T15:20:00-05:00"))).title,
+    "10-minute warning"
+  );
+  assert.equal(
+    eventSchedule.sessionTimeNotice(eventSchedule.stateAt(Date.parse("2026-07-18T15:25:00-05:00"))).title,
+    "5-minute warning"
+  );
+  assert.equal(
+    eventSchedule.sessionTimeNotice(eventSchedule.stateAt(Date.parse("2026-07-18T15:29:45-05:00"))).title,
+    "Final 15 seconds"
+  );
   const atSession2 = eventSchedule.stateAt(Date.parse("2026-07-18T15:30:00-05:00"));
   assert.equal(atSession2.phase, "active");
   assert.equal(atSession2.sessionIndex, 1);
@@ -4515,8 +4616,23 @@ async function runFrontendContractRegression() {
     assert.match(source, /id="staff-settings"/);
   });
   assert.doesNotMatch(newSongStaffPageSource, /booth-staff-common\.js|staff-song-vote-table/);
+  ["trivia", "heaven", "story", "art", "newsong"].forEach((boothId) => {
+    const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
+    assert.match(source, /shared\/staff-session-alert\.js/, boothId);
+  });
 
   const gasSource = fs.readFileSync(path.join(__dirname, "..", "..", "apps-script", "Code.gs"), "utf8");
+  const gasSongListMatch = gasSource.match(/const NEW_SONG_CHOICES = \[([\s\S]*?)\];/);
+  assert.ok(gasSongListMatch);
+  assert.deepEqual(
+    Array.from(vm.runInNewContext(`[${gasSongListMatch[1]}]`)),
+    Array.from(EXPECTED_NEW_SONG_CHOICES)
+  );
+  const gasOverallDashboardBlock = gasSource.slice(
+    gasSource.indexOf("function actionDashboardData"),
+    gasSource.indexOf("function actionBoothPresentation")
+  );
+  assert.doesNotMatch(gasOverallDashboardBlock, /triviaLeaderboard|songVotes/);
   assert.equal((gasSource.match(/LockService\.getScriptLock\(\)/g) || []).length, 1);
   assert.match(gasSource, /nextRaffleNumber\(lock\)/);
   assert.doesNotMatch(gasSource, /function nextRaffleNumber\(\)/);
@@ -4957,10 +5073,10 @@ function runAppsScriptRegression() {
     checkedInBy: "staff-kiosk",
     organizerKey: "gas-organizer-key",
   });
-  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Way Maker" });
+  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Victory" });
   assert.equal(result.votes, 1);
   assert.equal(result.totalVotes, 1);
-  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Way Maker" });
+  result = gas.actionSaveSongVote({ attendeeId: kioskId, songTitle: "Victory" });
   assert.equal(result.votes, 1);
   assert.equal(result.totalVotes, 1);
   result = gas.actionMySignupSelections({ attendeeId: kioskId });
@@ -5102,7 +5218,7 @@ function runAppsScriptRegression() {
   result = gas.actionBoothDashboardData({ boothId: "newsong", organizerKey: "gas-organizer-key" });
   assert.equal(result.totalCheckins, 1);
   assert.deepEqual(Array.from(result.recentCheckins, (checkin) => checkin.name), ["Casey"]);
-  assert.deepEqual(Array.from(result.songVotes, (entry) => ({ ...entry })), [{ title: "Way Maker", votes: 1 }]);
+  assert.deepEqual(Array.from(result.songVotes, (entry) => ({ ...entry })), [{ title: "Victory", votes: 1 }]);
   assert.equal("phone" in result.recentCheckins[0], false);
   assert.equal("signups" in result, false);
   assert.equal(result.presentation.boothId, "newsong");
@@ -5120,7 +5236,8 @@ function runAppsScriptRegression() {
   const gasDashboard = gas.actionDashboardData({ organizerKey: "gas-organizer-key" });
   assert.equal(gasDashboard.totals.registered, 2);
   assert.equal(gasDashboard.signups[0].optionId, "formula-test");
-  assert.deepEqual(Array.from(gasDashboard.songVotes, (entry) => ({ ...entry })), [{ title: "Way Maker", votes: 1 }]);
+  assert.equal("songVotes" in gasDashboard, false);
+  assert.equal("triviaLeaderboard" in gasDashboard, false);
   assertIsoTimestamp(gasDashboard.eventState.serverNow, "Apps Script dashboard serverNow");
   assert.equal(gasDashboard.wristbandGroups.length, 5);
   const gasBlueGroup = gasDashboard.wristbandGroups.find((group) => group.colorId === "blue");
@@ -5348,7 +5465,7 @@ function runAppsScriptRegression() {
   assert.equal(gasHttpRegistration.raffleNumber, "1004");
   assert.equal(gasHttpRegistration.phoneLinked, true);
   assert.equal(post("loginAttendee", { name: "HTTP", phone: "6155550404", portal: "phase3" }).attendeeId, "gas-http-entry");
-  assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Firm Foundation" }).songTitle, "Firm Foundation");
+  assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Elohim" }).songTitle, "Elohim");
   assert.equal(post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt, null);
   const httpPhase3Finish = post("saveSignupSelections", { attendeeId: "gas-http-entry", optionIds: [] });
   assertIsoTimestamp(httpPhase3Finish.completedAt, "Apps Script HTTP Phase 3 completedAt");

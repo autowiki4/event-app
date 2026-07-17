@@ -103,6 +103,11 @@ should change from **Not connected** to **Ready** or **Up to date**. Choose
 - `Live_SongVotes`
 - `Live_ExportMeta`
 
+`Live_TriviaAnswers` and `Live_SongVotes` are intentionally header-only. Bible
+Bowl rankings and New Song tallies stay in their protected booth-leader
+portals. Keeping the tabs lets the existing Web App clear previously exported
+rows without changing its deployment URL or export credentials.
+
 Register one throwaway attendee, assign a wristband, and choose a Phase 3
 option. After the short debounce, the corresponding rows should update without
 refreshing the Sheet.

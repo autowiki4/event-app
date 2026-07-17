@@ -199,10 +199,14 @@ function initTriviaStaff() {
       return;
     }
     if (phase === "complete") {
+      const topThree = session.leaderboard.slice(0, 3);
       stage.innerHTML = `
         <div class="trivia-stage-icon" aria-hidden="true">🎉</div>
         <h3>Run ${session.state.runNumber} results are on attendee screens.</h3>
         <p>This run is finished. Guests can see how many they answered correctly, finish the booth, and return to their timed route. Archive it only after the group is done.</p>
+        ${topThree.length ? `<div class="trivia-staff-podium" aria-label="Bible Bowl top three">
+          ${topThree.map((entry, index) => `<article><span aria-hidden="true">${index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><div><strong>${escapeHtml(entry.name || "Guest")}</strong><small>Raffle #${escapeHtml(entry.raffleNumber || "----")} · ${Math.max(0, integer(entry.correctCount))}/${Math.max(0, integer(entry.totalQuestions, session.questionsRevealed))}</small></div></article>`).join("")}
+        </div>` : `<div class="trivia-empty">No ranked scores were recorded in this run.</div>`}
       `;
       return;
     }

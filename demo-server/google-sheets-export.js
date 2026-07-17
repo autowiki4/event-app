@@ -46,9 +46,7 @@ const TAB_HEADERS = Object.freeze({
 // remain in the authoritative Node database but are deliberately omitted from
 // the export mirror.
 const EXPORTED_BOOTH_METADATA_FIELDS = Object.freeze([
-  "sessionNumber", "runId", "runNumber", "score", "correctCount",
-  "answeredCount", "totalQuestions", "votedFor", "featuredWinner",
-  "promptShown", "reachedBeat",
+  "sessionNumber", "runId", "runNumber", "promptShown", "reachedBeat",
 ]);
 
 function boundedInteger(value, fallback, minimum, maximum) {
@@ -187,6 +185,7 @@ function buildExportSnapshot(rawDb, options = {}) {
   const boothRows = checkins.map((checkin) => {
     const attendee = attendeeForRow(indexes, checkin);
     const extra = objectOrEmpty(checkin.extraData);
+    const boothOnlyResult = checkin.boothId === "trivia" || checkin.boothId === "newsong";
     return [
       checkin.id,
       attendeeValue(attendee, "attendeeId", checkin.attendeeId),
@@ -201,12 +200,12 @@ function buildExportSnapshot(rawDb, options = {}) {
       extra.sessionNumber,
       extra.runId,
       extra.runNumber,
-      extra.score,
-      extra.correctCount,
-      extra.answeredCount,
-      extra.totalQuestions,
-      extra.votedFor,
-      extra.featuredWinner,
+      boothOnlyResult ? "" : extra.score,
+      boothOnlyResult ? "" : extra.correctCount,
+      boothOnlyResult ? "" : extra.answeredCount,
+      boothOnlyResult ? "" : extra.totalQuestions,
+      boothOnlyResult ? "" : extra.votedFor,
+      boothOnlyResult ? "" : extra.featuredWinner,
       jsonCell(exportedBoothMetadata(extra), {}),
     ];
   });
@@ -229,24 +228,10 @@ function buildExportSnapshot(rawDb, options = {}) {
     ];
   });
 
-  const triviaRows = arrayOrEmpty(db.triviaAnswers).map((answer) => {
-    const attendee = attendeeForRow(indexes, answer);
-    return [
-      answer.id,
-      attendeeValue(attendee, "attendeeId", answer.attendeeId),
-      attendeeValue(attendee, "name"),
-      attendeeValue(attendee, "raffleNumber"),
-      attendeeValue(attendee, "wristbandColor"),
-      answer.sessionNumber,
-      answer.runId,
-      answer.runNumber,
-      answer.questionId,
-      answer.questionNumber,
-      answer.answerIndex,
-      answer.isCorrect,
-      answer.answeredAt,
-    ];
-  });
+  // Bible Bowl answers and New Song votes are booth-only operational data.
+  // Keep their tab contracts so the existing Apps Script deployment can
+  // atomically clear older rows without changing its URL or credentials.
+  const triviaRows = [];
 
   const heavenRows = arrayOrEmpty(db.heavenConfirmations).map((confirmation) => {
     const attendee = attendeeForRow(indexes, confirmation);
@@ -264,22 +249,7 @@ function buildExportSnapshot(rawDb, options = {}) {
     ];
   });
 
-  const songRows = arrayOrEmpty(db.songVotes).map((vote) => {
-    const attendee = attendeeForRow(indexes, vote);
-    return [
-      vote.id,
-      attendeeValue(attendee, "attendeeId", vote.attendeeId),
-      attendeeValue(attendee, "name", vote.name),
-      attendeeValue(attendee, "raffleNumber"),
-      attendeeValue(attendee, "wristbandColor"),
-      vote.sessionNumber,
-      vote.runId,
-      vote.runNumber,
-      vote.songTitle,
-      vote.votedAt,
-      vote.updatedAt,
-    ];
-  });
+  const songRows = [];
 
   const rowCounts = {
     Attendees: attendeesRows.length,

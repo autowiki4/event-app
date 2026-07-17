@@ -1,11 +1,14 @@
 /* The attendee's own phone remembers who they are across pages/booths via
-   localStorage. Kiosk/staff devices should NOT rely on this (each visitor
+   localStorage, a tab-level mirror, and an attendee-id recovery cookie.
+   Kiosk/staff devices should NOT rely on this (each visitor
    is a different person) — kiosk pages ask for a phone number every time
    instead, see identity.lookupByPhone() usage in kiosk-*.html. */
 const Identity = (function () {
   const KEY = "eventapp.identity";
+  const COOKIE_KEY = "eventapp_attendee_id";
   let memoryIdentity = {};
-  let storageWritable = null;
+  let localStorageWritable = null;
+  let sessionStorageWritable = null;
 
   function copy(data) {
     return Object.assign({}, data || {});
@@ -16,27 +19,81 @@ const Identity = (function () {
     return "id-" + Date.now() + "-" + Math.random().toString(16).slice(2);
   }
 
-  function load() {
+  function parsedIdentity(raw) {
+    if (!raw) return null;
     try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return copy(memoryIdentity);
-      memoryIdentity = JSON.parse(raw);
-      storageWritable = true;
-      return copy(memoryIdentity);
-    } catch (e) {
-      storageWritable = false;
-      return copy(memoryIdentity);
+      const value = JSON.parse(raw);
+      return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    } catch (error) {
+      return null;
     }
+  }
+
+  function cookieAttendeeId() {
+    try {
+      const prefix = `${COOKIE_KEY}=`;
+      const part = String(document.cookie || "").split("; ").find((entry) => entry.startsWith(prefix));
+      return part ? decodeURIComponent(part.slice(prefix.length)) : "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function writeRecoveryCookie(attendeeId) {
+    if (!attendeeId) return;
+    try {
+      const secure = window.location && window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `${COOKIE_KEY}=${encodeURIComponent(String(attendeeId))}; Path=/; Max-Age=2592000; SameSite=Lax${secure}`;
+    } catch (error) { /* some embedded browsers block cookies too */ }
+  }
+
+  function clearRecoveryCookie() {
+    try {
+      document.cookie = `${COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+    } catch (error) { /* best effort */ }
+  }
+
+  function load() {
+    let stored = null;
+    try {
+      stored = parsedIdentity(localStorage.getItem(KEY));
+      localStorageWritable = true;
+    } catch (e) {
+      localStorageWritable = false;
+    }
+    if (!stored) {
+      try {
+        stored = parsedIdentity(sessionStorage.getItem(KEY));
+        sessionStorageWritable = true;
+      } catch (e) {
+        sessionStorageWritable = false;
+      }
+    }
+    if (!stored && memoryIdentity.attendeeId) stored = memoryIdentity;
+    if (!stored) {
+      const attendeeId = cookieAttendeeId();
+      if (attendeeId) stored = { attendeeId };
+    }
+    memoryIdentity = copy(stored || {});
+    return copy(memoryIdentity);
   }
 
   function save(data) {
     memoryIdentity = copy(data);
+    const serialized = JSON.stringify(memoryIdentity);
     try {
-      localStorage.setItem(KEY, JSON.stringify(memoryIdentity));
-      storageWritable = true;
+      localStorage.setItem(KEY, serialized);
+      localStorageWritable = true;
     } catch (e) {
-      storageWritable = false;
+      localStorageWritable = false;
     }
+    try {
+      sessionStorage.setItem(KEY, serialized);
+      sessionStorageWritable = true;
+    } catch (e) {
+      sessionStorageWritable = false;
+    }
+    writeRecoveryCookie(memoryIdentity.attendeeId);
   }
 
   function get() {
@@ -78,6 +135,8 @@ const Identity = (function () {
       } catch (e) { /* storage may be unavailable in an embedded QR browser */ }
     }
     try { localStorage.removeItem(KEY); } catch (e) { /* best effort on restricted browsers */ }
+    try { sessionStorage.removeItem(KEY); } catch (e) { /* best effort */ }
+    clearRecoveryCookie();
     memoryIdentity = {};
     try {
       sessionStorage.removeItem("eventapp.portal.phase2");
@@ -92,8 +151,9 @@ const Identity = (function () {
   function restartIfMissing(error, entryUrl) {
     // Kept as a compatibility helper for existing catch blocks. A missing
     // backend record can be caused by a brief outage or an unmounted Render
-    // disk, so it must never erase the attendee's saved phone identity. Only
-    // the explicit profile-menu logout path calls clear().
+    // disk, so it must never erase the attendee's saved identity. Only an
+    // explicit profile-menu logout or the organizer's deliberate event reset
+    // calls clear().
     if (error && error.code === "ATTENDEE_NOT_FOUND") {
       console.warn("Attendee record is temporarily unavailable; retaining device identity.", entryUrl || "");
     }
@@ -101,7 +161,7 @@ const Identity = (function () {
   }
 
   function isPersistent() {
-    return storageWritable !== false;
+    return localStorageWritable !== false || sessionStorageWritable !== false || Boolean(cookieAttendeeId());
   }
 
   return { get, peek, set, replace, clear, restartIfMissing, isPersistent };

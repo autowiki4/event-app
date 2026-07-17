@@ -33,7 +33,7 @@ is documented below.
 
 - One row per booth visit.
 - `checkedInBy`: `"self"` (attendee's own phone) or `"staff-kiosk"`.
-- `extraData`: JSON string, shape depends on the booth (e.g. `{"score":300}` for trivia, `{"votedFor":"Way Maker"}` for the song booth, `{"answers":{...}}` for the story booth).
+- `extraData`: JSON string, shape depends on the booth (e.g. `{"score":300}` for trivia, `{"votedFor":"Victory"}` for the song booth, `{"answers":{...}}` for the story booth).
 - `rating` and `note` remain only for backward compatibility with older saved
   rows. The current attendee and Art kiosk screens do not ask for either.
 
@@ -157,8 +157,10 @@ into the attendee's operational result and sign-up rows.
 | id | attendeeId | name | phone | raffleNumber | wristbandColor | boothId | boothName | checkedInBy | checkedInAt | sessionNumber | runId | runNumber | score | correctCount | answeredCount | totalQuestions | votedFor | featuredWinner | extraData |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
-`extraData` contains only allowlisted operational metadata. Attendee-entered
-Story answers and Art reflections stay out of the Sheet mirror.
+`extraData` contains only allowlisted non-activity operational metadata.
+Attendee-entered Story answers and Art reflections stay out of the Sheet
+mirror. Bible Bowl score columns and New Song vote/result columns are blank;
+those details remain in their respective protected booth portals.
 
 ### Live_SignUps
 
@@ -170,6 +172,9 @@ Story answers and Art reflections stay out of the Sheet mirror.
 | id | attendeeId | name | raffleNumber | wristbandColor | sessionNumber | runId | runNumber | questionId | questionNumber | answerIndex | isCorrect | answeredAt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 
+This compatibility tab is intentionally header-only. A full sync removes old
+answer rows while preserving the existing Apps Script wire contract.
+
 ### Live_HeavenConfirmations
 
 | id | attendeeId | name | raffleNumber | wristbandColor | sessionNumber | runId | runNumber | action | confirmedAt |
@@ -179,6 +184,9 @@ Story answers and Art reflections stay out of the Sheet mirror.
 
 | id | attendeeId | name | raffleNumber | wristbandColor | sessionNumber | runId | runNumber | songTitle | votedAt | updatedAt |
 |---|---|---|---|---|---|---|---|---|---|---|
+
+This compatibility tab is intentionally header-only. New Song votes and the
+winning result remain visible only in the New Song booth-leader portal.
 
 ### Live_ExportMeta
 

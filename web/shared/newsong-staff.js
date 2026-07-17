@@ -9,17 +9,17 @@ function initNewSongStaff() {
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const SONGS = [
-    "He Called Me — Eugy Official",
     "He Turned It",
     "Victory",
     "Brighter Day",
-    "Praise — Elevation Worship",
-    "247 — Tbabz",
-    "Elohim — Sondae",
-    "I Thank God — Maverick City",
-    "Amen — Madison Ryann Ward",
-    "Quick — Caleb Gordon",
-    "Goodbye Yesterday — Elevation Rhythm",
+    "Praise - elevation worship",
+    "I thank God - maverick city",
+    "Amen- Madison Ryann Ward",
+    "Quick - Caleb Gordon",
+    "Goodbye Yesterday - elevation rhythm",
+    "He called me",
+    "247",
+    "Elohim",
   ];
   const FALLBACK_BANDS = [
     { id: "green", label: "Green" },
@@ -281,7 +281,7 @@ function initNewSongStaff() {
       stage.innerHTML = `
         <div class="newsong-stage-icon gold" aria-hidden="true">♛</div>
         <h3>The room's result is frozen.</h3>
-        <p>Every attendee now sees the same winner or full tie. Continue when the speaker is ready to connect it to Revelation 14:3.</p>
+        <p>Every attendee now sees the same winner or full tie. Give the room time to guess what the new song could be, then reveal the verse only when the speaker is ready.</p>
         ${resultMarkup(session.state.result)}
       `;
     } else if (phase === "verse") {

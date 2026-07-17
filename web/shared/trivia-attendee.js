@@ -57,6 +57,20 @@ const TriviaAttendee = (() => {
     return { answerIndex, text: String(answer.text || "") };
   }
 
+  function normalizeTopThree(value) {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 3).map((entry, index) => {
+      const row = object(entry);
+      return {
+        rank: Math.max(1, integer(row.rank, index + 1)),
+        name: String(row.name || "Guest"),
+        raffleNumber: String(row.raffleNumber || ""),
+        correctCount: Math.max(0, integer(row.correctCount, 0)),
+        totalQuestions: Math.max(0, integer(row.totalQuestions, 0)),
+      };
+    });
+  }
+
   function normalizeState(value) {
     const raw = object(value);
     const phaseValue = String(raw.phase || "welcome").trim().toLowerCase();
@@ -84,6 +98,7 @@ const TriviaAttendee = (() => {
         answeredCount: Math.max(0, integer(score.answeredCount, 0)),
         totalQuestions: Math.max(0, integer(score.totalQuestions, questionCount)),
       },
+      topThree: phase === "complete" ? normalizeTopThree(raw.topThree) : [],
       updatedAt: raw.updatedAt || null,
       serverNow: raw.serverNow || null,
     };
@@ -101,6 +116,7 @@ const TriviaAttendee = (() => {
       answer: value.answer,
       correctAnswer: value.correctAnswer,
       score: value.score,
+      topThree: value.topThree,
       updatedAt: value.updatedAt,
     });
   }
@@ -244,6 +260,17 @@ const TriviaAttendee = (() => {
   function renderResults(value) {
     const correctCount = value.score.correctCount;
     const totalQuestions = value.score.totalQuestions || value.questionCount;
+    const podium = value.topThree.length
+      ? `<section class="trivia-podium" aria-label="Bible Bowl top three">
+          <h3>Session top 3</h3>
+          <div>${value.topThree.map((entry) => `
+            <article class="place-${entry.rank}">
+              <span aria-hidden="true">${entry.rank === 1 ? "🥇" : entry.rank === 2 ? "🥈" : "🥉"}</span>
+              <strong>${escapeHtml(entry.name)}</strong>
+              <small>Raffle #${escapeHtml(entry.raffleNumber || "----")} · ${entry.correctCount}/${entry.totalQuestions || totalQuestions}</small>
+            </article>`).join("")}</div>
+        </section>`
+      : `<p class="trivia-podium-empty">No ranked scores were recorded in this run.</p>`;
     container.innerHTML = `
       <div class="trivia-stage trivia-results">
         <div class="trivia-stage-icon" aria-hidden="true">🎊</div>
@@ -253,6 +280,7 @@ const TriviaAttendee = (() => {
           <strong>${correctCount}</strong><span>of ${totalQuestions} correct</span>
         </div>
         <p class="trivia-stage-copy">Great job learning more about the Bible. Every answer helped you grow!</p>
+        ${podium}
         <button type="button" class="btn btn-primary" id="btn-trivia-done">Done — return to my schedule →</button>
         ${sessionLine(value) ? `<p class="trivia-sync-note">${escapeHtml(sessionLine(value))}</p>` : ""}
       </div>

@@ -217,6 +217,12 @@
       line-height: 1.2;
     }
     .trivia-stage p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.5; }
+    .trivia-staff-podium { display:grid; gap:8px; margin-top:15px; }
+    .trivia-staff-podium article { display:grid; grid-template-columns:32px minmax(0,1fr); align-items:center; gap:9px; padding:10px 11px; border:1px solid rgba(29,122,120,.14); border-radius:11px; background:#fff; }
+    .trivia-staff-podium article>span { font-size:23px; text-align:center; }
+    .trivia-staff-podium strong,.trivia-staff-podium small { display:block; }
+    .trivia-staff-podium strong { color:var(--ink); font-size:12.5px; }
+    .trivia-staff-podium small { margin-top:2px; color:var(--ink-soft); font-size:9.5px; }
     .trivia-question-meta {
       margin-bottom: 8px;
       color: var(--violet-deep);
@@ -453,6 +459,7 @@
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
   <script src="../shared/event-schedule.js"></script>
+  <script src="../shared/staff-session-alert.js"></script>
   <script src="../shared/trivia-staff.js"></script>
   <script>initBoothStaff("trivia");</script>
 </body>
