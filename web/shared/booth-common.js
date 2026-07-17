@@ -1,5 +1,5 @@
-/* Shared behavior for attendee booth rooms. Phone verification happens once
- * at Phase 1, so a timed booth only restores the signed-in attendee and opens
+/* Shared behavior for attendee booth rooms. Registration happens once at
+ * Phase 1, so a timed booth only restores the signed-in attendee and opens
  * its activity. Each booth page can define window.getBoothExtraData() so its
  * activity-specific result rides along on the completion record. */
 

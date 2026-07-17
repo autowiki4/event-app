@@ -19,9 +19,10 @@ access when the library is not already cached.
 ### Entry code
 
 Print the Phase 1 code at registration. This is the normal attendee starting
-point. After staff assign and confirm a wristband color, Phase 1 opens the
-unified hub directly; the attendee does not need another scan or an
-intermediate Phase 1 completion link.
+point. The attendee enters a name and phone number, receives the raffle number
+immediately in the app, and is not sent a message. After staff assign and
+confirm a wristband color, Phase 1 opens the unified hub directly; the attendee
+does not need another scan or an intermediate Phase 1 completion link.
 
 ### Return-to-schedule code
 
@@ -29,7 +30,9 @@ Place a small number at the help desk or central navigation signs. It is a
 recovery path for someone who closed the tab or changed devices, not a code
 that must be scanned at each booth. On a new device, the hub asks once for the
 registration name and phone number, then restores the same raffle and correct
-color route. The
+color route. The stable `/attend` route provides the same name-plus-phone
+recovery screen when shared as a normal link. The raffle number is display-only
+and cannot be used to log in. The
 active route row can be reopened from the hub until its session ends, including
 after that visit has been marked complete.
 

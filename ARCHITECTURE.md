@@ -17,8 +17,8 @@ The browser UI is a collection of static HTML, CSS, and JavaScript files under
 
 `Code.gs` also retains a limited legacy implementation of the core attendee
 and staff API. `web/shared/config.js` can select that adapter, but it does not
-implement first-time SMS/OTP, the shared clock, full reset, or specialized
-leader-paced booth controllers. The Sheet export does not select that adapter: the web app keeps
+implement the shared clock, full reset, or specialized leader-paced booth
+controllers. The Sheet export does not select that adapter: the web app keeps
 `API_BASE_URL: "/api"`, Node remains authoritative, and only the server knows
 the export URL and secret.
 
@@ -26,7 +26,7 @@ The primary attendee path is:
 
 ```text
 Phase 1 entry
-  name + phone → welcome OTP + raffle/link → staff wristband → continuation
+  name + phone → immediate raffle → staff wristband → continuation
         ↓
 One Phase 2 hub
   sticky identity → shared timer → color route → attendee completion taps
@@ -40,21 +40,20 @@ Waiting/message screen
 
 ## Identity and continuity
 
-Phase 1 creates a random device `attendeeId`, reserves the next raffle number,
-and stores only an HMAC digest of the six-digit welcome code in a short-lived
-challenge. The verified code creates the attendee record with name, phone,
-raffle number, and verification timestamp. Staff then confirms the wristband
-color against that record.
+Phase 1 creates a random device `attendeeId` and immediately creates the
+attendee record with name, phone, registration time, and the next raffle
+number. Nothing is sent to the phone. Staff then confirms the wristband color
+against that record.
 
 The attendee's own browser stores the current identity in `localStorage`.
 After wristband confirmation, Phase 1 navigates directly to the hub; Phase 2,
 Phase 3, and the final screen continue with that same identity. A tab-level
 `sessionStorage` marker is only an optional fast-path hint: refresh, a reopened
 mobile tab, or a direct booth QR restores from the persistent identity even if
-that marker has disappeared. The SMS `/attend` link opens the Phase 1
-entry/resume screen, which finishes any missing wristband step before routing
-the attendee to the shared hub. On a different device, name plus phone reopens
-the backend record and stores
+that marker has disappeared. The `/attend` route and attendee return QR open
+the Phase 1 entry/resume screen, which finishes any missing wristband step
+before routing the attendee to the shared hub. On a different device, name
+plus phone reopens the backend record and stores
 it locally on that device; the raffle number remains display-only.
 
 `web/shared/journey-state.js` stores unfinished booth steps, typed answers,
@@ -87,10 +86,10 @@ saved identity and returns to Phase 1 to register again. Persisting the marker
 means a phone that was closed during the reset receives the same instruction
 when it is reopened, rather than restoring a deleted attendee record.
 
-The first phone is OTP-verified, but later name-plus-phone recovery is still a
-lightweight record lookup rather than strong ongoing authentication. Do not
-treat it as an account-security boundary if the stored data or actions become
-sensitive.
+Name-plus-phone recovery is a lightweight record lookup rather than strong
+authentication. The app sends no message and does not prove control of the
+phone number. Do not treat it as an account-security boundary if the stored
+data or actions become sensitive.
 
 ## Wristband routing
 
@@ -273,12 +272,9 @@ the hub.
 The Node JSON object is the authoritative data store for the complete current
 experience:
 
-- **Attendees:** canonical ID, aliases, name, verified/organizer-paired phone,
-  raffle number, registration/verification time, wristband confirmation time,
-  color, and Phase 3 completion time.
-- **OtpChallenges:** 24-hour-pruned registration reservations, HMAC code
-  digests, expiry/attempt/rate state, and delivery metadata. This collection is
-  never included in the Google Sheet snapshot.
+- **Attendees:** canonical ID, aliases, name, collected or organizer-paired
+  phone, raffle number, registration time, wristband confirmation time, color,
+  and Phase 3 completion time.
 - **BoothCheckins:** attendee, booth, time, method, and optional booth/session
   metadata.
 - **SongVotes:** one immediate, run-scoped New Song choice per attendee; the
@@ -323,8 +319,7 @@ See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
 ## API boundary
 
-The main attendee actions are `startAttendeeRegistration`,
-`verifyAttendeePhone`, `resendAttendeePhoneCode`, `confirmWristband`,
+The main attendee actions are `registerAttendee`, `confirmWristband`,
 `loginAttendee`, `attendeePortalSession`, `myCheckins`, `mySignupSelections`,
 `boothPresentation`, `boothCheckin`, `saveSongVote`, `saveSignupSelections`,
 and the legacy `submitSignup` action. `saveSignupSelections` records Phase 3 completion for
@@ -357,7 +352,7 @@ unsynchronized vote path.
 Legacy phone/kiosk actions remain for the optional fallback pages.
 
 `resetDemo` clears all attendees and wristband assignments, check-ins and
-scores, pending OTP challenges, New Song sessions/votes/history, Phase 3 sign-ups, booth
+scores, New Song sessions/votes/history, Phase 3 sign-ups, booth
 presentation/control state, all other active and archived leader-paced runs,
 and the raffle counter. It writes the same fresh state to the primary JSON
 file and backup, advances `dataResetAt`, and thereby clears connected or

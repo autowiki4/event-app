@@ -62,16 +62,14 @@ has no remote clock or reset actions.
 
 In Window A:
 
-1. Enter `Jordan` and a test mobile number, then choose **Text my event pass**.
-2. In local console mode, copy the six-digit code from Window B's terminal;
-   in a Twilio-connected rehearsal, read it from the phone. Verify it and
-   point out that the same welcome message carries the raffle number and
-   `/attend` return link.
-3. Select the **Blue** wristband.
-4. Check the Guardian Angel handoff box and choose **Complete Phase 1 &
+1. Enter `Jordan` and a test mobile number, then choose **Create my event
+   pass**. Point out that the raffle number appears immediately and nothing is
+   sent to the phone.
+2. Select the **Blue** wristband.
+3. Check the Guardian Angel handoff box and choose **Complete Phase 1 &
    continue**. The same attendee identity opens directly in the Phase 2 hub;
    there is no second attendee sign-in or intermediate completion page.
-5. Point out the three-stop route in the hub:
+4. Point out the three-stop route in the hub:
 
    - Session 1, 3:10–3:30: Can You Draw Heaven?
    - Session 2, 3:30–3:50: Bible Bowl
@@ -243,9 +241,10 @@ a shared time, that Node-controlled time takes precedence.
 - **Can a leader control only their booth?** The data endpoint and page are
   booth-scoped, but all staff pages currently share one organizer key. Anyone
   with that key can open another booth or the overall dashboard.
-- **Is name plus phone secure login?** The phone is OTP-verified at first
-  registration, but later name-plus-phone recovery is still lightweight mock
-  access rather than strong ongoing authentication. The raffle is display-only.
+- **Is name plus phone secure login?** No. It is lightweight mock record
+  recovery rather than strong authentication, and no message is sent to prove
+  control of the number. The raffle is display-only and cannot be used to log
+  in.
 - **What if the event date changes?** Edit `BOOTH_SESSIONS` in
   `web/shared/booths-config.js`; the current July 18, 2026 Nashville date is an
   assumption copied into the mock.

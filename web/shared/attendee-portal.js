@@ -99,7 +99,6 @@ const AttendeePortal = (() => {
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
       phone: savedPhone,
       phoneLinked: !!result.phoneLinked || savedPhone.length === 10,
-      phoneVerified: result.phoneVerified !== false && (!!result.phoneLinked || savedPhone.length === 10),
       email: sameAttendee ? previous.email || "" : "",
     });
   }

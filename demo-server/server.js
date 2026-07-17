@@ -1,5 +1,5 @@
 /* Node rehearsal backend — implements the complete attendee/staff API,
- * including phone verification, shared-clock, and full-reset actions,
+ * including attendee registration, shared-clock, and full-reset actions,
  * backed by a plain JSON file instead of a Google Sheet. It runs the whole
  * multi-device flow locally or as a same-origin service on Render.
  *
@@ -19,20 +19,12 @@ const path = require("path");
 const crypto = require("crypto");
 const { TRIVIA_QUESTIONS } = require("./trivia-questions");
 const { createGoogleSheetsExporter } = require("./google-sheets-export");
-const { createSmsService } = require("./sms-service");
 
 const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json");
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
 const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
 const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
-const OTP_PEPPER = process.env.EVENT_APP_OTP_PEPPER || ORGANIZER_KEY;
-const OTP_TTL_MS = 10 * 60 * 1000;
-const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
-const OTP_MAX_ATTEMPTS = 5;
-const OTP_PHONE_SENDS_PER_15_MINUTES = 3;
-const OTP_PHONE_SENDS_PER_HOUR = 5;
-const OTP_GLOBAL_SENDS_PER_HOUR = 1000;
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
 const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
@@ -138,8 +130,6 @@ const MIME = {
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
-const smsService = createSmsService();
-
 // The rehearsal clock is intentionally process-local: it is shared by every
 // browser connected to this demo server, but disappears when the demo server
 // restarts and can never affect the Apps Script deployment.
@@ -223,7 +213,6 @@ function demoClockResult() {
 function emptyDb() {
   return {
     attendees: [],
-    otpChallenges: [],
     boothCheckins: [],
     songVotes: [],
     signups: [],
@@ -242,47 +231,6 @@ function emptyDb() {
     raffleCounter: 1000,
     dataResetAt: "initial",
   };
-}
-
-function normalizeOtpChallenges(value) {
-  if (!Array.isArray(value)) return [];
-  const retentionCutoff = Date.now() - (24 * 60 * 60 * 1000);
-  return value
-    .filter((row) => row && typeof row === "object" && !Array.isArray(row))
-    .map((row) => ({
-      challengeId: String(row.challengeId || "").trim(),
-      attendeeId: String(row.attendeeId || "").trim(),
-      existingAttendeeId: row.existingAttendeeId ? String(row.existingAttendeeId) : null,
-      name: String(row.name || "").trim(),
-      phone: digitsOnly(row.phone),
-      raffleNumber: normalizeRaffleNumber(row.raffleNumber),
-      codeDigest: String(row.codeDigest || ""),
-      createdAt: String(row.createdAt || ""),
-      expiresAt: String(row.expiresAt || ""),
-      attemptsRemaining: Math.max(0, Math.min(
-        OTP_MAX_ATTEMPTS,
-        Number.isSafeInteger(Number(row.attemptsRemaining))
-          ? Number(row.attemptsRemaining)
-          : OTP_MAX_ATTEMPTS
-      )),
-      sendTimestamps: Array.isArray(row.sendTimestamps)
-        ? row.sendTimestamps.filter((value) => Number.isFinite(Date.parse(value))).map(String)
-        : [],
-      lastSentAt: row.lastSentAt ? String(row.lastSentAt) : null,
-      deliveryStatus: String(row.deliveryStatus || "pending"),
-      messageSid: row.messageSid ? String(row.messageSid) : null,
-      verifiedAt: row.verifiedAt ? String(row.verifiedAt) : null,
-    }))
-    .filter((row) => (
-      row.challengeId
-        && row.attendeeId
-        && row.name
-        && row.phone.length === 10
-        && row.raffleNumber
-        && row.codeDigest
-        && Number.isFinite(Date.parse(row.createdAt))
-        && Date.parse(row.createdAt) >= retentionCutoff
-    ));
 }
 function normalizeDataResetAt(value) {
   if (value === "initial") return "initial";
@@ -333,10 +281,12 @@ function normalizeBoothCheckins(value) {
 function normalizeDb(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const db = Object.assign(emptyDb(), source);
+  // Drop challenge data left by builds that used text-message verification.
+  // It is no longer part of the attendee model and must not be rewritten.
+  delete db.otpChallenges;
   db.attendees = Array.isArray(source.attendees)
     ? source.attendees.filter((row) => row && typeof row === "object" && !Array.isArray(row))
     : [];
-  db.otpChallenges = normalizeOtpChallenges(source.otpChallenges);
   db.boothCheckins = normalizeBoothCheckins(source.boothCheckins);
   db.songVotes = normalizeNewSongVotes(source.songVotes);
   db.signups = Array.isArray(source.signups)
@@ -407,13 +357,8 @@ function normalizeDb(raw) {
   db.attendees.forEach((attendee) => {
     if (!Array.isArray(attendee.aliasIds)) attendee.aliasIds = [];
     attendee.phone = digitsOnly(attendee.phone) || null;
-    attendee.phoneVerifiedAt = Number.isFinite(Date.parse(attendee.phoneVerifiedAt))
-      ? new Date(attendee.phoneVerifiedAt).toISOString()
-      : null;
-    // Records from the older booth-linking flow are grandfathered. New
-    // registration challenges do not create attendee rows until verification.
-    attendee.phoneVerificationRequired = attendee.phoneVerificationRequired === true
-      && !attendee.phoneVerifiedAt;
+    delete attendee.phoneVerifiedAt;
+    delete attendee.phoneVerificationRequired;
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
     attendee.phase3CompletedAt = earliestTimestamp(attendee.phase3CompletedAt);
   });
@@ -533,7 +478,11 @@ function writeDb(db, options = {}) {
       writeFileDurably(backupTempPath, serialized);
       fs.renameSync(backupTempPath, DB_BACKUP_PATH);
     } else if (fileFingerprint(DB_PATH)) {
-      fs.copyFileSync(DB_PATH, DB_BACKUP_PATH);
+      // Preserve the previous logical state, but normalize it first so retired
+      // fields (including old phone-challenge data) cannot remain in backups.
+      const previousSerialized = JSON.stringify(parseDbFile(DB_PATH), null, 2);
+      writeFileDurably(backupTempPath, previousSerialized);
+      fs.renameSync(backupTempPath, DB_BACKUP_PATH);
     }
     fs.renameSync(tempPath, DB_PATH);
     dbCache = normalized;
@@ -565,6 +514,25 @@ function queueInitialGoogleSheetsExport() {
   } catch (error) {
     console.error("Initial Google Sheets export could not be queued; event data remains saved locally.");
   }
+}
+
+function databaseFileHasRetiredVerificationData(filename) {
+  try {
+    const contents = fs.readFileSync(filename, "utf8");
+    return /"otpChallenges"|"phoneVerifiedAt"|"phoneVerificationRequired"/.test(contents);
+  } catch (error) {
+    if (error && error.code === "ENOENT") return false;
+    throw databaseUnavailable("The event database could not be checked for retired fields.", error);
+  }
+}
+
+function sanitizeRetiredVerificationData() {
+  const needsSanitizing = databaseFileHasRetiredVerificationData(DB_PATH)
+    || databaseFileHasRetiredVerificationData(DB_BACKUP_PATH);
+  if (!needsSanitizing) return;
+  const db = readDb();
+  writeDb(db, { replaceBackup: true, skipSheetsExport: true });
+  console.log("Removed retired phone-verification data from the event database and backup.");
 }
 
 function id() {
@@ -1563,12 +1531,6 @@ function mergeAttendees(db, canonical, duplicate, phone) {
     ...duplicateIds,
   ])).filter((value) => value && value !== canonical.attendeeId);
   canonical.phone = digitsOnly(phone) || canonical.phone || duplicate.phone || null;
-  canonical.phoneVerifiedAt = earliestTimestamp(
-    canonical.phoneVerifiedAt,
-    duplicate.phoneVerifiedAt
-  );
-  canonical.phoneVerificationRequired = !canonical.phoneVerifiedAt
-    && (canonical.phoneVerificationRequired === true || duplicate.phoneVerificationRequired === true);
   canonical.name = meaningfulName(canonical.name, duplicate.name);
   canonical.wristbandConfirmedAt = canonical.wristbandConfirmedAt || duplicate.wristbandConfirmedAt || null;
   canonical.phase3CompletedAt = earliestTimestamp(
@@ -1615,177 +1577,29 @@ function cleanAttendeeName(value) {
   return name.length > 0 && name.length <= 80 ? name : "";
 }
 
-function attendeeHasVerifiedPhone(attendee) {
-  return Boolean(
-    attendee
-      && digitsOnly(attendee.phone).length === 10
-      && (attendee.phoneVerifiedAt || attendee.phoneVerificationRequired !== true)
-  );
-}
-
-function attendeeReturnUrl() {
-  const explicit = String(process.env.EVENT_APP_ATTENDEE_URL || "").trim();
-  const base = String(
-    process.env.EVENT_APP_PUBLIC_URL
-      || process.env.RENDER_EXTERNAL_URL
-      || `http://localhost:${PORT}`
-  ).trim();
-  const raw = explicit || `${base.replace(/\/+$/, "")}/attend`;
-  try {
-    const parsed = new URL(raw);
-    if (!new Set(["http:", "https:"]).has(parsed.protocol)) return null;
-    if (smsService.status().mode === "twilio" && parsed.protocol !== "https:") return null;
-    parsed.hash = "";
-    return parsed.toString();
-  } catch (error) {
-    return null;
-  }
-}
-
-function maskPhone(phone) {
-  const digits = digitsOnly(phone);
-  return digits.length === 10 ? `(***) ***-${digits.slice(-4)}` : "your phone";
-}
-
-function otpCode() {
-  const fixed = process.env.NODE_ENV === "test"
-    ? String(process.env.EVENT_APP_SMS_TEST_CODE || "").trim()
-    : "";
-  if (/^\d{6}$/.test(fixed)) return fixed;
-  return String(crypto.randomInt(0, 1000000)).padStart(6, "0");
-}
-
-function otpDigest(challenge, code) {
-  return crypto.createHmac("sha256", OTP_PEPPER)
-    .update(`attendee-registration|${challenge.challengeId}|${challenge.phone}|${String(code)}`)
-    .digest("hex");
-}
-
-function otpMatches(challenge, code) {
-  const expected = Buffer.from(String(challenge.codeDigest || ""), "hex");
-  const supplied = Buffer.from(otpDigest(challenge, code), "hex");
-  return expected.length === supplied.length
-    && expected.length > 0
-    && crypto.timingSafeEqual(expected, supplied);
-}
-
-function otpRateLimit(db, phone, nowMs) {
-  const allTimes = db.otpChallenges.flatMap((challenge) => challenge.sendTimestamps || [])
-    .map((value) => Date.parse(value))
-    .filter(Number.isFinite);
-  const phoneTimes = db.otpChallenges
-    .filter((challenge) => challenge.phone === phone)
-    .flatMap((challenge) => challenge.sendTimestamps || [])
-    .map((value) => Date.parse(value))
-    .filter(Number.isFinite)
-    .sort((a, b) => b - a);
-  const retry = (windowMs, times) => Math.max(
-    1,
-    Math.ceil((Math.min(...times) + windowMs - nowMs) / 1000)
-  );
-  if (phoneTimes[0] && nowMs - phoneTimes[0] < OTP_RESEND_COOLDOWN_MS) {
-    return Math.ceil((OTP_RESEND_COOLDOWN_MS - (nowMs - phoneTimes[0])) / 1000);
-  }
-  const phone15 = phoneTimes.filter((value) => nowMs - value < 15 * 60 * 1000);
-  if (phone15.length >= OTP_PHONE_SENDS_PER_15_MINUTES) {
-    return retry(15 * 60 * 1000, phone15);
-  }
-  const phoneHour = phoneTimes.filter((value) => nowMs - value < 60 * 60 * 1000);
-  if (phoneHour.length >= OTP_PHONE_SENDS_PER_HOUR) {
-    return retry(60 * 60 * 1000, phoneHour);
-  }
-  const globalHour = allTimes.filter((value) => nowMs - value < 60 * 60 * 1000);
-  if (globalHour.length >= OTP_GLOBAL_SENDS_PER_HOUR) {
-    return retry(60 * 60 * 1000, globalHour);
-  }
-  return 0;
-}
-
-function otpRateLimited(retryAfterSeconds) {
-  return {
-    status: 429,
-    body: {
-      error: `Please wait ${retryAfterSeconds} seconds before requesting another code.`,
-      code: "OTP_RATE_LIMITED",
-      retryAfterSeconds,
-    },
-  };
-}
-
-function welcomeSmsBody(challenge, code, returnUrl) {
-  return `Welcome to The Perfect Summer Day! Code: ${code}. Raffle #${challenge.raffleNumber}. Reopen anytime: ${returnUrl}`;
-}
-
-async function deliverRegistrationChallenge(challenge, code) {
-  let delivery;
-  try {
-    delivery = await smsService.send({
-      phoneDigits: challenge.phone,
-      body: welcomeSmsBody(challenge, code, attendeeReturnUrl()),
-    });
-  } catch (error) {
-    const failedDb = readDb();
-    const failedChallenge = failedDb.otpChallenges.find((row) => row.challengeId === challenge.challengeId);
-    if (failedChallenge) {
-      failedChallenge.deliveryStatus = "failed";
-      failedChallenge.messageSid = null;
-      writeDb(failedDb, { skipSheetsExport: true });
-    }
-    return errorResult(
-      Number(error && error.status) || 502,
-      "We couldn't send the welcome text. Check the SMS setup or try again.",
-      error && error.code ? error.code : "SMS_DELIVERY_FAILED"
-    );
-  }
-
-  const deliveredDb = readDb();
-  const deliveredChallenge = deliveredDb.otpChallenges.find((row) => row.challengeId === challenge.challengeId);
-  if (!deliveredChallenge) {
-    return errorResult(409, "Registration was reset while the text was sending. Start again.", "REGISTRATION_RESET");
-  }
-  deliveredChallenge.deliveryStatus = delivery.status || "accepted";
-  deliveredChallenge.messageSid = delivery.messageSid || null;
-  writeDb(deliveredDb, { skipSheetsExport: true });
-  return null;
-}
-
-function registrationChallengeResult(challenge, db, extra = {}) {
-  return {
-    challengeId: challenge.challengeId,
-    attendeeId: challenge.attendeeId,
-    raffleNumber: challenge.raffleNumber,
-    maskedPhone: maskPhone(challenge.phone),
-    expiresAt: challenge.expiresAt,
-    resendAfterSeconds: Math.ceil(OTP_RESEND_COOLDOWN_MS / 1000),
-    deliveryMode: smsService.status().mode,
-    dataResetAt: db.dataResetAt,
-    ...extra,
-  };
-}
-
-async function startAttendeeRegistration(body) {
+function registerAttendee(body) {
   const attendeeId = String((body && body.attendeeId) || "").trim();
   const name = cleanAttendeeName(body && body.name);
+  const phoneWasSupplied = Boolean(body && String(body.phone || "").trim());
   const phone = digitsOnly(body && body.phone);
-  if (!attendeeId || attendeeId.length > 128 || !name || phone.length !== 10) {
-    return errorResult(400, "Enter your name and a valid 10-digit mobile number.", "REGISTRATION_FIELDS_REQUIRED");
+  const selfService = phoneWasSupplied && phone.length === 10;
+  if (!attendeeId || attendeeId.length > 128 || !name) {
+    return errorResult(400, "Enter your name and a valid event-pass ID.", "REGISTRATION_FIELDS_REQUIRED");
   }
-  if (!smsService.configured() || !attendeeReturnUrl()) {
-    return errorResult(
-      503,
-      "Welcome-text delivery is not configured yet. Ask an organizer for help.",
-      "SMS_NOT_CONFIGURED"
-    );
+  if (phoneWasSupplied && !selfService) {
+    return errorResult(400, "Enter a valid 10-digit mobile number.", "INVALID_PHONE");
   }
-  if (smsService.status().mode === "twilio" && !process.env.EVENT_APP_OTP_PEPPER) {
-    return errorResult(503, "Phone verification is missing its server secret.", "OTP_NOT_CONFIGURED");
+  if (!selfService) {
+    const authError = requireOrganizer(body);
+    if (authError) return authError;
   }
 
   const db = readDb();
   const existingById = findAttendeeById(db, attendeeId);
-  const existingByIdentity = findAttendeeByNameAndPhone(db, name, phone);
+  const existingByIdentity = selfService ? findAttendeeByNameAndPhone(db, name, phone) : null;
   if (
     existingById
+      && selfService
       && (
         normalizeAttendeeName(existingById.name) !== normalizeAttendeeName(name)
           || (existingById.phone && existingById.phone !== phone)
@@ -1797,253 +1611,27 @@ async function startAttendeeRegistration(body) {
       "ATTENDEE_IDENTITY_CONFLICT"
     );
   }
-  if (existingByIdentity && attendeeHasVerifiedPhone(existingByIdentity)) {
-    return {
-      status: 200,
-      body: {
-        ...attendeePortalResult(existingByIdentity),
-        alreadyRegistered: true,
-        maskedPhone: maskPhone(phone),
-      },
-    };
-  }
 
-  const nowMs = Date.now();
-  const activeChallenge = db.otpChallenges
-    .filter((row) => (
-      row.attendeeId === attendeeId
-        && row.phone === phone
-        && normalizeAttendeeName(row.name) === normalizeAttendeeName(name)
-        && !row.verifiedAt
-        && row.deliveryStatus !== "failed"
-        && row.deliveryStatus !== "superseded"
-        && row.attemptsRemaining > 0
-        && Date.parse(row.expiresAt) > nowMs
-    ))
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-  if (activeChallenge) {
-    const lastSentMs = Date.parse(activeChallenge.lastSentAt);
-    const resendAfterSeconds = Number.isFinite(lastSentMs)
-      ? Math.max(0, Math.ceil((OTP_RESEND_COOLDOWN_MS - (nowMs - lastSentMs)) / 1000))
-      : 0;
-    return {
-      status: 200,
-      body: registrationChallengeResult(activeChallenge, db, {
-        reused: true,
-        resendAfterSeconds,
-      }),
-    };
-  }
-
-  const retryAfterSeconds = otpRateLimit(db, phone, nowMs);
-  if (retryAfterSeconds) return otpRateLimited(retryAfterSeconds);
-  const now = new Date(nowMs).toISOString();
-  const priorReservation = db.otpChallenges
-    .filter((row) => (
-      row.phone === phone
-        && normalizeAttendeeName(row.name) === normalizeAttendeeName(name)
-        && !row.verifiedAt
-    ))
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-  const existingRegistration = existingById || existingByIdentity;
-  let raffleNumber = existingRegistration
-    ? existingRegistration.raffleNumber
-    : priorReservation && priorReservation.raffleNumber;
-  if (!raffleNumber) {
-    db.raffleCounter += 1;
-    raffleNumber = String(db.raffleCounter);
-  }
-  db.otpChallenges.forEach((row) => {
-    if (
-      row.phone === phone
-        && normalizeAttendeeName(row.name) === normalizeAttendeeName(name)
-        && !row.verifiedAt
-    ) {
-      row.deliveryStatus = "superseded";
-      row.expiresAt = now;
-    }
-  });
-  const code = otpCode();
-  const challenge = {
-    challengeId: id(),
-    attendeeId,
-    existingAttendeeId: existingRegistration ? existingRegistration.attendeeId : null,
-    name,
-    phone,
-    raffleNumber: String(raffleNumber),
-    codeDigest: "",
-    createdAt: now,
-    expiresAt: new Date(nowMs + OTP_TTL_MS).toISOString(),
-    attemptsRemaining: OTP_MAX_ATTEMPTS,
-    sendTimestamps: [now],
-    lastSentAt: now,
-    deliveryStatus: "pending",
-    messageSid: null,
-    verifiedAt: null,
-  };
-  challenge.codeDigest = otpDigest(challenge, code);
-  db.otpChallenges.push(challenge);
-  writeDb(db, { skipSheetsExport: true });
-
-  const deliveryErrorResult = await deliverRegistrationChallenge(challenge, code);
-  if (deliveryErrorResult) return deliveryErrorResult;
-  return { status: 200, body: registrationChallengeResult(challenge, db) };
-}
-
-async function resendAttendeePhoneCode(body) {
-  const challengeId = String((body && body.challengeId) || "").trim();
-  const attendeeId = String((body && body.attendeeId) || "").trim();
-  if (!challengeId || !attendeeId) {
-    return errorResult(400, "Registration challenge is required.", "OTP_CHALLENGE_REQUIRED");
-  }
-  if (!smsService.configured() || !attendeeReturnUrl()) {
-    return errorResult(503, "Welcome-text delivery is not configured yet.", "SMS_NOT_CONFIGURED");
-  }
-  const db = readDb();
-  const challenge = db.otpChallenges.find((row) => (
-    row.challengeId === challengeId && row.attendeeId === attendeeId
-  ));
-  if (!challenge || challenge.verifiedAt) {
-    return errorResult(404, "That verification request is no longer active. Start again.", "OTP_CHALLENGE_NOT_FOUND");
-  }
-  const nowMs = Date.now();
-  const retryAfterSeconds = otpRateLimit(db, challenge.phone, nowMs);
-  if (retryAfterSeconds) return otpRateLimited(retryAfterSeconds);
-  const now = new Date(nowMs).toISOString();
-  const code = otpCode();
-  challenge.codeDigest = otpDigest(challenge, code);
-  challenge.expiresAt = new Date(nowMs + OTP_TTL_MS).toISOString();
-  challenge.attemptsRemaining = OTP_MAX_ATTEMPTS;
-  challenge.sendTimestamps.push(now);
-  challenge.lastSentAt = now;
-  challenge.deliveryStatus = "pending";
-  challenge.messageSid = null;
-  writeDb(db, { skipSheetsExport: true });
-
-  const deliveryErrorResult = await deliverRegistrationChallenge(challenge, code);
-  if (deliveryErrorResult) return deliveryErrorResult;
-  return { status: 200, body: registrationChallengeResult(challenge, db, { resent: true }) };
-}
-
-function verifyAttendeePhone(body) {
-  const challengeId = String((body && body.challengeId) || "").trim();
-  const attendeeId = String((body && body.attendeeId) || "").trim();
-  const code = String((body && body.code) || "").replace(/\D/g, "");
-  if (!challengeId || !attendeeId || code.length !== 6) {
-    return errorResult(400, "Enter the 6-digit code from the welcome text.", "OTP_FIELDS_REQUIRED");
-  }
-  const db = readDb();
-  const challenge = db.otpChallenges.find((row) => (
-    row.challengeId === challengeId && row.attendeeId === attendeeId
-  ));
-  if (!challenge) {
-    return errorResult(404, "That verification request is no longer active. Start again.", "OTP_CHALLENGE_NOT_FOUND");
-  }
-  if (challenge.verifiedAt) {
-    return errorResult(409, "That code has already been used. Sign in with your name and phone number.", "OTP_ALREADY_USED");
-  }
-  if (Date.now() >= Date.parse(challenge.expiresAt)) {
-    return errorResult(410, "That code expired. Request a new welcome text.", "OTP_EXPIRED");
-  }
-  if (challenge.attemptsRemaining <= 0) {
-    return errorResult(429, "Too many incorrect codes. Request a new welcome text.", "OTP_ATTEMPTS_EXHAUSTED");
-  }
-  if (!otpMatches(challenge, code)) {
-    challenge.attemptsRemaining -= 1;
-    writeDb(db, { skipSheetsExport: true });
-    return {
-      status: 401,
-      body: {
-        error: challenge.attemptsRemaining
-          ? `That code is not correct. ${challenge.attemptsRemaining} attempt${challenge.attemptsRemaining === 1 ? "" : "s"} left.`
-          : "Too many incorrect codes. Request a new welcome text.",
-        code: challenge.attemptsRemaining ? "OTP_INCORRECT" : "OTP_ATTEMPTS_EXHAUSTED",
-        attemptsRemaining: challenge.attemptsRemaining,
-      },
-    };
-  }
-
-  let attendee = challenge.existingAttendeeId
-    ? findAttendeeById(db, challenge.existingAttendeeId)
-    : findAttendeeById(db, challenge.attendeeId);
-  const identityAttendee = findAttendeeByNameAndPhone(db, challenge.name, challenge.phone);
-  if (identityAttendee && identityAttendee !== attendee) {
-    attendee = attendee
-      ? mergeAttendees(db, attendee, identityAttendee, challenge.phone)
-      : identityAttendee;
-  }
-  if (!attendee) {
-    if (findAttendeeByRaffle(db, challenge.raffleNumber)) {
-      return errorResult(409, "That raffle reservation changed. Ask staff for help.", "RAFFLE_CONFLICT");
-    }
-    attendee = {
-      attendeeId: challenge.attendeeId,
-      aliasIds: [],
-      name: challenge.name,
-      phone: challenge.phone,
-      phoneVerifiedAt: null,
-      phoneVerificationRequired: true,
-      raffleNumber: challenge.raffleNumber,
-      wristbandConfirmedAt: null,
-      registeredAt: eventNowIso(),
-      wristbandColor: null,
-      phase3CompletedAt: null,
-    };
-    db.attendees.push(attendee);
-  }
-  if (attendee.phone && attendee.phone !== challenge.phone) {
-    return errorResult(409, "This event pass is connected to another phone. Ask staff for help.", "ATTENDEE_IDENTITY_CONFLICT");
-  }
-  if (
-    attendee.name
-      && normalizeAttendeeName(attendee.name) !== normalizeAttendeeName(challenge.name)
-  ) {
-    return errorResult(409, "This event pass is connected to another name. Ask staff for help.", "ATTENDEE_IDENTITY_CONFLICT");
-  }
-  const verifiedAt = new Date().toISOString();
-  attendee.name = challenge.name;
-  attendee.phone = challenge.phone;
-  attendee.phoneVerifiedAt = verifiedAt;
-  attendee.phoneVerificationRequired = false;
-  db.otpChallenges.forEach((row) => {
-    if (
-      row.phone !== challenge.phone
-        || normalizeAttendeeName(row.name) !== normalizeAttendeeName(challenge.name)
-        || row.verifiedAt
-    ) return;
-    row.verifiedAt = verifiedAt;
-    row.deliveryStatus = row.challengeId === challenge.challengeId ? "verified" : "superseded";
-  });
-  writeDb(db);
-  return {
-    status: 200,
-    body: {
-      ...attendeePortalResult(attendee),
-      phoneVerified: true,
-      maskedPhone: maskPhone(attendee.phone),
-    },
-  };
-}
-
-function registerAttendee(body) {
-  const authError = requireOrganizer(body);
-  if (authError) return authError;
-  const { attendeeId, name } = body;
-  if (!attendeeId || !name) return { status: 400, body: { error: "attendeeId and name required" } };
-  const db = readDb();
-  let attendee = findAttendee(db, { attendeeId });
+  let attendee = existingById && existingByIdentity && existingById !== existingByIdentity
+    ? mergeAttendees(db, existingById, existingByIdentity, phone)
+    : existingById || existingByIdentity;
   let isNew = false;
   if (!attendee) {
     isNew = true;
     db.raffleCounter += 1;
     attendee = {
-      attendeeId, aliasIds: [], name, phone: null,
-      phoneVerifiedAt: null, phoneVerificationRequired: true,
+      attendeeId, aliasIds: [], name, phone: selfService ? phone : null,
       raffleNumber: String(db.raffleCounter),
       wristbandConfirmedAt: null, registeredAt: eventNowIso(), wristbandColor: null,
       phase3CompletedAt: null,
     };
     db.attendees.push(attendee);
+  } else if (selfService) {
+    if (existingByIdentity && !existingById && attendee.attendeeId !== attendeeId) {
+      attendee.aliasIds = Array.from(new Set([...(attendee.aliasIds || []), attendeeId]));
+    }
+    attendee.name = name;
+    attendee.phone = phone;
   } else {
     attendee.name = name;
   }
@@ -2051,11 +1639,8 @@ function registerAttendee(body) {
   return {
     status: 200,
     body: {
-      raffleNumber: attendee.raffleNumber,
-      attendeeId: attendee.attendeeId,
-      wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+      ...attendeePortalResult(attendee),
       isNew,
-      dataResetAt: db.dataResetAt,
     },
   };
 }
@@ -2067,9 +1652,6 @@ function confirmWristband(body) {
   const db = readDb();
   const attendee = findAttendee(db, { attendeeId });
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
-  if (!attendeeHasVerifiedPhone(attendee) && !organizerKeyMatches(body.organizerKey)) {
-    return errorResult(403, "Verify the attendee phone before assigning a wristband.", "PHONE_VERIFICATION_REQUIRED");
-  }
   const existingColor = normalizeWristbandColor(attendee.wristbandColor);
   if (attendee.wristbandConfirmedAt && existingColor && existingColor !== colorResult.color && !organizerKeyMatches(body.organizerKey)) {
     return errorResult(
@@ -2095,7 +1677,6 @@ function attendeePortalResult(attendee) {
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
     wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
     phoneLinked: !!attendee.phone,
-    phoneVerified: attendeeHasVerifiedPhone(attendee),
     phase3CompletedAt: attendee.phase3CompletedAt || null,
     serverNow: eventNowIso(),
     dataResetAt: readDb().dataResetAt,
@@ -2111,10 +1692,7 @@ function loginAttendee(body) {
 
   const db = readDb();
   const attendee = findAttendeeByNameAndPhone(db, normalizedName, phone);
-  if (
-    !attendee
-      || !attendeeHasVerifiedPhone(attendee)
-  ) {
+  if (!attendee) {
     return errorResult(401, "We couldn't match that name and phone number.", "ATTENDEE_LOGIN_FAILED");
   }
   if (body.portal === "phase2" && !attendee.wristbandConfirmedAt) {
@@ -2129,9 +1707,6 @@ function attendeePortalSession(body) {
   const db = readDb();
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
-  if (!attendeeHasVerifiedPhone(attendee)) {
-    return errorResult(403, "Verify your phone at Phase 1 before continuing.", "PHONE_VERIFICATION_REQUIRED");
-  }
   if (body.portal === "phase2" && !attendee.wristbandConfirmedAt) {
     return errorResult(403, "Finish Phase 1 wristband check-in before opening Phase 2.", "PHASE1_INCOMPLETE");
   }
@@ -2187,8 +1762,6 @@ function findOrRegisterByPhone(body) {
       raffleAttendee = mergeAttendees(db, raffleAttendee, duplicateForPairing, dPhone);
     }
     raffleAttendee.phone = dPhone;
-    raffleAttendee.phoneVerifiedAt = raffleAttendee.phoneVerifiedAt || new Date().toISOString();
-    raffleAttendee.phoneVerificationRequired = false;
     writeDb(db);
     return {
       status: 200,
@@ -2210,8 +1783,6 @@ function findOrRegisterByPhone(body) {
       ? mergeAttendees(db, idAttendee, exactPhoneAttendee, dPhone)
       : idAttendee;
     resolvedAttendee.phone = dPhone;
-    resolvedAttendee.phoneVerifiedAt = resolvedAttendee.phoneVerifiedAt || new Date().toISOString();
-    resolvedAttendee.phoneVerificationRequired = false;
     writeDb(db);
     return {
       status: 200,
@@ -2263,7 +1834,6 @@ function findOrRegisterByPhone(body) {
   db.raffleCounter += 1;
   const attendee = {
     attendeeId: attendeeId || id(), aliasIds: [], name: name || "Guest", phone: dPhone,
-    phoneVerifiedAt: new Date().toISOString(), phoneVerificationRequired: false,
     raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: eventNowIso(),
     wristbandColor: null,
   };
@@ -4190,14 +3760,13 @@ function health() {
       ok: true,
       database: "ready",
       registered: db.attendees.length,
-      sms: smsService.status(),
       serverNow: eventNowIso(),
     },
   };
 }
 
 const POST_ACTIONS = {
-  registerAttendee, startAttendeeRegistration, verifyAttendeePhone, resendAttendeePhoneCode,
+  registerAttendee,
   confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
   boothCheckin, saveSongVote, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
@@ -4326,6 +3895,7 @@ const server = http.createServer((req, res) => {
 });
 
 function startServer(port = PORT) {
+  sanitizeRetiredVerificationData();
   const listener = server.listen(port, () => {
     const actualPort = server.address().port;
     console.log(`Event app demo server running: http://localhost:${actualPort}`);

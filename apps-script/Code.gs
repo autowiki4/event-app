@@ -527,6 +527,16 @@ function findAttendee(attendeeId, phone) {
   return findAttendeeInRows(readRows(SHEET_NAMES.ATTENDEES), attendeeId, phone);
 }
 
+function findAttendeeByNameAndPhoneInRows(rows, name, phone) {
+  const normalizedName = normalizeAttendeeName(name);
+  const normalizedPhone = digitsOnly(phone);
+  if (!normalizedName || normalizedPhone.length !== 10) return null;
+  return rows.find((attendee) => (
+    normalizeAttendeeName(attendee.name) === normalizedName
+      && digitsOnly(attendee.phone) === normalizedPhone
+  )) || null;
+}
+
 function findAttendeeByRaffleInRows(rows, raffleNumber) {
   const normalized = normalizeRaffleNumber(raffleNumber);
   if (!normalized) return null;
@@ -596,12 +606,44 @@ function mergeAttendees(canonical, duplicate, phone) {
 // ---------- action handlers (mirror demo-server/server.js) ----------
 
 function actionRegisterAttendee(payload) {
-  const { attendeeId, name } = payload;
-  if (!attendeeId || !name) throw new Error("attendeeId and name required");
+  const attendeeId = String((payload && payload.attendeeId) || "").trim();
+  const name = String((payload && payload.name) || "").trim().replace(/\s+/g, " ");
+  const phoneWasSupplied = !!(payload && String(payload.phone || "").trim());
+  const phone = digitsOnly(payload && payload.phone);
+  if (!attendeeId || attendeeId.length > 128 || !name || name.length > 80) {
+    throw apiError("Enter your name and a valid event-pass ID.", "REGISTRATION_FIELDS_REQUIRED");
+  }
+  if (phoneWasSupplied && phone.length !== 10) {
+    throw apiError("Enter a valid 10-digit mobile number.", "INVALID_PHONE");
+  }
   return withScriptLock((lock) => {
-    let attendee;
+    const attendees = readRows(SHEET_NAMES.ATTENDEES);
+    const existingById = findAttendeeInRows(attendees, attendeeId, null);
+    const existingByIdentity = phoneWasSupplied
+      ? findAttendeeByNameAndPhoneInRows(attendees, name, phone)
+      : null;
+    if (
+      existingById
+        && phoneWasSupplied
+        && (
+          normalizeAttendeeName(existingById.name) !== normalizeAttendeeName(name)
+            || (existingById.phone && digitsOnly(existingById.phone) !== phone)
+        )
+    ) {
+      throw apiError(
+        "This event pass is already connected to another name or phone. Ask an organizer for help.",
+        "ATTENDEE_IDENTITY_CONFLICT"
+      );
+    }
+
+    let attendee = existingById || existingByIdentity;
+    if (existingById && existingByIdentity && existingById._row !== existingByIdentity._row) {
+      const merged = mergeAttendees(existingById, existingByIdentity, phone);
+      // Deleting a lower duplicate row can shift the canonical row number.
+      // Re-read it before applying the final name/phone update.
+      attendee = findAttendee(merged.attendeeId, null) || merged;
+    }
     let isNew = false;
-    attendee = findAttendee(attendeeId, null);
     if (!attendee) {
       isNew = true;
       const raffleNumber = nextRaffleNumber(lock);
@@ -609,22 +651,38 @@ function actionRegisterAttendee(payload) {
         attendeeId,
         aliasIds: "[]",
         name,
-        phone: "",
+        phone: phoneWasSupplied ? phone : "",
         raffleNumber,
         wristbandConfirmedAt: "",
         registeredAt: nowIso(),
         wristbandColor: "",
         phase3CompletedAt: "",
       });
-      attendee = { attendeeId, raffleNumber, name, wristbandColor: "" };
+      attendee = {
+        attendeeId,
+        raffleNumber,
+        name,
+        phone: phoneWasSupplied ? phone : "",
+        wristbandColor: "",
+      };
     } else {
-      updateRow(SHEET_NAMES.ATTENDEES, attendee._row, { name });
+      const aliasIds = toJsonSafe(attendee.aliasIds, []);
+      if (attendee.attendeeId !== attendeeId && aliasIds.indexOf(attendeeId) === -1) {
+        aliasIds.push(attendeeId);
+      }
+      updateRow(SHEET_NAMES.ATTENDEES, attendee._row, {
+        aliasIds: JSON.stringify(aliasIds),
+        name,
+        phone: phoneWasSupplied ? phone : attendee.phone,
+      });
       attendee.name = name;
+      if (phoneWasSupplied) attendee.phone = phone;
     }
     return {
       raffleNumber: attendee.raffleNumber,
       attendeeId: attendee.attendeeId,
       wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+      phoneLinked: !!attendee.phone,
       isNew,
     };
   });

@@ -10,10 +10,6 @@ const testDb = path.join(os.tmpdir(), `event-app-test-${process.pid}.json`);
 process.env.EVENT_APP_DB_PATH = testDb;
 process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
 process.env.NODE_ENV = "test";
-process.env.EVENT_APP_SMS_MODE = "test";
-process.env.EVENT_APP_SMS_TEST_CODE = "246810";
-process.env.EVENT_APP_PUBLIC_URL = "https://event-app.test";
-process.env.EVENT_APP_OTP_PEPPER = "test-only-otp-pepper-that-is-long-enough";
 delete process.env.EVENT_APP_SHEETS_EXPORT_URL;
 delete process.env.EVENT_APP_SHEETS_EXPORT_KEY;
 
@@ -109,17 +105,10 @@ function nextTestPhone() {
   return `615${String(generatedPhoneSuffix).padStart(7, "0")}`;
 }
 
-async function registerVerifiedAttendee(port, attendeeId, name, phone = nextTestPhone()) {
-  const started = await request(port, "startAttendeeRegistration", { attendeeId, name, phone });
-  assert.equal(started.status, 200, JSON.stringify(started.body));
-  if (started.body.alreadyRegistered) return { ...started.body, phone };
-  const verified = await request(port, "verifyAttendeePhone", {
-    attendeeId: started.body.attendeeId,
-    challengeId: started.body.challengeId,
-    code: process.env.EVENT_APP_SMS_TEST_CODE,
-  });
-  assert.equal(verified.status, 200, JSON.stringify(verified.body));
-  return { ...started.body, ...verified.body, phone };
+async function registerPhoneAttendee(port, attendeeId, name, phone = nextTestPhone()) {
+  const registration = await request(port, "registerAttendee", { attendeeId, name, phone });
+  assert.equal(registration.status, 200, JSON.stringify(registration.body));
+  return { ...registration.body, phone };
 }
 
 function rawRequest(port, action, body, headers = {}) {
@@ -413,6 +402,40 @@ async function runGoogleSheetsExporterRegression() {
     assert.equal(exportMeta[`${name}.rowCount`], count);
   });
 
+  // A shared household number must never make one attendee inherit another
+  // person's booth completion or Phase 3 selection in the live Sheet.
+  const householdSnapshot = buildExportSnapshot({
+    attendees: [
+      { attendeeId: "house-a", aliasIds: [], name: "Alex One", phone: "6155550199", raffleNumber: "2001" },
+      { attendeeId: "house-b", aliasIds: [], name: "Alex Two", phone: "6155550199", raffleNumber: "2002" },
+    ],
+    boothCheckins: [
+      { id: "house-checkin-a", attendeeId: "house-a", name: "Alex One", phone: "6155550199", boothId: "trivia" },
+      { id: "house-checkin-b", attendeeId: "house-b", name: "Alex Two", phone: "6155550199", boothId: "art" },
+    ],
+    signups: [
+      { id: "house-signup-a", attendeeId: "house-a", name: "Alex One", phone: "6155550199", optionId: "future" },
+      { id: "house-signup-b", attendeeId: "house-b", name: "Alex Two", phone: "6155550199", optionId: "course" },
+    ],
+  }, { generatedAt });
+  const householdAttendees = householdSnapshot.tabs.Attendees.rows.map((_, index) => (
+    sheetRowObject(householdSnapshot, "Attendees", index)
+  ));
+  assert.deepEqual(
+    householdAttendees.map((row) => [row.attendeeId, row.completedBoothIds, row.signupOptionIds]),
+    [
+      ["house-a", '["trivia"]', '["future"]'],
+      ["house-b", '["art"]', '["course"]'],
+    ]
+  );
+  assert.deepEqual(
+    householdSnapshot.tabs.BoothResults.rows.map((_, index) => {
+      const row = sheetRowObject(householdSnapshot, "BoothResults", index);
+      return [row.attendeeId, row.name, row.raffleNumber];
+    }),
+    [["house-a", "Alex One", "2001"], ["house-b", "Alex Two", "2002"]]
+  );
+
   let disabledSendCount = 0;
   const disabledExporter = createGoogleSheetsExporter({
     getSnapshot: googleSheetsExportFixture,
@@ -581,7 +604,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.mode, "live");
   assert.equal(res.body.controlled, false);
   assert.equal(res.body.targetIso, null);
-  assert.equal(res.body.dataResetAt, "initial");
+  assertIsoTimestamp(res.body.dataResetAt, "initial API data-reset marker");
   assertIsoTimestamp(res.body.updatedAt, "initial demo clock updatedAt");
   assertIsoTimestamp(res.body.serverNow, "initial demo clock serverNow");
 
@@ -743,56 +766,77 @@ async function runApiRegression(port) {
     assert.equal(res.body.code, "INVALID_PHONE");
   }
 
-  res = await request(port, "startAttendeeRegistration", {
+  for (const invalidPhone of ["615555010", "16155550101"]) {
+    res = await request(port, "registerAttendee", {
+      attendeeId: `invalid-registration-${invalidPhone}`,
+      name: "Invalid",
+      phone: invalidPhone,
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, "INVALID_PHONE");
+  }
+
+  res = await request(port, "registerAttendee", {
     attendeeId: "entry-a", name: "Avery", phone: "615-555-0101",
-  });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.raffleNumber, "1001");
-  assert.equal(res.body.maskedPhone, "(***) ***-0101");
-  assertIsoTimestamp(res.body.expiresAt, "welcome-code expiry");
-  assert.equal(res.body.deliveryMode, "test");
-  assert.equal(res.body.dataResetAt, "initial");
-  const entryChallengeId = res.body.challengeId;
-
-  // A lost HTTP response or mobile refresh can recover the same active
-  // challenge without sending another SMS or reserving another raffle number.
-  res = await request(port, "startAttendeeRegistration", {
-    attendeeId: "entry-a", name: "  avery ", phone: "6155550101",
-  });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.reused, true);
-  assert.equal(res.body.challengeId, entryChallengeId);
-  assert.equal(res.body.raffleNumber, "1001");
-  let otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
-  assert.equal(otpDb.attendees.length, 0, "unverified reservations must not appear as attendees");
-  assert.equal(otpDb.otpChallenges.length, 1);
-  assert.equal(JSON.stringify(otpDb).includes(process.env.EVENT_APP_SMS_TEST_CODE), false);
-
-  res = await request(port, "verifyAttendeePhone", {
-    attendeeId: "entry-a", challengeId: entryChallengeId, code: "111111",
-  });
-  assert.equal(res.status, 401);
-  assert.equal(res.body.code, "OTP_INCORRECT");
-  assert.equal(res.body.attemptsRemaining, 4);
-  res = await request(port, "verifyAttendeePhone", {
-    attendeeId: "entry-a", challengeId: entryChallengeId, code: process.env.EVENT_APP_SMS_TEST_CODE,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
   assert.equal(res.body.raffleNumber, "1001");
   assert.equal(res.body.phoneLinked, true);
-  assert.equal(res.body.phoneVerified, true);
-  otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
-  assert.equal(otpDb.attendees[0].phone, "6155550101");
-  assertIsoTimestamp(otpDb.attendees[0].phoneVerifiedAt, "phone verification time");
-  assert.equal(JSON.stringify(otpDb).includes(process.env.EVENT_APP_SMS_TEST_CODE), false);
+  assert.equal(res.body.isNew, true);
+  assertIsoTimestamp(res.body.dataResetAt, "registration data-reset marker");
+  assert.equal("phone" in res.body, false);
+  assert.equal("phoneVerified" in res.body, false);
 
-  res = await request(port, "startAttendeeRegistration", {
-    attendeeId: "another-device", name: "  avery  ", phone: "6155550101",
+  let registrationDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal(registrationDb.attendees.length, 1);
+  assert.equal(registrationDb.attendees[0].phone, "6155550101");
+  assert.equal("otpChallenges" in registrationDb, false);
+  assert.equal("phoneVerifiedAt" in registrationDb.attendees[0], false);
+  assert.equal("phoneVerificationRequired" in registrationDb.attendees[0], false);
+
+  // A repeated submit is idempotent, and a different browser using the same
+  // name + phone pair recovers the canonical attendee rather than creating one.
+  res = await request(port, "registerAttendee", {
+    attendeeId: "entry-a", name: "  Avery ", phone: "6155550101",
   });
   assert.equal(res.status, 200);
-  assert.equal(res.body.alreadyRegistered, true);
+  assert.equal(res.body.isNew, false);
   assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.raffleNumber, "1001");
+
+  res = await request(port, "registerAttendee", {
+    attendeeId: "another-device", name: "  Avery  ", phone: "6155550101",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.isNew, false);
+  assert.equal(res.body.attendeeId, "entry-a");
+  assert.equal(res.body.raffleNumber, "1001");
+  registrationDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal(registrationDb.attendees.length, 1);
+  assert.deepEqual(registrationDb.attendees[0].aliasIds, ["another-device"]);
+
+  for (const conflictingIdentity of [
+    { name: "Somebody Else", phone: "6155550101" },
+    { name: "Avery", phone: "6155550199" },
+  ]) {
+    res = await request(port, "registerAttendee", {
+      attendeeId: "entry-a",
+      ...conflictingIdentity,
+    });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "ATTENDEE_IDENTITY_CONFLICT");
+  }
+
+  for (const retiredAction of [
+    "startAttendeeRegistration",
+    "verifyAttendeePhone",
+    "resendAttendeePhoneCode",
+  ]) {
+    res = await request(port, retiredAction, {});
+    assert.equal(res.status, 404);
+    assert.match(res.body.error, /unknown action/);
+  }
 
   res = await request(port, "saveSongVote", { attendeeId: "entry-a", songTitle: "Not a real option" });
   assert.equal(res.status, 400);
@@ -831,7 +875,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.wristbandConfirmed, false);
   assert.equal(res.body.wristbandColor, null);
   assert.equal(res.body.phoneLinked, true);
-  assert.equal(res.body.phoneVerified, true);
+  assert.equal("phoneVerified" in res.body, false);
   assert.equal(res.body.phase3CompletedAt, null);
   assertIsoTimestamp(res.body.serverNow, "attendee login serverNow");
   assert.equal("phone" in res.body, false);
@@ -912,7 +956,7 @@ async function runApiRegression(port) {
   assert.equal(JSON.parse(fs.readFileSync(testDb, "utf8")).attendees[0].phone, "6155550101");
   res = await request(port, "attendeePortalSession", { attendeeId: "entry-a", portal: "phase2" });
   assert.equal(res.body.phoneLinked, true);
-  assert.equal(res.body.phoneVerified, true);
+  assert.equal("phoneVerified" in res.body, false);
   assert.equal("phone" in res.body, false);
 
   res = await request(port, "boothCheckin", {
@@ -1232,17 +1276,18 @@ async function runApiRegression(port) {
   res = await request(port, "health", undefined, "GET");
   assert.equal(res.status, 200);
   assert.equal(res.body.registered, 0);
+  assert.equal("sms" in res.body, false);
   res = await request(port, "boothPresentation", { boothId: "art" });
   assert.equal(res.body.status, "waiting");
   assert.equal(res.body.version, 0);
   res = await request(port, "myCheckins", { attendeeId: "entry-a" });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
-  const recoveredA = await registerVerifiedAttendee(
+  const recoveredA = await registerPhoneAttendee(
     port, "entry-a", "Avery Again", "6155550301"
   );
   assert.equal(recoveredA.raffleNumber, "1001");
-  const recoveredZ = await registerVerifiedAttendee(
+  const recoveredZ = await registerPhoneAttendee(
     port, "entry-z", "Avery Again", "6155550302"
   );
   assert.equal(recoveredZ.raffleNumber, "1002");
@@ -1261,26 +1306,12 @@ async function runApiRegression(port) {
 
   // Name + phone is the identity pair: household members may share a phone,
   // while the exact same pair recovers the existing attendee.
-  otpDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
-  otpDb.otpChallenges.forEach((challenge) => {
-    if (challenge.phone !== "6155550301") return;
-    const oldSend = new Date(Date.now() - 61 * 1000).toISOString();
-    challenge.sendTimestamps = [oldSend];
-    challenge.lastSentAt = oldSend;
-  });
-  fs.writeFileSync(testDb, JSON.stringify(otpDb, null, 2));
-  res = await request(port, "startAttendeeRegistration", {
+  res = await request(port, "registerAttendee", {
     attendeeId: "entry-household", name: "Blake", phone: "6155550301",
   });
   assert.equal(res.status, 200);
+  assert.equal(res.body.isNew, true);
   assert.equal(res.body.raffleNumber, "1003");
-  const householdChallengeId = res.body.challengeId;
-  res = await request(port, "verifyAttendeePhone", {
-    attendeeId: "entry-household",
-    challengeId: householdChallengeId,
-    code: process.env.EVENT_APP_SMS_TEST_CODE,
-  });
-  assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-household");
   res = await request(port, "loginAttendee", {
     name: "Blake", phone: "6155550301", portal: "phase3",
@@ -1292,6 +1323,26 @@ async function runApiRegression(port) {
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
+
+  const sharedPhoneDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal("otpChallenges" in sharedPhoneDb, false);
+  sharedPhoneDb.attendees.forEach((attendee) => {
+    assert.equal("phoneVerifiedAt" in attendee, false);
+    assert.equal("phoneVerificationRequired" in attendee, false);
+  });
+  const sharedPhoneSnapshot = buildExportSnapshot(sharedPhoneDb, {
+    generatedAt: "2026-07-18T22:15:00.000Z",
+  });
+  const sharedPhoneRows = sharedPhoneSnapshot.tabs.Attendees.rows.map((_, index) => (
+    sheetRowObject(sharedPhoneSnapshot, "Attendees", index)
+  ));
+  assert.deepEqual(
+    sharedPhoneRows
+      .filter((row) => row.phone === "6155550301")
+      .map((row) => [row.attendeeId, row.name])
+      .sort((a, b) => a[0].localeCompare(b[0])),
+    [["entry-a", "Avery Again"], ["entry-household", "Blake"]]
+  );
   res = await request(port, "submitSignup", {
     attendeeId: "entry-z",
     phone: "",
@@ -3132,10 +3183,11 @@ async function runCapacityRegression(port) {
     request(port, "registerAttendee", {
       attendeeId: `capacity-${index + 1}`,
       name: `Capacity Guest ${index + 1}`,
-      organizerKey,
+      phone: `615${String(7000000 + index)}`,
     })
   )));
   assert.equal(registrations.every((result) => result.status === 200), true);
+  assert.equal(registrations.every((result) => result.body.phoneLinked === true), true);
   assert.equal(new Set(registrations.map((result) => result.body.attendeeId)).size, 150);
   assert.equal(new Set(registrations.map((result) => result.body.raffleNumber)).size, 150);
 
@@ -3378,6 +3430,7 @@ async function runCapacityRegression(port) {
   assert.equal(res.status, 200);
   assert.equal(res.body.ok, true);
   assert.equal(res.body.registered, 150);
+  assert.equal("sms" in res.body, false);
 
   res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
@@ -3520,7 +3573,6 @@ async function runFrontendContractRegression() {
           raffleNumber: "1001",
           wristbandColor: "blue",
           phoneLinked: true,
-          phoneVerified: true,
           serverNow: "2026-07-18T20:10:00.000Z",
           dataResetAt: "initial",
         };
@@ -3628,6 +3680,10 @@ async function runFrontendContractRegression() {
   };
   vm.createContext(apiContext);
   vm.runInContext(`${apiSource}\nthis.__eventApi = EventAPI;`, apiContext);
+  assert.equal(typeof apiContext.__eventApi.registerAttendee, "function");
+  assert.equal(apiContext.__eventApi.startAttendeeRegistration, undefined);
+  assert.equal(apiContext.__eventApi.verifyAttendeePhone, undefined);
+  assert.equal(apiContext.__eventApi.resendAttendeePhoneCode, undefined);
   assert.equal(typeof apiContext.__eventApi.loginAttendee, "function");
   assert.equal(typeof apiContext.__eventApi.boothDashboardData, "function");
   assert.equal(typeof apiContext.__eventApi.boothPresentation, "function");
@@ -3867,12 +3923,13 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /id="event-reset-note"/);
   assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
   assert.match(phase1Source, /id="in-phone"[^>]*autocomplete="tel-national"/);
-  assert.match(phase1Source, /id="in-otp"[^>]*autocomplete="one-time-code"/);
-  assert.match(phase1Source, /EventAPI\.startAttendeeRegistration/);
+  assert.doesNotMatch(phase1Source, /id="in-otp"|one-time-code/i);
+  assert.match(phase1Source, /EventAPI\.registerAttendee\(identity\.attendeeId, name, phone\)/);
   assert.match(phase1Source, /returnLinkMode[\s\S]*EventAPI\.loginAttendee\(name, phone, "phase1"\)/);
-  assert.match(phase1Source, /EventAPI\.verifyAttendeePhone/);
-  assert.match(phase1Source, /EventAPI\.resendAttendeePhoneCode/);
-  assert.doesNotMatch(phase1Source, /addEventListener\("eventapp:data-reset", clearPendingRegistration\)/);
+  assert.doesNotMatch(
+    phase1Source,
+    /EventAPI\.(?:startAttendeeRegistration|verifyAttendeePhone|resendAttendeePhoneCode)/
+  );
   assert.match(phase1Source, /\[\["in-name", "btn-welcome-next"\], \["in-phone", "btn-welcome-next"\]/);
   assert.doesNotMatch(phase1Source, /id="s-complete"/);
   assert.match(phase2Source, /shared\/attendee-portal\.js/);
@@ -5285,14 +5342,11 @@ function runAppsScriptRegression() {
   assert.equal(lockState.held, false);
   assert.equal(JSON.stringify(liveAttendees.rows), previousLiveAttendees);
 
-  assert.equal(post("registerAttendee", { attendeeId: "gas-http-entry", name: "HTTP" }).raffleNumber, "1004");
-  assert.equal(post("findOrRegisterByPhone", {
-    phone: "6155550404", raffleNumber: "1004", organizerKey: "gas-organizer-key",
-  }).requiresPairingConfirmation, true);
-  assert.equal(post("findOrRegisterByPhone", {
-    phone: "6155550404", raffleNumber: "1004", confirmPairing: true,
-    organizerKey: "gas-organizer-key",
-  }).attendeeId, "gas-http-entry");
+  const gasHttpRegistration = post("registerAttendee", {
+    attendeeId: "gas-http-entry", name: "HTTP", phone: "6155550404",
+  });
+  assert.equal(gasHttpRegistration.raffleNumber, "1004");
+  assert.equal(gasHttpRegistration.phoneLinked, true);
   assert.equal(post("loginAttendee", { name: "HTTP", phone: "6155550404", portal: "phase3" }).attendeeId, "gas-http-entry");
   assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Firm Foundation" }).songTitle, "Firm Foundation");
   assert.equal(post("mySignupSelections", { attendeeId: "gas-http-entry" }).completedAt, null);
@@ -5327,9 +5381,39 @@ async function main() {
   try {
     runInlineScriptSyntaxRegression();
     await runGoogleSheetsExporterRegression();
+    const legacyDatabase = {
+      attendees: [{
+        attendeeId: "legacy-migration-attendee",
+        aliasIds: [],
+        name: "Legacy Guest",
+        phone: "6155550999",
+        phoneVerifiedAt: "2026-07-18T19:00:00.000Z",
+        phoneVerificationRequired: false,
+        raffleNumber: "1001",
+        registeredAt: "2026-07-18T19:00:00.000Z",
+      }],
+      otpChallenges: [{ challengeId: "retired-challenge", codeDigest: "retired-digest" }],
+      raffleCounter: 1001,
+      dataResetAt: "initial",
+    };
+    fs.writeFileSync(testDb, JSON.stringify(legacyDatabase, null, 2));
+    fs.writeFileSync(`${testDb}.bak`, JSON.stringify(legacyDatabase, null, 2));
     startServer(0);
     await once(server, "listening");
     const port = server.address().port;
+    [testDb, `${testDb}.bak`].forEach((filename) => {
+      const migrated = JSON.parse(fs.readFileSync(filename, "utf8"));
+      assert.equal("otpChallenges" in migrated, false);
+      assert.equal(migrated.attendees.length, 1);
+      assert.equal(migrated.attendees[0].phone, "6155550999");
+      assert.equal("phoneVerifiedAt" in migrated.attendees[0], false);
+      assert.equal("phoneVerificationRequired" in migrated.attendees[0], false);
+    });
+    const migrationReset = await request(port, "resetDemo", {
+      organizerKey: "test-organizer-key",
+    });
+    assert.equal(migrationReset.status, 200);
+    assertIsoTimestamp(migrationReset.body.dataResetAt, "post-migration reset marker");
     await runGoogleSheetsExportApiRegression(port);
     await runApiRegression(port);
     await runTriviaApiRegression(port);

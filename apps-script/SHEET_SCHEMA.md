@@ -148,9 +148,9 @@ cannot collide with the tabs used when Apps Script itself is the app backend:
 | attendeeId | aliasIds | name | phone | raffleNumber | wristbandColor | registeredAt | wristbandConfirmedAt | phase3CompletedAt | completedBoothIds | completedBoothCount | signupOptionIds |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 
-The Node server creates an attendee only after the first-time phone code is
-verified. Pending OTP challenges, HMAC digests, attempt/expiry state, and SMS
-provider message IDs are never included in any `Live_*` tab.
+The Node server creates an attendee immediately from the Phase 1 name and
+phone form. The collected phone is included in `Live_Attendees` and joined
+into the attendee's operational result and sign-up rows.
 
 ### Live_BoothResults
 

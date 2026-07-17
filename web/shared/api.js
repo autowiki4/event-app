@@ -1,4 +1,4 @@
-/* Thin fetch wrapper around the backend API. The current phone-verification,
+/* Thin fetch wrapper around the backend API. The current attendee registration,
    shared-clock, reset, and leader-paced journey uses demo-server/server.js.
    apps-script/Code.gs remains a limited legacy adapter and Sheet export sink. */
 const EventAPI = (function () {
@@ -45,20 +45,10 @@ const EventAPI = (function () {
   }
 
   return {
-    registerAttendee: (attendeeId, name) => call("registerAttendee", { attendeeId, name }),
-    startAttendeeRegistration: (attendeeId, name, phone) => call("startAttendeeRegistration", {
+    registerAttendee: (attendeeId, name, phone) => call("registerAttendee", {
       attendeeId,
       name,
       phone,
-    }),
-    verifyAttendeePhone: (attendeeId, challengeId, code) => call("verifyAttendeePhone", {
-      attendeeId,
-      challengeId,
-      code,
-    }),
-    resendAttendeePhoneCode: (attendeeId, challengeId) => call("resendAttendeePhoneCode", {
-      attendeeId,
-      challengeId,
     }),
     confirmWristband: (attendeeId, wristbandColor) => call("confirmWristband", { attendeeId, wristbandColor }),
     loginAttendee: (name, phone, portal) => call("loginAttendee", { name, phone, portal }),

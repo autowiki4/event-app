@@ -9,10 +9,10 @@ review.
 
 The attendee journey is now one continuous flow:
 
-1. **Phase 1 — entry:** enter a name and mobile number, verify the six-digit
-   welcome text, receive the raffle number carried in that same message, and
-   have a Guardian Angel confirm the physical wristband color. Confirmation
-   continues directly into Phase 2 with the same attendee identity.
+1. **Phase 1 — entry:** enter a name and mobile number and immediately receive
+   a raffle number in the app. A Guardian Angel then confirms the physical
+   wristband color. Confirmation continues directly into Phase 2 with the same
+   attendee identity; no text message or phone code is sent.
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
    the booth leader's live instructions. Its active button opens the correct
@@ -80,13 +80,13 @@ Event app demo server running: http://localhost:3000
   Local organizer key:  demo
 ```
 
-Start at Phase 1. In local console mode, read the welcome code printed in the
-server terminal; live delivery is configured separately. Confirming the
+Start at Phase 1. Enter a name and mobile number to create the attendee record
+and raffle number immediately; the app does not send a message. Confirming the
 wristband continues directly into the hub, and Phase 3 reuses that same saved
-attendee identity. On another device, the attendee enters their registration
-name and mobile number to recover the same route. The raffle number stays
-visible but is never used as a login credential. Refreshing or reopening the
-same phone restores the attendee,
+attendee identity. On another device, the attendee opens `/attend` (or the
+return QR) and enters the same registration name and mobile number to recover
+the same route. The raffle number stays visible but is never used as a login
+credential. Refreshing or reopening the same phone restores the attendee,
 the schedule's current timed stop, and unfinished booth/Phase 3 choices. The
 attendee stays signed in until they tap their name at the top-right and choose
 **Log out on this device**.
@@ -145,19 +145,20 @@ Wi-Fi drops at a session boundary. The regression suite uses a concurrent
 150-attendee journey as a representative load check, with 90 live New Song
 votes and 450 booth completions; that test number is not an application cap.
 
-### Welcome text and phone verification
+### Phone registration and recovery
 
-The welcome code, raffle number, and stable `/attend` return link are delivered
-through Twilio Programmable Messaging in a live deployment. The link opens the
-entry/resume screen: it restores an unfinished wristband step or continues a
-fully checked-in attendee to the shared hub, which derives the current
-waiting/session/ended state from the same server clock. Phase 2 does not
-collect the phone again.
+Phase 1 collects the attendee's name and mobile number once, immediately
+creates the raffle number, and stores the attendee record. Nothing is texted
+to the number. The phone is retained for event registration, name-plus-phone
+recovery, and the optional live Google Sheet export; booth pages do not ask
+for it again.
 
-Render needs `EVENT_APP_SMS_MODE=twilio`, a random
-`EVENT_APP_OTP_PEPPER`, Twilio credentials, and either a Messaging Service SID
-or SMS-capable sender number. See `demo-server/SMS_SETUP.md` for the exact
-variables, local console behavior, compliance prerequisites, and test steps.
+The stable `/attend` route and the attendee return QR open the entry/resume
+screen. On another device, the attendee enters the same name and phone number
+to restore an unfinished wristband step or continue to the shared hub at the
+schedule's current waiting/session/ended state. No raffle-number login exists.
+Render needs no phone-delivery credentials; only the two optional Sheet
+environment variables below are needed when the live export is enabled.
 
 ### Optional live Google Sheets export
 
@@ -169,8 +170,8 @@ and replaces seven `Live_*` tabs for attendees, booth results, Phase 3
 sign-ups, Bible Bowl answers, Draw Heaven confirmations, New Song votes, and
 export metadata.
 
-The Sheet mirror excludes attendee-entered Story answers, Art reflections,
-OTP challenges, code digests, and SMS provider IDs;
+The Sheet mirror includes the collected attendee phone numbers but excludes
+attendee-entered Story answers and Art reflections;
 `Live_BoothResults.extraData` contains only allowlisted operational metadata.
 `Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.
 
@@ -360,8 +361,8 @@ Script adapter does not implement it.
 
 ## Known mock limitations
 
-- Name plus phone is lightweight record recovery after the first OTP, not
-  strong ongoing authentication. The raffle number is display-only.
+- Name plus phone is lightweight record recovery, not strong authentication.
+  The app sends no message, and the raffle number is display-only.
 - The synchronized experience still needs working network access. Booth
   completion taps have a narrow two-minute retry queue, but registration,
   leader controls, live voting, and Phase 3 remain online-only.
@@ -399,7 +400,6 @@ Script adapter does not implement it.
 | `ARCHITECTURE.md` | How identity, schedule synchronization, routing, and booth controls connect |
 | `DEMO_GUIDE.md` | How to present the unified flow using the shared timeline |
 | `demo-server/README.md` | Node backend, data file, reset, and API differences |
-| `demo-server/SMS_SETUP.md` | Twilio welcome-text credentials, privacy, and verification setup |
 | `apps-script/README.md` | Google Apps Script deployment sketch |
 | `apps-script/SHEET_SCHEMA.md` | Sheet tabs and columns |
 | `qr/QR_PLAN.md` | Unified-flow QR destinations, placement, and print checklist |

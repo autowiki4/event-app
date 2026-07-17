@@ -249,7 +249,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       roomCompleted = roomCompleted || (checkins.boothIds || []).includes(boothId);
     } catch (error) {
       // Access can still render from the signed-in identity. The booth gate
-      // will retry its normal backend verification before showing activity.
+      // will retry its normal backend session restore before showing activity.
       console.warn("Couldn't restore this booth's completion state", error);
     }
     refreshBoothRoomAccess();

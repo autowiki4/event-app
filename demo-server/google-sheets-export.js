@@ -99,15 +99,18 @@ function exportedBoothMetadata(value) {
 
 function attendeeIndexes(db) {
   const byId = new Map();
-  const byPhone = new Map();
+  const byNameAndPhone = new Map();
   arrayOrEmpty(db.attendees).forEach((attendee) => {
     if (!attendee || typeof attendee !== "object") return;
     [attendee.attendeeId, ...arrayOrEmpty(attendee.aliasIds)].forEach((attendeeId) => {
       if (attendeeId) byId.set(String(attendeeId), attendee);
     });
-    if (attendee.phone) byPhone.set(String(attendee.phone), attendee);
+    const identityKey = attendee.name && attendee.phone
+      ? `${String(attendee.name).trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")}|${String(attendee.phone).replace(/\D/g, "")}`
+      : "";
+    if (identityKey) byNameAndPhone.set(identityKey, attendee);
   });
-  return { byId, byPhone };
+  return { byId, byNameAndPhone };
 }
 
 function attendeeForRow(indexes, row) {
@@ -115,8 +118,11 @@ function attendeeForRow(indexes, row) {
   if (row.attendeeId && indexes.byId.has(String(row.attendeeId))) {
     return indexes.byId.get(String(row.attendeeId));
   }
-  if (row.phone && indexes.byPhone.has(String(row.phone))) {
-    return indexes.byPhone.get(String(row.phone));
+  const identityKey = row.name && row.phone
+    ? `${String(row.name).trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")}|${String(row.phone).replace(/\D/g, "")}`
+    : "";
+  if (identityKey && indexes.byNameAndPhone.has(identityKey)) {
+    return indexes.byNameAndPhone.get(identityKey);
   }
   return null;
 }
@@ -149,7 +155,7 @@ function buildExportSnapshot(rawDb, options = {}) {
     const completedBoothIds = Array.from(new Set(checkins
       .filter((checkin) => (
         attendeeIds.has(String(checkin.attendeeId || ""))
-          || (attendee.phone && String(checkin.phone || "") === String(attendee.phone))
+          || (!checkin.attendeeId && attendeeForRow(indexes, checkin) === attendee)
       ))
       .map((checkin) => String(checkin.boothId || ""))
       .filter(Boolean)))
@@ -157,7 +163,7 @@ function buildExportSnapshot(rawDb, options = {}) {
     const signupOptionIds = Array.from(new Set(signups
       .filter((signup) => (
         attendeeIds.has(String(signup.attendeeId || ""))
-          || (attendee.phone && String(signup.phone || "") === String(attendee.phone))
+          || (!signup.attendeeId && attendeeForRow(indexes, signup) === attendee)
       ))
       .map((signup) => String(signup.optionId || ""))
       .filter(Boolean)))
