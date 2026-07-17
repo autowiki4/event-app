@@ -35,16 +35,6 @@
       <div id="booth-content"></div>
     </section>
     <section class="screen" style="padding-top:0;">
-      <div class="field">
-        <label for="booth-note">Anything you'd like to share?</label>
-        <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
-      </div>
-      <div class="field">
-        <label>Rate this booth</label>
-        <div class="stars" id="booth-stars">
-          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
-        </div>
-      </div>
       <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
     </section>
   </div>
@@ -181,7 +171,6 @@ window.getBoothExtraData = () => {
 };
 
 initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderStory });
-renderBoothFooter(BOOTH_ID);
 document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
 </script>
 </body>

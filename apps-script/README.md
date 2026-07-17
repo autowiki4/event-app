@@ -1,179 +1,170 @@
-# Deploying the production backend
+# Connecting the Node app to a live Google Sheet
 
-This turns `Code.gs` into a live web address that the app can talk to,
-backed by a real Google Sheet instead of the Node service's `db.json`. You
-only need a free Google account — no billing, no server to
-rent, no command line required for this part.
+The recommended setup keeps the full event app on the same-origin Node/Render
+`/api` backend and uses this Apps Script only as a protected export sink. That
+preserves the shared timer, protected reset, and leader-paced Bible Bowl, Draw
+Heaven, Art Therapy, and New Song workflows while giving operations a live Sheet containing
+attendees, results, and Phase 3 selections.
 
-Do this once you're happy with how the app behaves against the Node service
-(`../demo-server/README.md`) and are getting ready to test the Google Sheets
-adapter for the actual event.
+The Node JSON database remains the source of truth. Apps Script receives a
+debounced full snapshot and replaces seven `Live_*` tabs. Do **not** point
+`web/shared/config.js` at Apps Script for this arrangement.
 
-## What you'll end up with
+## Access required
 
-- A Google Sheet that fills itself in as people use the app (attendees,
-  tap-backed booth check-ins, persisted Phase 3 completion, sign-ups, and
-  booth-leader screen controls) — see `SHEET_SCHEMA.md` for exactly what
-  columns show up.
-- A URL (looks like `https://script.google.com/macros/s/AKfycb.../exec`)
-  that the app's pages call instead of `localhost`.
+You need a Google account that can:
 
-This adapter covers the core attendee and booth-staff journey, but it does not
-implement the Node service's `setDemoClock`, public `eventClock`, or
-`resetDemo` actions. Consequently the Overall Organizer has no shared remote
-timeline, **Show waiting lobby**, **Use live CDT clock**, or protected
-clear-everything action when `API_BASE_URL` points here. Apps Script pages use
-actual synchronized time. Plan Sheet data deletion and retention separately;
-do not assume the Node reset button can clear this backend.
+- create and edit a Google Sheet;
+- open **Extensions → Apps Script** for that Sheet; and
+- deploy the script as a Web App that the Render server can reach.
 
-## Step-by-step
+This export does not require Google Admin SDK, Google Meet API, domain-wide
+delegation, or a service-account key. If your Workspace policy does not allow a
+Web App to be reached without an interactive Google login, ask the Workspace
+administrator for an approved deployment path before enabling the export.
 
-**1. Create the Sheet.**
-Go to [sheets.google.com](https://sheets.google.com), create a new blank
-spreadsheet. Name it whatever you like (e.g. "EventDB") — the name
-doesn't matter to the code.
+## Set up the Sheet export
 
-**2. Open the script editor.**
-In the Sheet, click **Extensions → Apps Script**. A new tab opens with a
-default file called `Code.gs` containing a placeholder `myFunction()`.
+### 1. Create the Sheet
 
-**3. Replace the placeholder code.**
-Select everything in that editor (Ctrl/Cmd+A) and delete it. Open this
-repo's `apps-script/Code.gs` file, copy its entire contents, and paste it
-into the Apps Script editor.
+Create a blank spreadsheet at [sheets.google.com](https://sheets.google.com).
+Choose a clear restricted-access name, such as `Event Operations Data`.
 
-**4. Save.**
-Ctrl/Cmd+S, or the save icon. You can rename the project (top left, "Untitled
-project") to something like "Event App Backend" if you want — optional.
+### 2. Add the script
 
-**5. Configure the organizer access key.**
-In the Apps Script editor, open **Project Settings** (gear icon), scroll to
-**Script Properties**, and add:
+Open **Extensions → Apps Script**. Delete the placeholder function, copy the
+entire contents of this repository's `apps-script/Code.gs`, paste it into the
+editor, and save.
 
-- **Property:** `ORGANIZER_KEY`
-- **Value:** a long, unique event key (use a password-manager-generated value,
-  not a four-digit PIN)
+### 3. Create a separate export secret
 
-Staff type this value into dashboard and kiosk pages at runtime. It is not
-checked into the static site or placed in a URL. Store it in your team password
-manager and share it only with event staff.
+Generate a long random value in a password manager. In Apps Script, open
+**Project Settings → Script Properties** and add:
 
-**6. Deploy it as a Web App.**
-Click **Deploy → New deployment**. If it asks for a deployment type,
-click the gear icon and choose **Web app**. Then set:
-- **Execute as:** Me (your Google account)
+```text
+Property: EXPORT_KEY
+Value:    your-long-random-export-secret
+```
+
+`EXPORT_KEY` is only for the Node-to-Sheet export. Do not reuse the organizer
+key and do not put either secret in a URL or any file under `web/`.
+
+### 4. Deploy the Web App
+
+Choose **Deploy → New deployment → Web app** and set:
+
+- **Execute as:** Me
 - **Who has access:** Anyone
 
-Click **Deploy**.
+Authorize the script when Google prompts, then copy the Web App URL ending in
+`/exec`. The export endpoint itself still rejects requests without the matching
+`EXPORT_KEY`.
 
-**7. Authorize it.**
-The first time, Google will ask you to authorize the script. This part
-trips people up because of a scary-looking warning — here's exactly what
-to click:
-1. A popup asks you to choose an account — pick your Google account.
-2. You'll see "Google hasn't verified this app." This is normal for a
-   script you just wrote yourself — click **Advanced** (small text, bottom
-   left), then click **Go to [your project name] (unsafe)**.
-3. Click **Allow** on the permissions screen (it's asking to let the
-   script read/write this specific spreadsheet — that's expected, it's
-   how it stores attendee data).
+### 5. Configure Render
 
-**8. Copy the Web app URL.**
-After deploying, a dialog shows a URL ending in `/exec`. Copy it — you'll
-need it in the next step. (You can always find it again later under
-**Deploy → Manage deployments**.)
+Add these environment variables to the same Render service that runs the Node
+app:
 
-**9. Point the app at it.**
-Open `../web/shared/config.js` in this repo and change:
+```text
+EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
+EVENT_APP_SHEETS_EXPORT_KEY=the-same-value-as-EXPORT_KEY
+```
+
+Optional tuning:
+
+```text
+EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS=3000
+EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS=10000
+```
+
+Keep this frontend configuration unchanged:
 
 ```js
 API_BASE_URL: "/api",
 ```
 
-to:
+Redeploy or restart the Render service after setting the environment variables.
 
-```js
-API_BASE_URL: "https://script.google.com/macros/s/YOUR_ID_HERE/exec",
-```
+### 6. Verify it
 
-using the URL you copied. Save the file.
+Open **Staff portal → Overall Organizer**. The **Google Sheets export** card
+should change from **Not connected** to **Ready** or **Up to date**. Choose
+**Sync now**, then open the Sheet and confirm these tabs exist:
 
-**10. Test it through the app.**
-Serve or host the `web/` folder, open `organizer/index.html`, choose **Overall
-Organizer**, and enter the organizer key from step 5. A successful unlock
-proves the protected POST API
-and Script Property are both working. Then register one throwaway attendee and
-confirm that the dashboard total changes. The dashboard is intentionally not
-testable through a public `/dashboardData` browser URL anymore; that endpoint
-contains protected attendee information and now requires an authenticated POST
-body. Its wristband groups include each color's current scheduled booth plus an
-expandable name, raffle-number, and booth-progress roster; attendee phone
-numbers are not included in that roster.
+- `Live_Attendees`
+- `Live_BoothResults`
+- `Live_SignUps`
+- `Live_TriviaAnswers`
+- `Live_HeavenConfirmations`
+- `Live_SongVotes`
+- `Live_ExportMeta`
 
-For a core-journey compatibility check, complete the attendee journey as well.
-Phase 1 should
-continue directly into Phase 2 with the same identity. Booth visits should be
-stored only after the attendee taps to mark them complete. After all three
-taps—or after the 4:10 PM cutoff—finish Phase 3 using either **Save & finish**
-or **No thanks, finish**. Both paths persist Phase 3 completion; the empty
-**No thanks** path intentionally may create no `SignUps` rows. An early finish
-should open the **DON'T GO YET** countdown before the 4:10 PM main-message
-state.
+Register one throwaway attendee, assign a wristband, and choose a Phase 3
+option. After the short debounce, the corresponding rows should update without
+refreshing the Sheet.
 
-## Redeploying after you edit `Code.gs` again
+## How synchronization behaves
 
-Editing and saving the file in the Apps Script editor does **not**
-automatically update the live URL — Apps Script deployments are
-versioned. To push a change live:
+- Node saves the local/persistent JSON database first. A Sheet failure never
+  changes a successful attendee or staff response into an error.
+- Bursts are coalesced and only the newest pending complete snapshot is sent.
+- The exporter retries failed delivery and the protected dashboard displays a
+  sanitized status; it never displays the Web App URL or export secret.
+- Full replacement prevents duplicate rows and removes stale selections after
+  an attendee changes their Phase 3 choices.
+- `Live_ExportMeta.generatedAt` is written last and is the commit marker for a
+  complete snapshot. If an import fails between tabs, the export card reports
+  an error and that marker does not advance; wait for the automatic retry or
+  choose **Retry now** before treating the tabs as one consistent snapshot.
+- Free-text Story answers and Art reflections are intentionally omitted from
+  `Live_BoothResults.extraData`; only allowlisted operational metadata is
+  mirrored.
+- **No thanks, finish** creates no `Live_SignUps` row, but the attendee still
+  has `phase3CompletedAt` in `Live_Attendees`.
+- **Clear all attendee data** is a deletion boundary. The next successful sync
+  clears the exported data rows as well.
 
-1. **Deploy → Manage deployments.**
-2. Click the pencil/edit icon on your existing deployment.
-3. Under **Version**, choose **New version**.
-4. Click **Deploy**.
+The Sheet is a live operational mirror, not an immutable backup. Before using
+real attendee data, decide who may access names, phone numbers, raffle numbers,
+activity results, and selections, and define retention/deletion ownership.
 
-The `/exec` URL stays the same — you don't need to update `config.js`
-again after the first time, only redeploy a new version whenever you
-change `Code.gs`.
+## Updating `Code.gs`
 
-Redeploying the current `Code.gs` also upgrades an existing `Attendees` tab by
-appending newly introduced fields without shifting older columns. This is what
-allows Phase 3 completion to remain saved even when the attendee chose **No
-thanks** and therefore has no option row.
+Saving a script edit does not update an existing Web App deployment. Use:
+
+1. **Deploy → Manage deployments**
+2. Select the pencil/edit icon
+3. Choose **New version**
+4. Choose **Deploy**
+
+The `/exec` URL stays the same.
 
 ## Troubleshooting
 
-- **"Google hasn't verified this app"** — expected, see step 7. This
-  warning appears because it's a script you own but haven't published for
-  public verification; it's not a sign anything is wrong.
-- **The dashboard says organizer access is not configured** — add the exact
-  `ORGANIZER_KEY` Script Property from step 5, then reload. Script Property
-  changes do not require putting the secret in `config.js`.
-- **The dashboard rejects the organizer key** — confirm staff entered the
-  exact Script Property value. The key is case-sensitive and stays only in the
-  current page's memory; re-enter it after reloads and on each staff page.
-- **Changes you made aren't showing up** — you edited `Code.gs` but didn't
-  create a **new version** under Manage deployments (see above). Apps
-  Script won't auto-update a live deployment.
-- **"Exception: You do not have permission to call..."** — usually means
-  the authorization in step 6 didn't complete, or you're using a
-  different Google account than the one that authorized it. Redo step 6.
-- **Attendee data isn't showing up in the Sheet's visible tabs** — the
-  tabs (`Attendees`, `BoothCheckins`, `SongVotes`, `SignUps`, `BoothControls`, `Meta`) are created
-  automatically the first time each one is used, not when you first
-  deploy. If you unlocked the dashboard before anyone registered, you may
-  only see some tabs at first — that's expected.
-- **A Phase 3 finisher has no `SignUps` row** — this is expected for **No
-  thanks, finish**. Completion is persisted on the attendee record separately
-  from optional selections.
-- **Want to see the raw data as it comes in?** Just open the Google Sheet
-  itself in a browser tab and leave it there — new rows appear as
-  attendees interact with the app, no refresh needed (Sheets auto-updates
-  from script writes).
+- **Not connected** — one or both Render environment variables are absent.
+- **Needs attention** — open the status card, verify the Render URL ends in
+  `/exec`, confirm `EXPORT_KEY` matches exactly, and ensure the Web App is
+  reachable by the Render service.
+- **Unknown action** — deploy a new Apps Script version containing the current
+  `Code.gs`.
+- **No live tabs yet** — choose **Sync now** after connecting; the tabs are
+  created on the first successful import.
+- **Old rows remain after a reset** — the Sheet delivery failed or is still
+  queued. Do not delete individual rows as a substitute for checking the
+  protected export status.
+- **Organization blocks “Anyone” deployments** — the webhook cannot work until
+  Workspace administrators approve a non-interactive route. A future direct
+  Sheets API/service-account integration is the alternative, but it requires a
+  Cloud project, the Sheets API, credential management, and sharing the Sheet
+  with that service account.
 
-## See also
+## Legacy Apps Script backend mode
 
-- `SHEET_SCHEMA.md` — exact column layout created in each tab.
-- `../demo-server/README.md` — the Node backend used locally or on Render for
-  development and synchronized rehearsal controls.
-- `../README.md` — the full "going from demo to the real event" checklist
-  this deployment is one step of.
+`Code.gs` still includes the older attendee and staff API actions for
+compatibility testing. Pointing `API_BASE_URL` directly at its `/exec` URL is
+not the recommended current deployment: that mode lacks the Node shared clock,
+full reset, and specialized leader-paced run controllers. Use the export-sink
+setup above for the full experience.
+
+See `SHEET_SCHEMA.md` for the exact export columns and the separate legacy tab
+schemas.

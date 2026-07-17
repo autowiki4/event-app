@@ -24,7 +24,6 @@
       <div class="field">
         <label for="organizer-key">Organizer access key</label>
         <input id="organizer-key" type="password" autocomplete="off">
-        <div class="hint">Local demo default: <b>demo</b>.</div>
         <div class="err" id="err-organizer-key"></div>
       </div>
       <button class="btn btn-primary" id="btn-organizer-unlock">Unlock staff view →</button>
@@ -61,13 +60,7 @@
         <div class="g-detail" id="visitor-raffle"></div>
       </div>
       <button class="btn btn-ghost" id="btn-next-prompt">Show a different prompt</button>
-      <div class="field" style="margin-top:16px;">
-        <label>Rate this booth (optional, on their behalf)</label>
-        <div class="stars" id="booth-stars">
-          <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
-        </div>
-      </div>
-      <button class="btn btn-primary" id="btn-done" style="margin-top:6px;">Done — next visitor →</button>
+      <button class="btn btn-primary" id="btn-done" style="margin-top:16px;">Done — next visitor →</button>
     </div>
     </div>
   </section>
@@ -84,7 +77,6 @@ const BOOTH_ID = "art";
 const BOOTH_NAME = "Art Therapy Table";
 let currentVisitor = null;
 let promptIndex = Math.floor(Math.random() * ART_PROMPTS.length);
-let stars = 0;
 Phone.bind(document.getElementById("phone-input"));
 
 function showPrompt() {
@@ -94,7 +86,6 @@ function showPrompt() {
 
 function resetKiosk() {
   currentVisitor = null;
-  stars = 0;
   document.getElementById("phone-input").value = "";
   document.getElementById("raffle-input").value = "";
   document.getElementById("raffle-input").disabled = false;
@@ -113,7 +104,6 @@ function resetKiosk() {
   document.getElementById("btn-lookup").textContent = "Check in visitor →";
   document.getElementById("btn-done").disabled = false;
   document.getElementById("btn-done").textContent = "Done — next visitor →";
-  document.querySelectorAll("#booth-stars .star").forEach((el) => el.classList.remove("on"));
 }
 
 document.getElementById("btn-lookup").addEventListener("click", async () => {
@@ -165,8 +155,6 @@ document.getElementById("btn-lookup").addEventListener("click", async () => {
       raffleNumber: result.raffleNumber,
     };
     promptIndex = Math.floor(Math.random() * ART_PROMPTS.length);
-    stars = 0;
-    document.querySelectorAll("#booth-stars .star").forEach((el) => el.classList.remove("on"));
     showPrompt();
     document.getElementById("visitor-raffle").textContent = "Raffle #" + result.raffleNumber;
     if (result.isNew) toast("Created attendee — give them raffle #" + result.raffleNumber + ".");
@@ -193,15 +181,6 @@ document.getElementById("btn-next-prompt").addEventListener("click", () => {
   showPrompt();
 });
 
-document.querySelectorAll("#booth-stars .star").forEach((s) => {
-  s.addEventListener("click", () => {
-    stars = parseInt(s.dataset.n, 10);
-    document.querySelectorAll("#booth-stars .star").forEach((el) => {
-      el.classList.toggle("on", parseInt(el.dataset.n, 10) <= stars);
-    });
-  });
-});
-
 document.getElementById("btn-done").addEventListener("click", async () => {
   const btn = document.getElementById("btn-done");
   if (!currentVisitor || btn.disabled) return;
@@ -216,7 +195,6 @@ document.getElementById("btn-done").addEventListener("click", async () => {
       boothId: BOOTH_ID,
       boothName: BOOTH_NAME,
       checkedInBy: "staff-kiosk",
-      rating: stars || null,
       extraData: { promptShown: ART_PROMPTS[promptIndex % ART_PROMPTS.length] },
       organizerKey,
     });

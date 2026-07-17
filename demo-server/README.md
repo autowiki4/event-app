@@ -162,6 +162,51 @@ marker. On their next sync, connected or reopened attendee browsers clear
 their old identity and return to Phase 1. The reset deliberately leaves the
 current simulated/live clock mode unchanged.
 
+## Optional Google Sheets mirror
+
+The Node database can be mirrored to a bound Google Sheet while `/api` remains
+the frontend backend. This preserves every synchronized booth and clock
+feature. The export is best-effort and nonblocking: after a durable JSON write,
+the server queues the newest complete snapshot, coalesces bursts, and retries a
+failed delivery without changing the attendee or staff API response.
+
+Configure these server-only environment variables locally or in Render:
+
+```text
+EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
+EVENT_APP_SHEETS_EXPORT_KEY=use-a-long-random-secret
+```
+
+Optional tuning values are `EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS` and
+`EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS`. The export key must match the
+`EXPORT_KEY` Script Property in the bound Apps Script. Neither value belongs in
+`web/shared/config.js`, a public URL, or client-side storage. Keep
+`API_BASE_URL: "/api"`; the Apps Script URL is only the server-to-server export
+destination.
+
+Each successful snapshot fully replaces `Live_Attendees`,
+`Live_BoothResults`, `Live_SignUps`, `Live_TriviaAnswers`,
+`Live_HeavenConfirmations`, `Live_SongVotes`, and `Live_ExportMeta`. Full
+replacement reconciles identity merges, updated check-ins, removed Phase 3
+choices, and protected resets without duplicate rows. An attendee who chooses
+**No thanks** still appears in `Live_Attendees` with `phase3CompletedAt`, even
+though no sign-up row exists.
+
+`Live_BoothResults.extraData` mirrors only allowlisted operational metadata;
+attendee-entered Story answers and Art reflections remain out of the Sheet.
+`Live_ExportMeta.generatedAt` is written last as the commit marker. If a
+transient failure interrupts the tab sequence, the marker stays on the prior
+generation and the protected dashboard reports the error until a full retry
+succeeds.
+
+Overall Organizer shows whether the export is connected, queued, syncing, up
+to date, or failing, plus the latest row counts. **Sync now** is protected by
+the organizer key and queues the current snapshot. The status never exposes
+the Apps Script URL or export key. `resetDemo` remains the deletion boundary;
+after it succeeds, the next export clears the live Sheet mirror too. The Sheet
+is therefore an operational view, not a separate backup or immutable archive.
+See `../apps-script/README.md` for Sheet and Web App setup.
+
 ## Tests
 
 Run from this directory:
@@ -207,6 +252,8 @@ The main protected staff actions are:
 - `boothDashboardData`
 - `dashboardData`
 - `confirmSignupInPerson`
+- `googleSheetsExportStatus` (Node service only; sanitized status)
+- `syncGoogleSheetsExport` (Node service only; queues the current snapshot)
 - `resetDemo` (Node service only)
 - `setDemoClock` (Node service only)
 
@@ -232,6 +279,21 @@ Draw Heaven uses the same Node-only, leader-paced run model:
   comparison, reflection, programs, and completion using optimistic versions
 - `resetHeavenSession` archives the current run and opens a clean welcome run
 
+Art Therapy uses a Node/Render-only leader-paced controller at its existing
+attendee and staff URLs:
+
+- `artState` returns only the attendee's assigned session and currently
+  published slide/reveal
+- `completeArt` records an immutable completion for the current run and the
+  ordinary route-level booth check-in, but accepts no artwork or reflection
+  text
+- `artDashboardData` returns protected progress for the Orange, Green, and Red
+  rotations plus their archived runs
+- `advanceArtSession` publishes the definition, importance, supplied image,
+  heart question, two verses, creative activity, closing reflection, and Done
+  release using optimistic versions
+- `resetArtSession` archives the selected run and starts a clean welcome run
+
 New Song also uses a Node/Render-only leader-paced run model without changing
 its attendee (`/phase2-booths/booth-newsong.html`) or staff
 (`/phase2-staff/newsong.html`) URLs. Green, Yellow, and Orange wristbands use
@@ -249,7 +311,8 @@ Tbabz**, **Elohim — Sondae**, **I Thank God — Maverick City**, **Amen — Ma
 Ryann Ward**, **Quick — Caleb Gordon**, and **Goodbye Yesterday — Elevation
 Rhythm**.
 
-Session reset preserves prior-run answers, confirmations, votes, and results
+Session reset preserves prior-run answers, confirmations, Art completions,
+votes, and results
 for staff review while keeping each active run isolated. The overall
 `resetDemo` action is the deliberate deletion boundary: it clears active and
 archived runs, including New Song sessions, votes, and history, along with all
@@ -258,11 +321,17 @@ other event data.
 The question answer key stays outside `web/`, and the public attendee state
 does not include the correct answer until the booth leader reveals it. Each
 session and leaderboard is persisted separately in `triviaSessions`,
-`triviaAnswers`, and `triviaRunHistory`. Draw Heaven and New Song use matching
-session/run-history collections, with New Song votes carrying their run ID.
+`triviaAnswers`, and `triviaRunHistory`. Draw Heaven, Art Therapy, and New Song
+use matching session/run-history collections, with Art completions and New
+Song votes carrying their run ID.
 Run one Node instance with a persistent `EVENT_APP_DB_PATH`; the Apps Script
 adapter does not implement these synchronized booth workflows. Its New Song
 support remains the legacy unsynchronized vote path.
+
+The optional Apps Script export sink is different from using Apps Script as
+the app backend: it mirrors the complete Node data model into `Live_*` tabs and
+does not change `API_BASE_URL`. This is the recommended Sheet arrangement for
+the current full experience.
 
 The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,
@@ -271,8 +340,9 @@ can follow the shared rehearsal time and durable reset marker. `resetDemo`,
 Legacy phone/kiosk actions also remain for the optional fallback pages. The
 core attendee and staff journey actions have matching implementations in
 `../apps-script/Code.gs`; the three Node-only actions called out above do not.
-`../web/shared/api.js` calls either backend the same way; moving to Apps Script
-requires changing `API_BASE_URL` in `../web/shared/config.js`.
+`../web/shared/api.js` can still call either backend for legacy compatibility;
+pointing it directly at Apps Script requires changing `API_BASE_URL` and loses
+the Node-only capabilities described above.
 
 The Apps Script adapter is a deployment-shaped mock backend, not a production
 approval. Confirm the event date, venue connectivity, staff authentication,

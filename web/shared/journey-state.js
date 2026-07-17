@@ -1,6 +1,6 @@
 /* Small per-attendee draft store for refresh/reopen resilience. Canonical
  * completion still lives on the backend; this only keeps unfinished UI state
- * (current question/beat, typed reflections, ratings, and Phase 3 ticks) on
+ * (current question/beat, typed reflections, and Phase 3 ticks) on
  * the attendee's own device. */
 const JourneyState = (() => {
   const PREFIX = "eventapp.journey.v1";

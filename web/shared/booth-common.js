@@ -1,48 +1,10 @@
-/* Shared behavior for every attendee booth room: the phone-number gate
- * (asked once, reused everywhere after) and the note/star-rating/done
- * footer that logs the visit back to the shared backend. Each booth page
- * defines window.getBoothExtraData() before calling initBoothRoom() so its
- * own score/answers/etc. rides along on the check-in record. */
+/* Shared behavior for attendee booth rooms: the phone-number gate (asked
+ * once, reused everywhere after) and the Done action that logs the visit to
+ * the shared backend. Each booth page can define window.getBoothExtraData()
+ * so its activity-specific result rides along on the check-in record. */
 
-let _boothStars = 0;
 let _boothIdentity = null;
-let _boothFooterId = "";
-let _boothFooterRestoredFor = "";
 window.getCurrentBoothIdentity = () => _boothIdentity || Identity.peek();
-
-function boothFooterDraftScope(boothId) {
-  return `booth.${boothId}.footer`;
-}
-
-function paintBoothStars() {
-  document.querySelectorAll("#booth-stars .star").forEach((star) => {
-    star.classList.toggle("on", parseInt(star.dataset.n, 10) <= _boothStars);
-  });
-}
-
-function saveBoothFooterDraft(boothId = _boothFooterId) {
-  if (!boothId || typeof JourneyState === "undefined") return false;
-  const note = document.getElementById("booth-note");
-  return JourneyState.save(boothFooterDraftScope(boothId), {
-    note: note ? note.value : "",
-    rating: _boothStars,
-  });
-}
-
-function restoreBoothFooterDraft(boothId = _boothFooterId) {
-  if (!boothId || typeof JourneyState === "undefined") return false;
-  const identity = _boothIdentity || Identity.peek();
-  const attendeeId = String((identity && identity.attendeeId) || "");
-  if (!attendeeId || _boothFooterRestoredFor === attendeeId) return false;
-  const saved = JourneyState.load(boothFooterDraftScope(boothId), { note: "", rating: 0 }) || {};
-  const note = document.getElementById("booth-note");
-  if (note) note.value = typeof saved.note === "string" ? saved.note : "";
-  const rating = Number(saved.rating);
-  _boothStars = Number.isInteger(rating) ? Math.min(5, Math.max(0, rating)) : 0;
-  paintBoothStars();
-  _boothFooterRestoredFor = attendeeId;
-  return true;
-}
 
 function currentBoothRoomUrl() {
   return window.location.pathname.split("/").pop() || "./";
@@ -69,7 +31,6 @@ function initBoothGate({ boothId, boothName, onReady, identity: signedInIdentity
   function showInterface() {
     gateEl.style.display = "none";
     ifaceEl.style.display = "block";
-    restoreBoothFooterDraft(boothId);
     onReady();
   }
 
@@ -151,21 +112,6 @@ function initBoothGate({ boothId, boothName, onReady, identity: signedInIdentity
   });
 }
 
-function renderBoothFooter(boothId) {
-  _boothFooterId = boothId || _boothFooterId;
-  const note = document.getElementById("booth-note");
-  if (note) note.addEventListener("input", () => saveBoothFooterDraft());
-  document.querySelectorAll("#booth-stars .star").forEach((s) => {
-    s.addEventListener("click", () => {
-      const n = parseInt(s.dataset.n, 10);
-      _boothStars = n;
-      paintBoothStars();
-      saveBoothFooterDraft();
-    });
-  });
-  restoreBoothFooterDraft();
-}
-
 async function finishBooth(boothId, boothName) {
   // Keep this room tied to the attendee who signed into it. Another booth
   // may be open in a different tab and replace the shared local identity.
@@ -177,8 +123,6 @@ async function finishBooth(boothId, boothName) {
     if (typeof window.refreshBoothRoomAccess === "function") window.refreshBoothRoomAccess();
     return;
   }
-  const note = document.getElementById("booth-note") ? document.getElementById("booth-note").value : "";
-  saveBoothFooterDraft(boothId);
   const extraData = typeof window.getBoothExtraData === "function" ? window.getBoothExtraData() : null;
   const completion = {
     attendeeId: identity.attendeeId,
@@ -186,8 +130,6 @@ async function finishBooth(boothId, boothName) {
     boothId,
     boothName,
     checkedInBy: "self",
-    rating: _boothStars || null,
-    note: note || "",
     extraData,
   };
 

@@ -6,61 +6,147 @@
   <title>Art Therapy — Staff</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <style>
-    :root {
-      --phase-color: var(--teal);
-      --phase-color-deep: var(--teal-deep);
+    :root{
+      --phase-color:#7b8ed6; --phase-color-deep:#4d5fa9;
+      --art-cream:#fff9df; --art-paper:#fffdf3; --art-coral:#ed9298;
+      --art-coral-deep:#ad4f5c; --art-blue:#7b8ed6; --art-blue-deep:#4d5fa9;
+      --art-charcoal:#454541; --art-gold:#dca83d; --art-mint:#79b99e;
+    }
+    body{ background:linear-gradient(145deg,#f9f1db,#eef0fa); }
+    .art-staff-head{ position:relative; }
+    .art-leader-intro{
+      display:flex; align-items:center; justify-content:space-between; gap:18px; margin:16px 0 8px; padding:15px;
+      border:1px solid rgba(77,95,169,.16); border-radius:16px; background:linear-gradient(145deg,#fff9e4,#f0f2ff);
+    }
+    .art-leader-intro strong,.art-leader-intro span{ display:block; }.art-leader-intro strong{ color:var(--art-charcoal); font-size:13px; }
+    .art-leader-intro span{ margin-top:3px; color:#6d6d69; font-size:10.5px; line-height:1.45; }
+    .art-sync-note{ margin:12px 0; padding:11px 13px; border-radius:12px; background:#eff2ff; color:#4d5fa9; font-size:10.5px; line-height:1.45; }
+    .art-sync-note.error{ background:#fff0ea; color:#8f382f; }
+    .art-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:15px; }
+    .art-session-tab{
+      appearance:none; min-width:0; min-height:63px; padding:11px; border:1.5px solid rgba(77,95,169,.16); border-radius:15px;
+      background:#fff; color:#777784; cursor:pointer; text-align:left; transition:border-color .15s,background .15s,transform .15s;
+    }
+    .art-session-tab b,.art-session-tab small{ display:block; }.art-session-tab b{ color:#555666; font-size:10.5px; line-height:1.3; }
+    .art-session-tab small{ margin-top:4px; font-size:8.8px; }.art-session-tab:hover,.art-session-tab:focus-visible{ border-color:var(--art-blue); outline:none; transform:translateY(-1px); }
+    .art-session-tab[aria-selected="true"]{ border-color:var(--art-blue); background:linear-gradient(145deg,#f2f3ff,#fff9e8); box-shadow:0 13px 25px -24px #454541; }
+    .art-layout{ display:grid; grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr); gap:13px; align-items:start; }
+    .art-panel{ min-width:0; padding:16px; border:1px solid rgba(77,95,169,.14); border-radius:18px; background:rgba(255,255,255,.94); box-shadow:0 22px 43px -38px #454541; }
+    .art-panel-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:13px; }
+    .art-panel-kicker{ color:var(--art-coral-deep); font:800 8.8px/1.3 'JetBrains Mono',monospace; letter-spacing:.07em; text-transform:uppercase; }
+    .art-panel h2{ margin:2px 0 0; color:var(--art-charcoal); font:800 18px/1.2 'Fraunces',serif; }
+    .art-phase-pill{ flex:none; padding:6px 9px; border-radius:999px; background:#eef0fa; color:var(--art-blue-deep); font-size:8.7px; font-weight:850; }
+    .art-phase-pill.complete{ background:#e4f4ec; color:#34755a; }.art-phase-pill.finished{ background:#fff0df; color:#9a6420; }
+    .art-schedule-card{ display:flex; align-items:center; justify-content:space-between; gap:11px; padding:12px; border-radius:14px; background:linear-gradient(145deg,#fff9e8,#f2f3ff); }
+    .art-schedule-card strong,.art-schedule-card span{ display:block; }.art-schedule-card strong{ color:#55565f; font-size:10.5px; }.art-schedule-card > div:first-child > span{ margin-top:4px; color:#79797b; font-size:9px; }
+    .art-band-dot{ display:inline-block; width:9px; height:9px; margin-right:6px; border-radius:50%; vertical-align:-1px; background:#aaa; }
+    .art-band-dot.orange{ background:#e88724; }.art-band-dot.green{ background:#2f8a57; }.art-band-dot.red{ background:#d94a43; }
+    .art-session-timer{ flex:none; color:var(--art-blue-deep); font:850 17px/1 'JetBrains Mono',monospace; text-align:right; }
+    .art-session-timer small{ margin-top:5px; color:#797b8b; font:750 7.5px/1.2 'Inter',sans-serif; text-transform:uppercase; }.art-session-timer.ended{ color:#999; }
+    .art-stats{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin:11px 0; }
+    .art-stat{ padding:11px; border:1px solid rgba(77,95,169,.12); border-radius:13px; background:#fff; text-align:center; }
+    .art-stat b,.art-stat span{ display:block; }.art-stat b{ color:var(--art-blue-deep); font:850 20px/1 'Fraunces',serif; }.art-stat span{ margin-top:4px; color:#77777d; font-size:8.5px; font-weight:750; }
+    .art-stage{ display:grid; grid-template-columns:52px 1fr; gap:12px; align-items:start; min-height:115px; padding:15px; border:1px dashed rgba(77,95,169,.24); border-radius:15px; background:#fffdf5; }
+    .art-stage-icon{ display:grid; place-items:center; width:52px; height:52px; border-radius:18px; background:linear-gradient(145deg,#fee9e5,#eef0ff); font-size:25px; }
+    .art-stage-copy h3{ margin:2px 0 5px; color:var(--art-charcoal); font:800 14px/1.25 'Fraunces',serif; }.art-stage-copy p{ margin:0; color:#73736f; font-size:10.5px; line-height:1.48; }
+    .art-actions{ margin-top:11px; }.art-actions .btn{ width:100%; min-height:46px; }.art-finished-note{ margin:0; padding:12px; border-radius:12px; background:#eaf4ef; color:#477460; font-size:10px; line-height:1.5; }
+    .art-publish-state{ margin:9px 0 0; color:#7c7d83; font-size:8.8px; line-height:1.4; text-align:center; }
+    .art-loading-panel{ opacity:.65; pointer-events:none; }
+    .art-roster-panel{ margin-top:13px; }
+    .art-table-wrap{ overflow-x:auto; }.art-progress-table{ min-width:390px; }.art-progress-table strong{ font-size:10px; }.art-raffle{ color:#6c6d78; font-family:'JetBrains Mono',monospace; font-size:9px; }
+    .art-done-state{ display:inline-flex; padding:5px 7px; border-radius:999px; font-size:8.5px; font-weight:800; white-space:nowrap; }.art-done-state.yes{ background:#e1f3ea; color:#317259; }.art-done-state.no{ background:#f2f2f0; color:#898984; }
+    .art-empty{ padding:15px; color:#858582; font-size:10px; line-height:1.45; text-align:center; }
+    .art-history-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:19px 2px 9px; }.art-history-head h2{ margin:2px 0 0; color:var(--art-charcoal); font:800 17px/1.2 'Fraunces',serif; }.art-history-head > span{ color:#858585; font-size:8.5px; }
+    .art-run-history{ display:grid; gap:7px; }.art-archive-run{ overflow:hidden; border:1px solid rgba(77,95,169,.14); border-radius:13px; background:#fff; }
+    .art-archive-run summary{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; color:#555663; cursor:pointer; font-size:10px; }.art-archive-run summary small{ color:#858590; font-size:8.5px; text-align:right; }
+    .art-archive-body{ padding:0 13px 13px; }.art-archive-body > p{ margin:0 0 9px; color:#858585; font-size:8.5px; }.art-archive-people{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }.art-archive-people span{ min-width:0; padding:8px; border-radius:10px; background:#f7f7fb; }.art-archive-people b,.art-archive-people small{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.art-archive-people b{ color:#565663; font-size:9px; }.art-archive-people small{ margin-top:3px; color:#87878e; font-size:7.8px; }
+    .art-footer-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }.art-danger{ color:#9b3d42; border-color:rgba(155,61,66,.25); }
+    @media(max-width:860px){ .art-layout{ grid-template-columns:1fr; } }
+    @media(max-width:590px){
+      .art-leader-intro{ align-items:flex-start; flex-direction:column; }.art-session-tabs{ grid-template-columns:1fr; }.art-session-tab{ min-height:52px; display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+      .art-history-head{ align-items:flex-start; flex-direction:column; }.art-archive-people{ grid-template-columns:1fr; }.art-footer-actions{ flex-direction:column; }.art-footer-actions .btn{ width:100%; }
     }
   </style>
 </head>
 <body>
   <div class="phone dash-wrap">
     <div class="device-tag organizer">Booth leader</div>
-    <section class="screen">
+    <section class="screen art-staff-head">
       <a class="btn-link" href="../organizer/index.html">← All organizer portals</a>
-      <p class="eyebrow" id="staff-booth-mode">Booth</p>
-      <h1 class="display" id="staff-booth-name">Booth controls</h1>
-      <p class="lede" id="staff-booth-description"></p>
+      <p class="eyebrow">Booth leader portal</p>
+      <h1 class="display">🖌️ <em>Art Therapy Table</em></h1>
+      <p class="lede">Move every attendee phone through the six-slide experience together. No attendee can skip ahead.</p>
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock this booth's presentation controls and check-ins.</p>
+        <p>Unlock the three separate Art Therapy sessions, attendee completions, and archived runs.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
-          <div class="hint">Local demo default: <b>demo</b>.</div>
           <div class="err" id="err-organizer-key"></div>
         </div>
-        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock booth →</button>
+        <button class="btn btn-primary" id="btn-organizer-unlock">Unlock Art Therapy →</button>
       </div>
 
       <div id="organizer-content" style="display:none;">
-        <div class="staff-toolbar">
-          <button class="btn-link" id="btn-organizer-lock">Lock booth</button>
+        <div class="staff-toolbar"><button class="btn-link" id="btn-organizer-lock">Lock booth</button></div>
+        <div class="art-leader-intro">
+          <div><strong>One room, one shared canvas</strong><span>Select the timed session and publish one reveal at a time. Restarting archives the current run instead of mixing groups.</span></div>
+          <a class="btn btn-small btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee route ↗</a>
         </div>
-        <div class="dash-grid">
-          <div class="dash-card">
-            <div class="num" id="staff-total">0</div>
-            <div class="lbl">Check-ins at this booth</div>
+        <div class="art-sync-note" id="art-sync-note" role="status" aria-live="polite" style="display:none;"></div>
+
+        <div class="section-title">Choose a session</div>
+        <div class="art-session-tabs" id="art-session-tabs" role="tablist" aria-label="Art Therapy sessions">
+          <button type="button" class="art-session-tab" id="art-tab-1" role="tab" aria-controls="art-session-panel" aria-selected="true" data-art-session="1"><b>Session 1 · Orange</b><small>3:10–3:30 PM</small></button>
+          <button type="button" class="art-session-tab" id="art-tab-2" role="tab" aria-controls="art-session-panel" aria-selected="false" data-art-session="2"><b>Session 2 · Green</b><small>3:30–3:50 PM</small></button>
+          <button type="button" class="art-session-tab" id="art-tab-3" role="tab" aria-controls="art-session-panel" aria-selected="false" data-art-session="3"><b>Session 3 · Red</b><small>3:50–4:10 PM</small></button>
+        </div>
+
+        <div class="art-layout" id="art-session-panel" role="tabpanel" aria-labelledby="art-tab-1">
+          <section class="art-panel" id="staff-settings">
+            <div class="art-panel-head">
+              <div><div class="art-panel-kicker">Active run</div><h2 id="art-control-title">Session 1 · Run 1</h2></div>
+              <span class="art-phase-pill welcome" id="art-phase-pill">Welcome lobby</span>
+            </div>
+            <div class="art-schedule-card">
+              <div><strong id="art-assigned-band"><span class="art-band-dot orange" aria-hidden="true"></span>Orange wristbands · Session 1</strong><span id="art-session-time">3:10–3:30 PM</span></div>
+              <div class="art-session-timer" id="art-session-timer">--:--<small>Checking event clock</small></div>
+            </div>
+            <div class="art-stats">
+              <div class="art-stat"><b id="art-assigned-count">0</b><span>Assigned</span></div>
+              <div class="art-stat"><b id="art-completed-count">0</b><span>Done this run</span></div>
+            </div>
+            <div class="art-stage" id="art-stage"><div class="art-empty">Unlock Art Therapy to load the run controls.</div></div>
+            <div class="art-actions" id="art-actions"></div>
+            <p class="art-publish-state" id="art-publish-state" role="status" aria-live="polite">Unlock Art Therapy to load the session controls.</p>
+          </section>
+
+          <section class="art-panel">
+            <div class="art-panel-head"><div><div class="art-panel-kicker">Speaker flow</div><h2>Six slides · nine releases</h2></div></div>
+            <div class="art-stage-copy">
+              <p>Slides 1–2 explain the activity. The attached visual follows Slide 2. Slide 3 asks about the heart, then reveals Proverbs 4:23 and Philippians 4:7 separately. Slides 5–6 guide creation and closing reflection before Done is released.</p>
+              <p style="margin-top:10px;"><strong>Privacy:</strong> attendee artwork stays with the attendee. This app does not collect artwork, reflection text, ratings, or comments.</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="art-panel art-roster-panel">
+          <div class="art-panel-head"><div><div class="art-panel-kicker">Selected session · active run</div><h2 id="art-roster-title">Assigned attendees</h2></div></div>
+          <div class="art-table-wrap">
+            <table class="dash-table art-progress-table" id="art-progress-table">
+              <thead><tr><th>Attendee</th><th>Raffle</th><th>Done</th></tr></thead>
+              <tbody><tr><td colspan="3" class="art-empty">Unlock Art Therapy to load attendees.</td></tr></tbody>
+            </table>
           </div>
+        </section>
+
+        <div class="art-history-head"><div><div class="art-panel-kicker">Selected session only</div><h2>Archived run history</h2></div><span>Read-only · completions stay with their original run</span></div>
+        <div class="art-run-history" id="art-run-history"><div class="art-empty">Unlock Art Therapy to load previous runs.</div></div>
+        <div class="art-footer-actions">
+          <button type="button" class="btn btn-small btn-ghost art-danger" id="btn-art-restart">Archive run &amp; start another</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-art-refresh">Refresh now</button>
         </div>
-        <div id="staff-room-launch"></div>
-        <div id="staff-kiosk-launch"></div>
-        <div class="section-title">Attendee screen controls</div>
-        <div id="staff-settings"></div>
-        <div class="section-title">Recent check-ins</div>
-        <div style="overflow-x:auto;">
-          <table class="dash-table" id="staff-roster">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Time</th>
-                <th>Method</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <button class="btn btn-primary" id="btn-staff-refresh" style="margin-top:16px;">Refresh check-ins and controls</button>
         <p class="top-note" id="staff-last-updated" aria-live="polite"></p>
       </div>
     </section>
@@ -72,7 +158,7 @@
   <script src="../shared/toast.js"></script>
   <script src="../shared/booths-config.js"></script>
   <script src="../shared/event-schedule.js"></script>
-  <script src="../shared/booth-staff-common.js"></script>
-  <script>initBoothStaff("art");</script>
+  <script src="../shared/art-staff.js"></script>
+  <script>initArtStaff();</script>
 </body>
 </html>

@@ -58,17 +58,17 @@ const CONNECTOR_BOOTHS = [
     id: "art",
     title: "Art Therapy Table",
     icon: "🖌️",
-    blurb: "Guided drawing and reflection with the booth leader. ~20 min",
+    blurb: "Follow a leader-paced heart-and-mind reflection, two Bible passages, and a guided creative activity. ~20 min",
     mode: "kiosk",
     page: "booth-art.html",
     staffPage: "art.html",
     kioskPage: "../phase2-booths/kiosk-art.html",
     leaderSteps: [
-      { title: "Art reveals what words can't", body: "Welcome the group and introduce Proverbs 4:23. · Minutes 0–3" },
-      { title: "The triangle", body: "Use three points to explore how I see myself, how others see me, and how I relate to the world. · Minutes 3–6" },
-      { title: "Draw your heart", body: "Give the group quiet time to create from the reflection prompts without judging their work. · Minutes 6–13" },
-      { title: "Look at what you made", body: "Pause for a word or phrase about what stands out, then read Philippians 4:7. · Minutes 13–15" },
-      { title: "This is just the beginning", body: "Invite an optional next-step reflection, then mark the booth complete. · Minutes 15–20" },
+      { title: "What is art therapy?", body: "Publish Slide 1 only when the room is ready, including the distinction between clinical art therapy and today's guided reflection activity." },
+      { title: "Why is it important?", body: "Publish Slide 2, then reveal the supplied heart-and-mind visual as a separate leader-controlled step." },
+      { title: "What does the Bible say?", body: "Ask the heart question, then reveal Proverbs 4:23 and Philippians 4:7 one at a time on the same shared slide." },
+      { title: "Now it’s your turn", body: "Open the hands-on creative activity and guide the room with the physical art materials. The app collects no artwork or reflection text." },
+      { title: "I’m finished—now what?", body: "Publish the closing reflection, give the room a final thought, then release Done for everyone together." },
     ],
   },
   {
@@ -163,49 +163,6 @@ const ART_PROMPTS = [
   "Draw what you'd want to let go of today.",
   "Draw a picture of hope.",
   "Draw something you're thankful for.",
-];
-
-const ART_BEATS = [
-  {
-    id: "intro",
-    time: "0–3 min · Intro",
-    text: "Art reveals what words can't.",
-    verse: { ref: "Proverbs 4:23", text: "Above all else, guard your heart, for everything you do flows from it." },
-  },
-  {
-    id: "triangle",
-    time: "3–6 min · The triangle",
-    text: "Three points. Three parts of you.",
-    points: [
-      { title: "How I see myself", sub: "Emotions & identity" },
-      { title: "How others see me", sub: "The image I show" },
-      { title: "How I relate to the world", sub: "Relationships & responses" },
-    ],
-    verse: { ref: "1 Samuel 16:7", text: "People look at the outward appearance, but the Lord looks at the heart." },
-  },
-  {
-    id: "drawing",
-    time: "6–13 min · Draw",
-    text: "Draw a triangle for your heart.",
-    quiet: "Quiet time to create — take it slow.",
-    chips: ["What do others not see?", "What's hard to express?", "Who shaped who you are?", "What needs God's peace?"],
-  },
-  {
-    id: "reflection",
-    time: "13–15 min · Reflect",
-    text: "Look at what you made.",
-    prompt: "What stands out to you?",
-    placeholder: "A word or phrase…",
-    verse: { ref: "Philippians 4:7", text: "The peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus." },
-  },
-  {
-    id: "connection",
-    time: "15–20 min · What's next",
-    text: "This is just the beginning.",
-    prompt: "What would you want to explore more?",
-    placeholder: "Optional…",
-    optional: true,
-  },
 ];
 
 /* ---- The New Song in Nashville ---- */

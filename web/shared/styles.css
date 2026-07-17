@@ -395,10 +395,6 @@ button.route-stop:focus-visible{ outline:3px solid rgba(240,168,60,.34); outline
 .booth-lock-switch{ margin-top:13px; }
 .booth-visited-badge{ background:#2f8a57; }
 
-.stars{ display:flex; gap:6px; margin-bottom:4px; }
-.star{ font-size:26px; cursor:pointer; color:var(--line); transition:color .1s; }
-.star.on{ color:var(--marigold); }
-
 .done-badge{
   width:88px; height:88px; border-radius:50%; background:var(--coral); color:#fff; font-size:40px;
   display:flex; align-items:center; justify-content:center; margin:8px auto 18px;

@@ -7,8 +7,9 @@
  * there's no "npm install" step, nothing that can fail to fetch on a
  * conference wifi, and no version drift. Just: node server.js.
  *
- * Switching the core journey to Apps Script only changes API_BASE_URL, but
- * that adapter intentionally has no remote rehearsal clock or resetDemo.
+ * An optional server-side Apps Script webhook mirrors the full Node data into
+ * Google Sheets without changing API_BASE_URL. The older direct Apps Script
+ * adapter remains limited and has no remote rehearsal clock or resetDemo.
  *
  * Run: node server.js   (serves web/ + the /api/* routes on :3000)
  */
@@ -17,6 +18,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { TRIVIA_QUESTIONS } = require("./trivia-questions");
+const { createGoogleSheetsExporter } = require("./google-sheets-export");
 
 const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json");
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
@@ -68,6 +70,11 @@ const HEAVEN_CONFIRMATION_RULES = Object.freeze({
   impact_yes: { minimumPhase: "comparison", requires: ["size_yes"] },
   programs_done: { minimumPhase: "programs", requires: ["impact_yes"] },
 });
+const ART_SESSION_NUMBERS = new Set([1, 2, 3]);
+const ART_PHASES = new Set([
+  "welcome", "definition", "importance", "purpose_image", "heart_question",
+  "proverbs", "philippians", "create", "finished", "complete",
+]);
 const NEW_SONG_SESSION_NUMBERS = new Set([1, 2, 3]);
 const NEW_SONG_PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
 const NEW_SONG_CHOICES = Object.freeze([
@@ -217,6 +224,9 @@ function emptyDb() {
     heavenSessions: {},
     heavenConfirmations: [],
     heavenRunHistory: [],
+    artSessions: {},
+    artCompletions: [],
+    artRunHistory: [],
     newSongSessions: {},
     newSongRunHistory: [],
     raffleCounter: 1000,
@@ -228,15 +238,54 @@ function normalizeDataResetAt(value) {
   const valueMs = Date.parse(value);
   return Number.isFinite(valueMs) ? new Date(valueMs).toISOString() : "initial";
 }
+
+function normalizeBoothCheckins(value) {
+  if (!Array.isArray(value)) return [];
+  const rows = [];
+  const byAttendeeAndBooth = new Map();
+  value.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const attendeeId = String(raw.attendeeId || "").trim();
+    const boothId = String(raw.boothId || "").trim();
+    const key = attendeeId && boothId
+      ? `${attendeeId}:${boothId}`
+      : `invalid:${String(raw.id || index)}`;
+    const existing = byAttendeeAndBooth.get(key);
+    if (!existing) {
+      const row = { ...raw };
+      rows.push(row);
+      byAttendeeAndBooth.set(key, row);
+      return;
+    }
+
+    const existingMs = Date.parse(existing.checkedInAt);
+    const incomingMs = Date.parse(raw.checkedInAt);
+    const incomingIsNewer = Number.isFinite(incomingMs)
+      && (!Number.isFinite(existingMs) || incomingMs >= existingMs);
+    const older = incomingIsNewer ? existing : raw;
+    const newer = incomingIsNewer ? raw : existing;
+    const existingId = existing.id || raw.id;
+    const mergedExtra = Object.assign(
+      {},
+      older.extraData && typeof older.extraData === "object" ? older.extraData : {},
+      newer.extraData && typeof newer.extraData === "object" ? newer.extraData : {}
+    );
+    Object.assign(existing, newer, {
+      id: existingId,
+      checkedInAt: earliestTimestamp(existing.checkedInAt, raw.checkedInAt),
+      extraData: Object.keys(mergedExtra).length ? mergedExtra : null,
+    });
+  });
+  return rows;
+}
+
 function normalizeDb(raw) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const db = Object.assign(emptyDb(), source);
   db.attendees = Array.isArray(source.attendees)
     ? source.attendees.filter((row) => row && typeof row === "object" && !Array.isArray(row))
     : [];
-  db.boothCheckins = Array.isArray(source.boothCheckins)
-    ? source.boothCheckins.filter((row) => row && typeof row === "object" && !Array.isArray(row))
-    : [];
+  db.boothCheckins = normalizeBoothCheckins(source.boothCheckins);
   db.songVotes = normalizeNewSongVotes(source.songVotes);
   db.signups = Array.isArray(source.signups)
     ? source.signups.filter((row) => row && typeof row === "object" && !Array.isArray(row))
@@ -274,6 +323,20 @@ function normalizeDb(raw) {
   });
   db.heavenConfirmations = normalizeHeavenConfirmations(source.heavenConfirmations);
   db.heavenRunHistory = normalizeActivityRunHistory(source.heavenRunHistory, "heaven");
+  const sourceArtSessions = source.artSessions
+    && typeof source.artSessions === "object"
+    && !Array.isArray(source.artSessions)
+    ? source.artSessions
+    : {};
+  db.artSessions = {};
+  ART_SESSION_NUMBERS.forEach((sessionNumber) => {
+    const key = String(sessionNumber);
+    if (sourceArtSessions[key]) {
+      db.artSessions[key] = normalizeArtSessionRecord(sourceArtSessions[key], sessionNumber);
+    }
+  });
+  db.artCompletions = normalizeArtCompletions(source.artCompletions);
+  db.artRunHistory = normalizeActivityRunHistory(source.artRunHistory, "art");
   const sourceNewSongSessions = source.newSongSessions
     && typeof source.newSongSessions === "object"
     && !Array.isArray(source.newSongSessions)
@@ -364,6 +427,7 @@ function restoreBackup(primaryError) {
   console.error(`Recovered event data from ${DB_BACKUP_PATH} after the primary database became unreadable.`);
   dbCache = recovered;
   dbCacheFingerprint = fileFingerprint(DB_PATH);
+  markGoogleSheetsExportDirty();
   return cloneDb(recovered);
 }
 
@@ -419,7 +483,30 @@ function writeDb(db, options = {}) {
     try { fs.rmSync(backupTempPath, { force: true }); } catch (cleanupError) { /* best effort */ }
     throw databaseUnavailable("The event database could not be saved. No in-memory success was reported.", error);
   }
+  // Export scheduling is deliberately outside the durability try/catch. A
+  // secondary Sheet outage must never turn a committed event write into an
+  // attendee-visible database failure.
+  markGoogleSheetsExportDirty();
 }
+
+const googleSheetsExporter = createGoogleSheetsExporter({ getSnapshot: readDb });
+
+function markGoogleSheetsExportDirty() {
+  try {
+    googleSheetsExporter.markDirty();
+  } catch (error) {
+    console.error("Google Sheets export could not be queued; event data remains saved locally.");
+  }
+}
+
+function queueInitialGoogleSheetsExport() {
+  try {
+    googleSheetsExporter.queueImmediate();
+  } catch (error) {
+    console.error("Initial Google Sheets export could not be queued; event data remains saved locally.");
+  }
+}
+
 function id() {
   return crypto.randomUUID();
 }
@@ -509,11 +596,13 @@ function newActivityRunId(activity, sessionNumber, runNumber) {
 
 function normalizeActivityRunHistory(value, activity) {
   if (!Array.isArray(value)) return [];
-  const validPhases = activity === "trivia"
-    ? TRIVIA_PHASES
-    : activity === "heaven"
-      ? HEAVEN_PHASES
-      : NEW_SONG_PHASES;
+  const validPhases = {
+    trivia: TRIVIA_PHASES,
+    heaven: HEAVEN_PHASES,
+    art: ART_PHASES,
+    newsong: NEW_SONG_PHASES,
+  }[activity];
+  if (!validPhases) return [];
   const seen = new Set();
   const history = [];
   value.forEach((raw) => {
@@ -707,6 +796,75 @@ function normalizeHeavenConfirmations(value) {
   return confirmations;
 }
 
+function normalizeArtSessionNumber(value) {
+  const sessionNumber = Number(value);
+  return Number.isInteger(sessionNumber) && ART_SESSION_NUMBERS.has(sessionNumber)
+    ? sessionNumber
+    : null;
+}
+
+function defaultArtSession(sessionNumber, options = {}) {
+  const runNumber = normalizeRunNumber(options.runNumber);
+  const parsedVersion = Number(options.version);
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(options.runId, "art", sessionNumber, runNumber),
+    runNumber,
+    phase: "welcome",
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    startedAt: null,
+    updatedAt: earliestTimestamp(options.updatedAt),
+    completedAt: null,
+  };
+}
+
+function normalizeArtSessionRecord(value, sessionNumber) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const parsedVersion = Number(raw.version);
+  const runNumber = normalizeRunNumber(raw.runNumber);
+  const phase = ART_PHASES.has(raw.phase) ? raw.phase : "welcome";
+  return {
+    sessionNumber,
+    runId: normalizeActivityRunId(raw.runId, "art", sessionNumber, runNumber),
+    runNumber,
+    phase,
+    version: Number.isSafeInteger(parsedVersion) && parsedVersion >= 0 ? parsedVersion : 0,
+    startedAt: earliestTimestamp(raw.startedAt),
+    updatedAt: earliestTimestamp(raw.updatedAt),
+    completedAt: phase === "complete" ? earliestTimestamp(raw.completedAt) : null,
+  };
+}
+
+function normalizeArtCompletions(value) {
+  if (!Array.isArray(value)) return [];
+  const completionsByParticipant = new Map();
+  value.forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const attendeeId = String(raw.attendeeId || "").trim();
+    const sessionNumber = normalizeArtSessionNumber(raw.sessionNumber);
+    const runNumber = normalizeRunNumber(raw.runNumber);
+    const runId = sessionNumber
+      ? normalizeActivityRunId(raw.runId, "art", sessionNumber, runNumber)
+      : "";
+    const completedAt = earliestTimestamp(raw.completedAt, raw.checkedInAt);
+    if (!attendeeId || !sessionNumber || !completedAt) return;
+    const key = `${runId}:${attendeeId}`;
+    const completion = {
+      id: String(raw.id || `legacy-${runId}-${attendeeId}`),
+      attendeeId,
+      sessionNumber,
+      runId,
+      runNumber,
+      completedAt,
+    };
+    const previous = completionsByParticipant.get(key);
+    if (!previous || Date.parse(completion.completedAt) < Date.parse(previous.completedAt)) {
+      completionsByParticipant.set(key, completion);
+    }
+  });
+  return Array.from(completionsByParticipant.values());
+}
+
 function normalizedNewSongKey(value) {
   return String(value || "")
     .trim()
@@ -841,6 +999,17 @@ function heavenSessionFromDb(db, sessionNumber) {
   return normalizeHeavenSessionRecord(db.heavenSessions[String(sessionNumber)], sessionNumber);
 }
 
+function requireArtSessionNumber(value) {
+  const sessionNumber = normalizeArtSessionNumber(value);
+  return sessionNumber
+    ? { sessionNumber }
+    : { error: errorResult(400, "Choose Art Therapy Session 1, 2, or 3.", "INVALID_ART_SESSION") };
+}
+
+function artSessionFromDb(db, sessionNumber) {
+  return normalizeArtSessionRecord(db.artSessions[String(sessionNumber)], sessionNumber);
+}
+
 function requireTriviaSessionNumber(value) {
   const sessionNumber = normalizeTriviaSessionNumber(value);
   return sessionNumber
@@ -899,6 +1068,23 @@ function heavenAssignedColor(sessionNumber) {
 }
 
 function heavenSessionLabel(sessionNumber) {
+  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  return session ? session.label : `Session ${sessionNumber}`;
+}
+
+function artAssignedColorId(sessionNumber) {
+  const sessionIndex = sessionNumber - 1;
+  const entry = Object.entries(WRISTBAND_ROUTES)
+    .find(([, route]) => route[sessionIndex] === "art");
+  return entry ? entry[0] : null;
+}
+
+function artAssignedColor(sessionNumber) {
+  const id = artAssignedColorId(sessionNumber);
+  return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
+}
+
+function artSessionLabel(sessionNumber) {
   const session = BOOTH_SESSIONS[sessionNumber - 1];
   return session ? session.label : `Session ${sessionNumber}`;
 }
@@ -978,6 +1164,24 @@ function attendeeHeavenContext(db, attendeeId) {
     : null;
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "heaven") {
     return { error: errorResult(403, "Draw Heaven is not your assigned booth in this session.", "HEAVEN_NOT_ASSIGNED") };
+  }
+  return { attendee, eventState, sessionNumber: eventState.sessionNumber };
+}
+
+function attendeeArtContext(db, attendeeId) {
+  if (!attendeeId) return { error: errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED") };
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
+  const eventState = eventSessionState();
+  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+    return { error: errorResult(409, "Art Therapy is not in an active booth session.", "ART_SESSION_CLOSED") };
+  }
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
+    : null;
+  if (!attendee.wristbandConfirmedAt || assignedBooth !== "art") {
+    return { error: errorResult(403, "Art Therapy is not your assigned booth in this session.", "ART_NOT_ASSIGNED") };
   }
   return { attendee, eventState, sessionNumber: eventState.sessionNumber };
 }
@@ -1076,6 +1280,23 @@ function archiveHeavenRun(db, session, archiveReason, archivedAt) {
   });
 }
 
+function archiveArtRun(db, session, archiveReason, archivedAt) {
+  if (db.artRunHistory.some((run) => (
+    run.sessionNumber === session.sessionNumber && run.runId === session.runId
+  ))) return;
+  db.artRunHistory.push({
+    sessionNumber: session.sessionNumber,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    phase: session.phase,
+    version: session.version,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    archivedAt,
+    archiveReason,
+  });
+}
+
 function archiveNewSongRun(db, session, archiveReason, archivedAt) {
   if (db.newSongRunHistory.some((run) => (
     run.sessionNumber === session.sessionNumber && run.runId === session.runId
@@ -1141,6 +1362,35 @@ function heavenBoothPresentation(db, eventState = eventSessionState()) {
   const [stepIndex, status, message] = phaseDetails[session.phase];
   return {
     boothId: "heaven",
+    stepIndex,
+    status,
+    message,
+    createdAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    version: session.version,
+  };
+}
+
+function artBoothPresentation(db, eventState = eventSessionState()) {
+  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+    ? eventState.sessionNumber
+    : 1;
+  const session = artSessionFromDb(db, sessionNumber);
+  const phaseDetails = {
+    welcome: [0, "waiting", "Welcome to Art Therapy. The booth leader will begin when everyone is ready."],
+    definition: [1, "live", "What is art therapy? The first shared slide is now open."],
+    importance: [2, "live", "Why is art therapy important? Follow the booth leader on your screen."],
+    purpose_image: [3, "live", "The heart-and-mind visual is now showing on attendee screens."],
+    heart_question: [4, "live", "What does the Bible say about the heart? The question is now open."],
+    proverbs: [4, "live", "Proverbs 4:23 is now revealed on attendee screens."],
+    philippians: [4, "live", "Philippians 4:7 is now revealed alongside Proverbs 4:23."],
+    create: [5, "live", "It is time for the guided Art Therapy activity."],
+    finished: [6, "wrap", "The final reflection is now showing on attendee screens."],
+    complete: [7, "complete", "Art Therapy is complete. Attendees can finish this booth visit."],
+  };
+  const [stepIndex, status, message] = phaseDetails[session.phase];
+  return {
+    boothId: "art",
     stepIndex,
     status,
     message,
@@ -1260,6 +1510,7 @@ function mergeAttendees(db, canonical, duplicate, phone) {
       row.name = canonical.name;
     });
   });
+  db.boothCheckins = normalizeBoothCheckins(db.boothCheckins);
   db.songVotes = normalizeNewSongVotes(db.songVotes);
   db.triviaAnswers.forEach((answer) => {
     if (duplicateIds.has(answer.attendeeId)) answer.attendeeId = canonical.attendeeId;
@@ -1269,6 +1520,10 @@ function mergeAttendees(db, canonical, duplicate, phone) {
     if (duplicateIds.has(confirmation.attendeeId)) confirmation.attendeeId = canonical.attendeeId;
   });
   db.heavenConfirmations = normalizeHeavenConfirmations(db.heavenConfirmations);
+  db.artCompletions.forEach((completion) => {
+    if (duplicateIds.has(completion.attendeeId)) completion.attendeeId = canonical.attendeeId;
+  });
+  db.artCompletions = normalizeArtCompletions(db.artCompletions);
   db.attendees = db.attendees.filter((attendee) => attendee !== duplicate);
   return canonical;
 }
@@ -1509,6 +1764,10 @@ function boothCheckin(body) {
     const authError = requireOrganizer(body);
     if (authError) return authError;
   }
+  // Art Therapy completion is server-authoritative. Route every legacy or
+  // direct generic Art check-in through the same active-session, wristband,
+  // published-finale, and immutable-run checks used by the attendee room.
+  if (boothId === "art") return completeArt({ attendeeId });
   const db = readDb();
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
@@ -2552,6 +2811,283 @@ function resetHeavenSession(body) {
   return { status: 200, body: heavenSessionStaffSummary(db, sessionResult.sessionNumber) };
 }
 
+function artCompletionsFor(db, sessionNumber, runId) {
+  return db.artCompletions.filter((completion) => (
+    completion.sessionNumber === sessionNumber && completion.runId === runId
+  ));
+}
+
+function artCompletionFor(db, attendeeId, session) {
+  const attendee = findAttendeeById(db, attendeeId);
+  const attendeeIds = new Set([
+    attendeeId,
+    attendee && attendee.attendeeId,
+    ...((attendee && attendee.aliasIds) || []),
+  ].filter(Boolean));
+  return artCompletionsFor(db, session.sessionNumber, session.runId)
+    .find((completion) => attendeeIds.has(completion.attendeeId)) || null;
+}
+
+function artParticipantSummary(db, attendee, session) {
+  const completion = artCompletionFor(db, attendee.attendeeId, session);
+  return {
+    attendeeId: attendee.attendeeId,
+    name: attendee.name || "Guest",
+    raffleNumber: attendee.raffleNumber || "",
+    completedAt: completion ? completion.completedAt : null,
+  };
+}
+
+function artArchivedRunSummary(db, archivedRun) {
+  const completions = artCompletionsFor(
+    db, archivedRun.sessionNumber, archivedRun.runId
+  );
+  const participants = completions
+    .map((completion) => {
+      const attendee = findAttendeeById(db, completion.attendeeId);
+      return {
+        attendeeId: completion.attendeeId,
+        name: attendee ? attendee.name || "Guest" : "Guest",
+        raffleNumber: attendee ? attendee.raffleNumber || "" : "",
+        completedAt: completion.completedAt,
+      };
+    })
+    .sort((a, b) => (
+      String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+        || a.name.localeCompare(b.name)
+    ));
+  return {
+    runId: archivedRun.runId,
+    runNumber: archivedRun.runNumber,
+    phase: archivedRun.phase,
+    version: archivedRun.version,
+    startedAt: archivedRun.startedAt,
+    completedAt: archivedRun.completedAt,
+    archivedAt: archivedRun.archivedAt,
+    archiveReason: archivedRun.archiveReason,
+    participantCount: participants.length,
+    completedCount: participants.length,
+    participants,
+  };
+}
+
+function artSessionStaffSummary(db, sessionNumber) {
+  const session = artSessionFromDb(db, sessionNumber);
+  const assignedAttendees = attendeesAssignedToBoothSession(db, "art", sessionNumber);
+  const participants = assignedAttendees
+    .map((attendee) => artParticipantSummary(db, attendee, session))
+    .sort((a, b) => (
+      String(a.raffleNumber).localeCompare(String(b.raffleNumber), undefined, { numeric: true })
+        || a.name.localeCompare(b.name)
+    ));
+  const completedCount = participants.filter((participant) => participant.completedAt).length;
+  return {
+    sessionNumber,
+    sessionLabel: artSessionLabel(sessionNumber),
+    assignedColor: artAssignedColor(sessionNumber),
+    assignedCount: assignedAttendees.length,
+    state: session,
+    activeRun: session,
+    participantCount: completedCount,
+    completedCount,
+    participants,
+    archivedRuns: db.artRunHistory
+      .filter((run) => run.sessionNumber === sessionNumber)
+      .sort((a, b) => b.runNumber - a.runNumber)
+      .map((run) => artArchivedRunSummary(db, run)),
+  };
+}
+
+function artDashboardData(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const db = readDb();
+  return {
+    status: 200,
+    body: {
+      serverNow: eventNowIso(),
+      eventState: eventSessionState(),
+      sessions: Array.from(ART_SESSION_NUMBERS, (sessionNumber) => (
+        artSessionStaffSummary(db, sessionNumber)
+      )),
+    },
+  };
+}
+
+function artStateBody(db, context, session) {
+  const completion = artCompletionFor(db, context.attendee.attendeeId, session);
+  return {
+    sessionNumber: context.sessionNumber,
+    sessionLabel: artSessionLabel(context.sessionNumber),
+    assignedColor: artAssignedColor(context.sessionNumber),
+    phase: session.phase,
+    version: session.version,
+    runId: session.runId,
+    runNumber: session.runNumber,
+    completedAt: completion ? completion.completedAt : null,
+    updatedAt: session.updatedAt,
+    serverNow: eventNowIso(),
+  };
+}
+
+function artState(body) {
+  const db = readDb();
+  const context = attendeeArtContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = artSessionFromDb(db, context.sessionNumber);
+  return { status: 200, body: artStateBody(db, context, session) };
+}
+
+function advanceArtSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireArtSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const action = String((body && body.action) || "").trim().toLowerCase();
+  const transitions = {
+    start: ["welcome", "definition"],
+    show_importance: ["definition", "importance"],
+    show_purpose_image: ["importance", "purpose_image"],
+    ask_heart: ["purpose_image", "heart_question"],
+    show_proverbs: ["heart_question", "proverbs"],
+    show_philippians: ["proverbs", "philippians"],
+    start_art: ["philippians", "create"],
+    show_finished: ["create", "finished"],
+    finish: ["finished", "complete"],
+  };
+  if (!Object.prototype.hasOwnProperty.call(transitions, action)) {
+    return errorResult(400, "Choose a valid Art Therapy control action.", "INVALID_ART_ACTION");
+  }
+  const db = readDb();
+  const previous = artSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This Art Therapy session changed in another tab. Refresh and try again.", "ART_SESSION_CONFLICT");
+  }
+  const [requiredPhase, nextPhase] = transitions[action];
+  if (previous.phase !== requiredPhase) {
+    return errorResult(409, "That control is not available at this point in the activity.", "INVALID_ART_TRANSITION");
+  }
+  const now = eventNowIso();
+  const next = {
+    ...previous,
+    phase: nextPhase,
+    version: previous.version + 1,
+    startedAt: action === "start" ? previous.startedAt || now : previous.startedAt,
+    updatedAt: now,
+    completedAt: action === "finish" ? now : null,
+  };
+  db.artSessions[String(sessionResult.sessionNumber)] = next;
+  writeDb(db);
+  return { status: 200, body: artSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function resetArtSession(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  const sessionResult = requireArtSessionNumber(body && body.sessionNumber);
+  if (sessionResult.error) return sessionResult.error;
+  const db = readDb();
+  const previous = artSessionFromDb(db, sessionResult.sessionNumber);
+  const expectedVersion = Number(body && body.version);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
+    return errorResult(409, "This Art Therapy session changed in another tab. Refresh and try again.", "ART_SESSION_CONFLICT");
+  }
+  const now = eventNowIso();
+  archiveArtRun(db, previous, "reset", now);
+  const nextRunNumber = previous.runNumber + 1;
+  db.artSessions[String(sessionResult.sessionNumber)] = defaultArtSession(
+    sessionResult.sessionNumber,
+    {
+      runId: newActivityRunId("art", sessionResult.sessionNumber, nextRunNumber),
+      runNumber: nextRunNumber,
+      version: previous.version + 1,
+      updatedAt: now,
+    }
+  );
+  writeDb(db);
+  return { status: 200, body: artSessionStaffSummary(db, sessionResult.sessionNumber) };
+}
+
+function completeArt(body) {
+  const db = readDb();
+  const context = attendeeArtContext(db, body && body.attendeeId);
+  if (context.error) return context.error;
+  const session = artSessionFromDb(db, context.sessionNumber);
+  if (session.phase !== "complete") {
+    return errorResult(409, "Wait for the Art Therapy leader to finish the activity.", "ART_NOT_COMPLETE");
+  }
+
+  let completion = artCompletionFor(db, context.attendee.attendeeId, session);
+  const idempotent = Boolean(completion);
+  if (!completion) {
+    completion = {
+      id: id(),
+      attendeeId: context.attendee.attendeeId,
+      sessionNumber: context.sessionNumber,
+      runId: session.runId,
+      runNumber: session.runNumber,
+      completedAt: eventNowIso(),
+    };
+    db.artCompletions.push(completion);
+  }
+
+  const checkinData = {
+    attendeeId: context.attendee.attendeeId,
+    phone: context.attendee.phone || null,
+    name: context.attendee.name || "Guest",
+    boothId: "art",
+    boothName: BOOTH_NAMES.art,
+    checkedInBy: "art-therapy-finale",
+    checkedInAt: completion.completedAt,
+    rating: null,
+    note: "",
+    extraData: {
+      sessionNumber: context.sessionNumber,
+      sessionId: `session-${context.sessionNumber}`,
+      runId: session.runId,
+      runNumber: session.runNumber,
+      wristbandColor: normalizeWristbandColor(context.attendee.wristbandColor),
+      phase: session.phase,
+    },
+  };
+  const attendeeIds = new Set([
+    context.attendee.attendeeId,
+    ...(context.attendee.aliasIds || []),
+  ]);
+  const existingCheckin = db.boothCheckins.find((checkin) => (
+    checkin.boothId === "art"
+      && (
+        attendeeIds.has(checkin.attendeeId)
+        || (context.attendee.phone && checkin.phone === context.attendee.phone)
+      )
+  ));
+  let checkinId;
+  if (existingCheckin) {
+    checkinId = existingCheckin.id;
+    Object.assign(existingCheckin, checkinData, {
+      id: checkinId,
+      checkedInAt: existingCheckin.checkedInAt || completion.completedAt,
+    });
+  } else {
+    checkinId = id();
+    db.boothCheckins.push({ id: checkinId, ...checkinData });
+  }
+  writeDb(db);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      idempotent,
+      checkinId,
+      sessionNumber: context.sessionNumber,
+      runId: session.runId,
+      runNumber: session.runNumber,
+      completedAt: completion.completedAt,
+    },
+  };
+}
+
 function newSongCompletionFor(db, attendeeId, runId) {
   return db.boothCheckins.find((checkin) => (
     checkin.boothId === "newsong"
@@ -2896,6 +3432,7 @@ function dashboardData(body) {
       triviaLeaderboard,
       songVotes,
       signups,
+      googleSheetsExport: googleSheetsExporter.status(),
     },
   };
 }
@@ -2908,9 +3445,11 @@ function boothPresentation(body) {
     ? triviaBoothPresentation(db)
     : boothResult.boothId === "heaven"
       ? heavenBoothPresentation(db)
-      : boothResult.boothId === "newsong"
-        ? newSongBoothPresentation(db)
-        : boothPresentationFromDb(db, boothResult.boothId);
+      : boothResult.boothId === "art"
+        ? artBoothPresentation(db)
+        : boothResult.boothId === "newsong"
+          ? newSongBoothPresentation(db)
+          : boothPresentationFromDb(db, boothResult.boothId);
   return {
     status: 200,
     body: Object.assign(
@@ -2992,9 +3531,11 @@ function boothDashboardData(body) {
         ? triviaBoothPresentation(db)
         : boothId === "heaven"
           ? heavenBoothPresentation(db)
-          : boothId === "newsong"
-            ? newSongBoothPresentation(db)
-            : boothPresentationFromDb(db, boothId),
+          : boothId === "art"
+            ? artBoothPresentation(db)
+            : boothId === "newsong"
+              ? newSongBoothPresentation(db)
+              : boothPresentationFromDb(db, boothId),
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
@@ -3090,6 +3631,33 @@ function verifyOrganizer(body) {
   return { status: 200, body: { ok: true } };
 }
 
+function googleSheetsExportStatus(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  return { status: 200, body: googleSheetsExporter.status() };
+}
+
+function syncGoogleSheetsExport(body) {
+  const authError = requireOrganizer(body);
+  if (authError) return authError;
+  if (!googleSheetsExporter.configured()) {
+    return errorResult(
+      409,
+      "Google Sheets export is not configured.",
+      "GOOGLE_SHEETS_EXPORT_NOT_CONFIGURED"
+    );
+  }
+  googleSheetsExporter.queueImmediate();
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      queued: true,
+      googleSheetsExport: googleSheetsExporter.status(),
+    },
+  };
+}
+
 function health() {
   const db = readDb();
   return {
@@ -3109,9 +3677,11 @@ const POST_ACTIONS = {
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
   triviaState, submitTriviaAnswer, triviaDashboardData, advanceTriviaSession, resetTriviaSession,
   completeTrivia, heavenState, confirmHeavenStep, heavenDashboardData, advanceHeavenSession,
-  resetHeavenSession, newSongState, submitNewSongVote, newSongDashboardData,
+  resetHeavenSession, artState, artDashboardData, advanceArtSession, resetArtSession, completeArt,
+  newSongState, submitNewSongVote, newSongDashboardData,
   advanceNewSongSession, resetNewSongSession, completeNewSong,
   myCheckins, mySignupSelections, eventClock, setDemoClock,
+  googleSheetsExportStatus, syncGoogleSheetsExport,
 };
 const GET_ACTIONS = { eventClock, health };
 
@@ -3214,7 +3784,7 @@ const server = http.createServer((req, res) => {
 });
 
 function startServer(port = PORT) {
-  return server.listen(port, () => {
+  const listener = server.listen(port, () => {
     const actualPort = server.address().port;
     console.log(`Event app demo server running: http://localhost:${actualPort}`);
     console.log(`  Phase 1 entry:        http://localhost:${actualPort}/phase1-entry/index.html`);
@@ -3226,7 +3796,15 @@ function startServer(port = PORT) {
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {
       console.log("  Local organizer key:  demo");
     }
+    // A full startup snapshot closes the small window where a durable JSON
+    // write succeeded immediately before a process restart. Never queue an
+    // empty initial export when persistent storage is missing, though: that
+    // could turn a mount problem into a destructive Sheet replacement.
+    if (fs.existsSync(DB_PATH) || fs.existsSync(DB_BACKUP_PATH)) {
+      queueInitialGoogleSheetsExport();
+    }
   });
+  return listener;
 }
 
 if (require.main === module) startServer();

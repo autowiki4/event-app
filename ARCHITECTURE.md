@@ -7,18 +7,20 @@ the timed booth experience, booth-leader controls, and Phase 3. For setup, see
 ## System shape
 
 The browser UI is a collection of static HTML, CSS, and JavaScript files under
-`web/`. It can use either of two API implementations:
+`web/`. The complete current experience uses:
 
 - `demo-server/server.js`: a zero-dependency Node service backed by
   `demo-server/db.json`, with protected reset and shared rehearsal-clock
-  features; it can run locally or as the same-origin service on Render;
-- `apps-script/Code.gs`: a Google Apps Script implementation of the core
-  attendee and staff journey, backed by a Google Sheet.
+  features; it can run locally or as the same-origin service on Render; and
+- optionally, `apps-script/Code.gs` as a separately authenticated export sink
+  that mirrors the current Node state into a bound Google Sheet.
 
-`web/shared/config.js` selects the backend. The attendee/staff data flow does
-not change with that URL. The shared clock and full-data reset are Node-only
-extensions enabled when the pages use the same-origin `/api` backend; Apps
-Script implements neither extension.
+`Code.gs` also retains a limited legacy implementation of the core attendee
+and staff API. `web/shared/config.js` can select that adapter, but it does not
+implement the shared clock, full reset, or specialized leader-paced booth
+controllers. The Sheet export does not select that adapter: the web app keeps
+`API_BASE_URL: "/api"`, Node remains authoritative, and only the server knows
+the export URL and secret.
 
 The primary attendee path is:
 
@@ -51,7 +53,7 @@ that marker has disappeared. On a different device, name plus raffle number
 reopens the same backend record and stores it locally on that device.
 
 `web/shared/journey-state.js` stores unfinished booth steps, typed answers,
-ratings/notes, and unsubmitted Phase 3 ticks under an attendee-scoped key.
+activity responses and unsubmitted Phase 3 ticks under an attendee-scoped key.
 Backend check-ins and Phase 3 completion remain canonical. A transient API
 failure or missing backend record does not erase the phone identity; the UI
 keeps the attendee in place and retries. This makes a mounted persistent data
@@ -211,6 +213,15 @@ leader tab instead of silently overwriting a newer update. This is still a
 small mock rather than a full multi-operator show-control system, so staff
 should decide who owns each booth page during a live session.
 
+Art Therapy is a specialized Node/Render-only controller at its existing
+attendee and staff URLs. Its three independent rotations serve Orange, Green,
+and Red wristbands and move through `welcome → definition → importance →
+purpose_image → heart_question → proverbs → philippians → create → finished →
+complete`. Only staff can change the published phase. The attendee client
+polls the versioned state, rejects stale responses, and receives its completion
+action only in the final phase. The app stores no artwork, reflection text,
+rating, or comment; immutable `artCompletions` preserve final Done taps by run.
+
 New Song is a specialized Node/Render-only controller while retaining the
 existing attendee and staff URLs. Its independent session controllers serve
 Green wristbands in Session 1, Yellow in Session 2, and Orange in Session 3,
@@ -256,7 +267,8 @@ the hub.
 
 ## Data model
 
-The local JSON object and Google Sheet tabs represent the same concepts:
+The Node JSON object is the authoritative data store for the complete current
+experience:
 
 - **Attendees:** canonical ID, aliases, name, optional legacy phone, raffle
   number, registration time, wristband confirmation time, color, and Phase 3
@@ -271,17 +283,35 @@ The local JSON object and Google Sheet tabs represent the same concepts:
   per booth.
 - **Meta:** the raffle counter.
 
-The Node JSON object additionally stores the durable top-level `dataResetAt`
-marker used by `resetDemo`. The Apps Script Sheet has no equivalent because
-that adapter does not implement the full-data reset. The Node object also has
+It additionally stores the durable top-level `dataResetAt` marker used by
+`resetDemo` and has
 `triviaSessions` (one versioned welcome/question/reveal/complete controller for
 each rotation), `triviaAnswers`, and `triviaRunHistory`. Draw Heaven similarly
 uses `heavenSessions`, `heavenConfirmations`, and `heavenRunHistory`. New Song
-uses `newSongSessions`, run-scoped `songVotes`, and `newSongRunHistory`. Every
+uses `newSongSessions`, run-scoped `songVotes`, and `newSongRunHistory`. Art
+Therapy uses `artSessions`, immutable run-scoped `artCompletions`, and
+`artRunHistory`. Every
 specialized attendee response carries a `runId`, so restarting a rotation
 opens an empty active run without overwriting the archived answers,
 confirmations, votes, results, or staff summary from the prior run. These
-collections are not part of the Apps Script sketch.
+collections are not implemented by the legacy Apps Script API adapter.
+
+When the optional exporter is configured, every successful durable Node write
+queues a complete snapshot. Bursts are coalesced and only the newest pending
+snapshot is retained. The bound script strictly maps the logical export to
+`Live_Attendees`, `Live_BoothResults`, `Live_SignUps`, `Live_TriviaAnswers`,
+`Live_HeavenConfirmations`, `Live_SongVotes`, and `Live_ExportMeta`. Full
+replacement prevents duplicate rows and reconciles changed selections,
+identity merges, and reset deletions. The distinct `Live_*` names avoid
+colliding with tabs used if the same script is tested as the legacy backend.
+Free-text Story answers and Art reflections are excluded from the mirror;
+`Live_BoothResults.extraData` contains only allowlisted operational metadata.
+`Live_ExportMeta.generatedAt` is written after the six data tabs and acts as
+the complete-snapshot commit marker. If a later-tab write fails, that marker
+does not advance and the full-snapshot retry reconciles the temporary mixed
+generation.
+The export is a best-effort operational mirror rather than a second source of
+truth or backup.
 
 See `apps-script/SHEET_SCHEMA.md` for exact columns.
 
@@ -298,16 +328,20 @@ completion state so the final page cannot be reached by merely opening Phase
 The protected actions shared by both backends are `verifyOrganizer`,
 `updateBoothPresentation`, `boothDashboardData`, `dashboardData`, and
 `confirmSignupInPerson`. The Node service additionally has protected
-`resetDemo` and `setDemoClock` actions plus the public, PII-free `eventClock`
-read. The leader-paced Bible Bowl adds attendee `triviaState`,
+`resetDemo`, `setDemoClock`, `googleSheetsExportStatus`, and
+`syncGoogleSheetsExport` actions plus the public, PII-free `eventClock` read.
+The export status is sanitized and never returns its destination URL or secret.
+The leader-paced Bible Bowl adds attendee `triviaState`,
 `submitTriviaAnswer`, and `completeTrivia` actions plus protected
 `triviaDashboardData`, `advanceTriviaSession`, and `resetTriviaSession`
 actions. Draw Heaven adds attendee `heavenState` and `confirmHeavenStep` plus
 protected `heavenDashboardData`, `advanceHeavenSession`, and
-`resetHeavenSession`. New Song adds attendee `newSongState`,
+`resetHeavenSession`. Art Therapy adds attendee `artState` and `completeArt`
+plus protected `artDashboardData`, `advanceArtSession`, and `resetArtSession`.
+New Song adds attendee `newSongState`,
 `submitNewSongVote`, and `completeNewSong` plus protected
 `newSongDashboardData`, `advanceNewSongSession`, and `resetNewSongSession`.
-All three activities keep independent Session 1–3 controllers and require the
+All four activities keep independent Session 1–3 controllers and require the
 version returned by the preceding staff read when advancing. Their session
 reset actions archive one run and create the next; only
 `resetDemo` deletes the histories. Apps Script intentionally implements none
@@ -321,7 +355,8 @@ presentation/control state, all other active and archived leader-paced runs,
 and the raffle counter. It writes the same fresh state to the primary JSON
 file and backup, advances `dataResetAt`, and thereby clears connected or
 reopened attendee identities at their next sync. It deliberately does not
-change the selected clock mode or anchor.
+change the selected clock mode or anchor. If the Sheet mirror is configured,
+the empty post-reset state is exported and clears the `Live_*` data rows.
 
 Public presentation reads return only the booth's display state and server
 time. They do not return the organizer key, attendee roster, or event-wide
@@ -339,10 +374,14 @@ dashboard data.
   each. The protected organizer dashboard exposes the live distribution,
   current scheduled booth, and attendee progress roster under each color.
 - Decide attendee-data consent, access, retention, export, and deletion rules.
+  The live Sheet contains attendee names, phone numbers, raffle numbers,
+  activity results, and Phase 3 selections; access should be narrower than the
+  public event site.
 - Update and validate the final QR plan after a stable public URL exists.
 - Test real devices, accessibility, staff handoff, and recovery from late or
   incorrectly assigned wristbands.
 
-The included Apps Script backend provides core-journey compatibility for
-testing the proposed shape, but no remote clock or full-data reset parity. It
-does not remove these operating and security decisions.
+The included Apps Script code provides the optional full-state export sink and
+legacy core-journey compatibility for testing. Its legacy API mode still has
+no remote clock, full-data reset, or specialized run parity. Neither mode
+removes these operating and security decisions.

@@ -2,24 +2,129 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Art Therapy Table — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
-  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
-  .beat-time{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; letter-spacing:.08em; color:var(--coral); text-transform:uppercase; margin-bottom:8px; }
-  .beat-headline{ font-family:'Fraunces',serif; font-size:30px; line-height:1.08; margin:0 0 16px; }
-  .verse-box{ border-left:4px solid var(--sun-deep); background:#fff9e9; border-radius:0 14px 14px 0; padding:16px; margin:16px 0; }
-  .verse-box p{ font-family:'Fraunces',serif; font-style:italic; line-height:1.5; margin:0 0 8px; }
-  .verse-ref{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:var(--coral-deep); text-transform:uppercase; letter-spacing:.06em; }
-  .triangle-points{ display:grid; gap:9px; margin:14px 0; }
-  .triangle-point{ display:flex; align-items:center; gap:12px; border:1px solid var(--line); border-radius:14px; padding:12px; background:#fff; }
-  .triangle-number{ flex:0 0 29px; width:29px; height:29px; border-radius:50%; display:grid; place-items:center; background:var(--teal); color:#fff; font-weight:800; }
-  .triangle-title{ font-weight:800; line-height:1.3; }
-  .triangle-subtitle{ color:var(--ink-soft); font-size:13px; margin-top:2px; }
-  .quiet-note{ border-radius:14px; padding:13px 14px; background:rgba(47,111,237,.08); color:var(--ink); font-weight:700; margin:14px 0; }
-  .prompt-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 18px; }
-  .prompt-chip{ border:1px solid var(--line); border-radius:999px; padding:8px 11px; background:#fff; font-size:12.5px; font-weight:700; }
+  :root{
+    --phase-color:#7c8fda; --phase-color-deep:#5368b7;
+    --art-cream:#fff9df; --art-paper:#fffdf3; --art-coral:#ed9298;
+    --art-coral-deep:#b95362; --art-blue:#7b8ed6; --art-blue-deep:#4d5fa9;
+    --art-charcoal:#454541; --art-gold:#dca83d; --art-mint:#b9ddcf;
+  }
+  body{
+    background:
+      radial-gradient(circle at 8% 10%,rgba(237,146,152,.35) 0 8%,transparent 8.5%),
+      radial-gradient(circle at 93% 18%,rgba(123,142,214,.35) 0 10%,transparent 10.5%),
+      linear-gradient(155deg,#fff8dc,#f8f3e4 58%,#eef0fb);
+  }
+  .art-shell-head{ position:relative; overflow:hidden; }
+  .art-shell-head::after{
+    content:"✦"; position:absolute; right:18px; top:14px; color:rgba(220,168,61,.55);
+    font:800 39px/1 'Fraunces',serif; transform:rotate(12deg); pointer-events:none;
+  }
+  .art-content{ min-height:390px; }
+  .art-card{
+    position:relative; overflow:hidden; padding:23px 18px; border:1.5px solid rgba(77,95,169,.17);
+    border-radius:24px; background:rgba(255,253,243,.97); color:var(--art-charcoal);
+    box-shadow:0 25px 54px -39px rgba(69,69,65,.9);
+  }
+  .art-card::before,.art-card::after{
+    content:""; position:absolute; width:95px; height:95px; border-radius:44% 56% 61% 39% / 53% 39% 61% 47%;
+    pointer-events:none; opacity:.16;
+  }
+  .art-card::before{ right:-44px; top:-42px; background:var(--art-blue); transform:rotate(20deg); }
+  .art-card::after{ left:-55px; bottom:-52px; background:var(--art-coral); transform:rotate(-18deg); }
+  .art-card > *{ position:relative; }
+  .art-card h2{
+    margin:0 0 10px; color:var(--art-charcoal); font-family:'Fraunces',serif;
+    font-size:28px; line-height:1.12;
+  }
+  .art-copy{ margin:0; color:#64645e; font-size:13.5px; line-height:1.6; }
+  .art-slide-label{
+    margin:0 0 9px; color:var(--art-coral-deep); font:800 10px/1.4 'JetBrains Mono',monospace;
+    letter-spacing:.08em; text-transform:uppercase;
+  }
+  .art-session-meta{ margin:15px 0 0; color:#777771; font-size:10px; line-height:1.4; text-align:center; }
+  .art-leader-note{
+    display:flex; align-items:flex-start; gap:11px; margin-top:18px; padding:13px 14px;
+    border:1px solid rgba(77,95,169,.15); border-radius:16px; background:linear-gradient(145deg,#f8f8ff,#edf0ff);
+  }
+  .art-leader-note > span{ flex:none; font-size:22px; line-height:1; }
+  .art-leader-note strong,.art-leader-note small{ display:block; }
+  .art-leader-note strong{ margin-bottom:3px; color:var(--art-blue-deep); font-size:12.5px; }
+  .art-leader-note small{ color:#666d8e; font-size:10.8px; line-height:1.48; }
+  .art-welcome{ padding-top:29px; text-align:center; background:linear-gradient(145deg,#fff9df,#f0f2ff 64%,#fff); }
+  .art-welcome .art-leader-note{ text-align:left; }
+  .art-welcome .status-pill{ margin-bottom:13px; }
+  .art-doodle{
+    display:flex; align-items:center; justify-content:center; gap:17px; width:166px; height:90px; margin:0 auto 15px;
+    border:2px dashed rgba(185,83,98,.25); border-radius:48% 52% 43% 57% / 55% 42% 58% 45%;
+    background:#fff; color:var(--art-gold); transform:rotate(-1deg);
+  }
+  .art-doodle b{ font-size:39px; }.art-doodle span{ font-size:21px; }
+  .art-title-row{ display:flex; align-items:flex-start; gap:12px; }
+  .art-title-row > span{ flex:none; display:grid; place-items:center; width:50px; height:50px; border-radius:18px; background:#fee8e7; font-size:25px; }
+  .art-title-row h2{ padding-top:7px; }
+  .art-safety-note,.art-create-reminder{
+    margin-top:16px; padding:14px; border-left:4px solid var(--art-coral); border-radius:0 15px 15px 0;
+    background:#fff4ef;
+  }
+  .art-safety-note strong,.art-safety-note span,.art-create-reminder strong,.art-create-reminder span{ display:block; }
+  .art-safety-note strong,.art-create-reminder strong{ margin-bottom:4px; color:#8d4650; font-size:12px; }
+  .art-safety-note span,.art-create-reminder span{ color:#6d5b5d; font-size:11px; line-height:1.5; }
+  .art-benefits{ display:grid; gap:9px; margin-top:17px; }
+  .art-benefits > div{
+    display:grid; grid-template-columns:38px 1fr; gap:1px 10px; padding:12px; border:1px solid rgba(77,95,169,.14);
+    border-radius:15px; background:#fff;
+  }
+  .art-benefits > div > span{ grid-row:1 / 3; display:grid; place-items:center; width:38px; height:38px; border-radius:13px; background:#f0f1fc; font-size:19px; }
+  .art-benefits strong{ color:#55566b; font-size:12.2px; }.art-benefits small{ color:#73737b; font-size:10.5px; line-height:1.45; }
+  .art-purpose{ background:linear-gradient(150deg,#fffdf3,#f4f1df); }
+  .art-purpose-image{
+    appearance:none; display:block; width:100%; margin:16px 0; padding:0; overflow:hidden;
+    border:2px solid rgba(123,142,214,.42); border-radius:17px; background:#f5efd4; cursor:zoom-in;
+    box-shadow:0 20px 34px -27px rgba(69,69,65,.9);
+  }
+  .art-purpose-image img{ display:block; width:100%; aspect-ratio:16/9; object-fit:contain; background:#f7f0d4; }
+  .art-purpose-image span{ display:block; padding:8px 10px; color:var(--art-blue-deep); font-size:9.5px; font-weight:800; }
+  .art-heart{ text-align:center; background:linear-gradient(145deg,#fff7f0,#f1f2ff 68%,#fff); }
+  .art-heart .art-copy{ max-width:370px; margin:0 auto; }
+  .art-heart .art-leader-note{ text-align:left; }
+  .art-heart-icon{
+    display:grid; place-items:center; width:70px; height:70px; margin:0 auto 14px; border-radius:47% 53% 54% 46% / 48% 43% 57% 52%;
+    background:linear-gradient(145deg,#f7b1ae,#e9828d); color:#fff; font-size:35px; box-shadow:0 18px 30px -24px #8d4650;
+  }
+  .art-verse-stack{ display:grid; gap:10px; margin-top:17px; text-align:left; }
+  .art-verse{ margin:0; padding:15px; border-radius:16px; }
+  .art-verse.is-revealed{ border:1px solid rgba(220,168,61,.38); background:#fffaf0; }
+  .art-verse.is-revealed p{ margin:0; color:#555148; font-family:'Fraunces',serif; font-size:14.5px; font-style:italic; line-height:1.55; }
+  .art-verse cite{ display:block; margin-top:8px; color:#9c7119; font:800 9.5px/1.4 'JetBrains Mono',monospace; font-style:normal; letter-spacing:.07em; text-transform:uppercase; }
+  .art-verse.is-waiting{ display:flex; align-items:center; justify-content:center; gap:8px; min-height:54px; border:1.5px dashed rgba(123,142,214,.3); color:#7a7f9d; background:rgba(255,255,255,.55); }
+  .art-verse.is-waiting span{ color:var(--art-gold); }.art-verse.is-waiting small{ font-size:10.5px; font-weight:800; }
+  .art-supply-row{ display:flex; justify-content:center; gap:12px; margin-bottom:17px; font-size:29px; }
+  .art-supply-row span{ display:grid; place-items:center; width:55px; height:55px; border-radius:19px; background:#fff; box-shadow:0 13px 25px -22px #454541; transform:rotate(-3deg); }
+  .art-supply-row span:nth-child(even){ transform:rotate(4deg); background:#eef0fd; }
+  .art-create{ text-align:center; background:linear-gradient(155deg,#fff7d9,#fff 52%,#eef0fc); }
+  .art-create .art-copy{ max-width:390px; margin:0 auto; }.art-create .art-leader-note,.art-create .art-create-reminder{ text-align:left; }
+  .art-finished{ padding-top:28px; text-align:center; background:linear-gradient(145deg,#f2f2ff,#fff8e6 62%,#fff); }
+  .art-finished .art-copy{ max-width:360px; margin:0 auto; }.art-finished .art-leader-note,.art-finished .art-create-reminder{ text-align:left; }
+  .art-frame{ display:flex; align-items:center; justify-content:center; gap:14px; margin:0 auto 17px; color:var(--art-gold); }
+  .art-frame b{ display:grid; place-items:center; width:72px; height:72px; border:3px solid var(--art-coral); border-radius:18px 28px 17px 29px; background:#fff; color:var(--art-coral-deep); font-size:32px; transform:rotate(-2deg); }
+  .art-complete{ padding-top:30px; text-align:center; background:linear-gradient(145deg,#fff9df,#e9f4ef 54%,#eef0ff); }
+  .art-complete-mark{ display:grid; place-items:center; width:78px; height:78px; margin:0 auto 16px; border-radius:50%; background:linear-gradient(145deg,#a8d6c3,#66ad8e); color:#fff; font-size:35px; box-shadow:0 19px 34px -25px #376d57; }
+  .art-complete .art-copy{ max-width:360px; margin:0 auto; }.art-done{ width:100%; margin-top:19px; }
+  .art-loading,.art-error{ text-align:center; }.art-loading p:not(.eyebrow){ margin:0; color:#6e6e72; font-size:12.5px; }
+  .art-palette-loader{ display:flex; justify-content:center; gap:8px; margin:3px 0 19px; }
+  .art-palette-loader i{ width:22px; height:22px; border-radius:50%; background:var(--art-coral); animation:artBounce .75s ease-in-out infinite alternate; }
+  .art-palette-loader i:nth-child(2){ background:var(--art-blue); animation-delay:.12s; }.art-palette-loader i:nth-child(3){ background:var(--art-gold); animation-delay:.24s; }.art-palette-loader i:nth-child(4){ background:var(--art-mint); animation-delay:.36s; }
+  @keyframes artBounce{ to{ transform:translateY(-10px); opacity:.62; } }
+  .art-sync-issue{ margin:13px 0 0; padding:10px; border-radius:11px; background:#fff0e9; color:#8c3b35; font-size:10.5px; line-height:1.4; }
+  .art-image-dialog{ position:fixed; z-index:1000; inset:0; display:flex; align-items:center; justify-content:center; padding:58px 12px 18px; background:rgba(37,38,45,.95); cursor:zoom-out; }
+  .art-image-dialog img{ display:block; max-width:min(1200px,96vw); max-height:calc(100vh - 78px); border-radius:12px; object-fit:contain; box-shadow:0 28px 80px rgba(0,0,0,.52); cursor:default; }
+  .art-image-close{ appearance:none; position:absolute; top:max(12px,env(safe-area-inset-top)); right:16px; display:grid; place-items:center; width:44px; height:44px; border:1px solid rgba(255,255,255,.4); border-radius:50%; background:#fff; color:var(--art-charcoal); cursor:pointer; font:700 27px/1 Arial,sans-serif; }
+  @media(max-width:390px){ .art-card{ padding:20px 15px; }.art-card h2{ font-size:24px; }.art-supply-row{ gap:7px; }.art-supply-row span{ width:48px; height:48px; } }
+  @media(prefers-reduced-motion:reduce){ .art-palette-loader i{ animation:none; } }
 </style>
 </head>
 <body>
@@ -27,17 +132,17 @@
 <div class="phone" id="phone">
   <div id="booth-room-content" style="display:none;">
     <div class="progress" id="progress"></div>
-    <section class="screen">
+    <section class="screen art-shell-head">
       <p class="eyebrow">Phase 2 · Art Therapy room</p>
-      <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🖌️</span><em>Art Therapy Table</em></h1>
-      <p class="lede">A guided drawing and reflection experience with the booth leader.</p>
+      <h1 class="display" style="display:flex;align-items:center;gap:10px;"><span aria-hidden="true">🖌️</span><em>Art Therapy Table</em></h1>
+      <p class="lede">A leader-paced creative reflection connecting the heart, mind, art, and two Bible passages.</p>
     </section>
 
     <section id="booth-gate" class="screen">
       <div class="field">
         <label for="booth-phone-input">Your phone number to check in</label>
         <input id="booth-phone-input" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="(555) 555-5555">
-        <div class="hint">You'll only need to enter this once today.</div>
+        <div class="hint">You'll only need to enter this once — it won't ask again at your other booths today.</div>
         <div class="err" id="err-booth-phone">Enter a 10-digit phone number.</div>
       </div>
       <button class="btn btn-primary" id="btn-booth-checkin">Check in to this room →</button>
@@ -45,20 +150,13 @@
 
     <div id="booth-interface" style="display:none;">
       <section class="screen" style="padding-top:0;">
-        <div id="booth-content"></div>
-      </section>
-      <section class="screen" style="padding-top:0;">
-        <div class="field">
-          <label for="booth-note">Anything you'd like to share?</label>
-          <textarea id="booth-note" rows="2" placeholder="Type here..."></textarea>
+        <div id="booth-content" class="art-content" role="region" aria-label="Art Therapy shared activity" aria-live="polite">
+          <article class="art-card art-loading" aria-busy="true">
+            <div class="art-palette-loader" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <p class="eyebrow">Joining Art Therapy…</p>
+            <h2>Preparing your shared canvas.</h2>
+          </article>
         </div>
-        <div class="field">
-          <label>Rate this booth</label>
-          <div class="stars" id="booth-stars">
-            <span class="star" data-n="1">★</span><span class="star" data-n="2">★</span><span class="star" data-n="3">★</span><span class="star" data-n="4">★</span><span class="star" data-n="5">★</span>
-          </div>
-        </div>
-        <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
       </section>
     </div>
   </div>
@@ -68,7 +166,6 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
-<script src="../shared/journey-state.js"></script>
 <script src="../shared/attendee-portal.js"></script>
 <script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
@@ -77,164 +174,33 @@
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
 <script src="../shared/booth-room.js"></script>
+<script src="../shared/art-attendee.js"></script>
 <script>
 const BOOTH_ID = "art";
 const BOOTH_NAME = "Art Therapy Table";
 const BOOTH_ROOM_NAME = "Art Therapy";
-const ART_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
-const artState = { index: 0, answers: {}, drafts: {} };
-let artStateOwner = "";
-
-function cleanArtEntries(value) {
-  const allowed = new Set(ART_BEATS.map((beat) => beat.id));
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value)
-    .filter(([key, entry]) => allowed.has(key) && typeof entry === "string")
-    .map(([key, entry]) => [key, entry.slice(0, 120)]));
-}
-
-function restoreArtState() {
-  const owner = String((Identity.peek() || {}).attendeeId || "");
-  if (!owner || artStateOwner === owner) return;
-  const saved = JourneyState.load(ART_DRAFT_SCOPE, {}) || {};
-  const index = Number(saved.index);
-  artState.index = Number.isInteger(index) ? Math.min(ART_BEATS.length - 1, Math.max(0, index)) : 0;
-  artState.answers = cleanArtEntries(saved.answers);
-  artState.drafts = cleanArtEntries(saved.drafts);
-  artStateOwner = owner;
-}
-
-function saveArtState() {
-  JourneyState.save(ART_DRAFT_SCOPE, {
-    index: artState.index,
-    answers: { ...artState.answers },
-    drafts: { ...artState.drafts },
-  });
-}
 
 function renderProgress() {
-  const el = document.getElementById("progress");
-  el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
+  const progress = document.getElementById("progress");
+  progress.innerHTML = "";
+  for (let index = 0; index < 3; index += 1) {
     const dot = document.createElement("div");
-    dot.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(dot);
+    dot.className = "dot" + (index < 1 ? " done" : index === 1 ? " current" : "");
+    progress.appendChild(dot);
   }
 }
 renderProgress();
 
-function renderArtRoom() {
-  restoreArtState();
-  const beat = ART_BEATS[artState.index];
-  const answered = Object.prototype.hasOwnProperty.call(artState.answers, beat.id);
-  let content = `
-    <div class="beat-time">${escapeHtml(beat.time)}</div>
-    <h2 class="beat-headline">${escapeHtml(beat.text)}</h2>
-  `;
-
-  if (beat.points) {
-    content += `<div class="triangle-points">${beat.points.map((point, index) => `
-      <div class="triangle-point">
-        <div class="triangle-number">${index + 1}</div>
-        <div>
-          <div class="triangle-title">${escapeHtml(point.title)}</div>
-          <div class="triangle-subtitle">${escapeHtml(point.sub)}</div>
-        </div>
-      </div>
-    `).join("")}</div>`;
-  }
-
-  if (beat.verse) {
-    content += `
-      <div class="verse-box">
-        <p>“${escapeHtml(beat.verse.text)}”</p>
-        <div class="verse-ref">${escapeHtml(beat.verse.ref)}</div>
-      </div>
-    `;
-  }
-
-  if (beat.quiet) {
-    content += `<div class="quiet-note">🤫&nbsp; ${escapeHtml(beat.quiet)}</div>`;
-  }
-  if (beat.chips) {
-    content += `<div class="prompt-chips">${beat.chips.map((chip) => `<div class="prompt-chip">${escapeHtml(chip)}</div>`).join("")}</div>`;
-  }
-
-  if (beat.prompt) {
-    content += `
-      <div class="field">
-        <label for="art-reflection-input">${escapeHtml(beat.prompt)}</label>
-        <input id="art-reflection-input" type="text" maxlength="120" placeholder="${escapeHtml(beat.placeholder || "")}">
-        ${beat.optional ? `<div class="hint">This reflection is optional.</div>` : ""}
-      </div>
-    `;
-  }
-
-  content += `
-    <div class="poll-nav" style="margin-top:10px;">
-      <button class="btn btn-ghost" id="btn-art-prev"${artState.index === 0 ? " style=\"visibility:hidden;\"" : ""}>← Back</button>
-      <button class="btn btn-primary" id="btn-art-next">${artState.index === ART_BEATS.length - 1 ? "Continue to finish ↓" : "Next →"}</button>
-    </div>
-  `;
-
-  document.getElementById("booth-content").innerHTML = content;
-  const reflectionInput = document.getElementById("art-reflection-input");
-  if (reflectionInput) {
-    reflectionInput.value = Object.prototype.hasOwnProperty.call(artState.drafts, beat.id)
-      ? artState.drafts[beat.id]
-      : answered ? artState.answers[beat.id] : "";
-    reflectionInput.addEventListener("input", () => {
-      artState.drafts[beat.id] = reflectionInput.value;
-      saveArtState();
-    });
-  }
-  document.getElementById("btn-art-prev").addEventListener("click", () => {
-    saveArtAnswer(beat);
-    if (artState.index > 0) {
-      artState.index--;
-      saveArtState();
-      renderArtRoom();
-    }
-  });
-  document.getElementById("btn-art-next").addEventListener("click", () => {
-    if (!saveArtAnswer(beat)) return;
-    if (artState.index < ART_BEATS.length - 1) {
-      artState.index++;
-      saveArtState();
-      renderArtRoom();
-      return;
-    }
-    document.getElementById("btn-booth-done").scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-}
-
-function saveArtAnswer(beat) {
-  const input = document.getElementById("art-reflection-input");
-  if (!input) return true;
-  const value = input.value.trim();
-  if (!value && !beat.optional) {
-    input.focus();
-    return false;
-  }
-  if (value) artState.answers[beat.id] = value;
-  else delete artState.answers[beat.id];
-  artState.drafts[beat.id] = input.value;
-  saveArtState();
-  return true;
-}
-
-window.getBoothExtraData = () => {
-  const reflections = {};
-  ART_BEATS.forEach((beat) => {
-    const value = String(artState.answers[beat.id] || artState.drafts[beat.id] || "").trim();
-    if (value) reflections[beat.id] = value;
-  });
-  return { reachedBeat: ART_BEATS[artState.index].id, reflections };
-};
-
-initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderArtRoom });
-renderBoothFooter(BOOTH_ID);
-document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+window.getBoothExtraData = () => ArtAttendee.extraData();
+initBoothRoom({
+  boothId: BOOTH_ID,
+  boothName: BOOTH_NAME,
+  roomName: BOOTH_ROOM_NAME,
+  onReady: () => ArtAttendee.init({
+    containerId: "booth-content",
+    onCompleted: () => window.completeBoothRoom(BOOTH_NAME),
+  }),
+});
 </script>
 </body>
 </html>

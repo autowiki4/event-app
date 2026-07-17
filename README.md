@@ -18,6 +18,8 @@ The attendee journey is now one continuous flow:
    timed booth activity without another sign-in. Each wristband visits three
    of the five booths. A visit counts as complete only after the attendee taps
    to mark it; the current route row can be reopened until that session ends.
+   The generic comment and star-rating footer has been removed from the active
+   attendee booth rooms.
 3. **Phase 3 — tick and go:** select any next-step options and finish. There
    are no ratings, comments, or extra attendee questions. Phase 3 becomes
    available after all three completion taps are saved, or at 4:10 PM even if
@@ -140,6 +142,43 @@ Wi-Fi drops at a session boundary. The regression suite uses a concurrent
 150-attendee journey as a representative load check, with 90 live New Song
 votes and 450 booth completions; that test number is not an application cap.
 
+### Optional live Google Sheets export
+
+The same-origin Node/Render service can mirror its current event data into a
+Google Sheet without giving up the shared clock or the leader-paced Bible
+Bowl, Draw Heaven, and New Song features. The Node JSON database remains the
+source of truth. A bound Apps Script receives a debounced, complete snapshot
+and replaces seven `Live_*` tabs for attendees, booth results, Phase 3
+sign-ups, Bible Bowl answers, Draw Heaven confirmations, New Song votes, and
+export metadata.
+
+The Sheet mirror excludes attendee-entered Story answers and Art reflections;
+`Live_BoothResults.extraData` contains only allowlisted operational metadata.
+`Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.
+
+This export is optional: without its two environment variables, the app keeps
+working normally and the protected organizer dashboard reports that no Sheet
+is connected. Once configured, writes queue automatically and staff can use
+**Sync now** from Overall Organizer. Export failures never turn a successful
+attendee save into an error; the exporter retains the newest pending snapshot
+and retries. Because each export is a full mirror, **Clear all attendee data**
+also clears the `Live_*` rows on the next successful sync. Treat the Sheet as
+an operational export, not as a backup or archive.
+
+Setup requires the Apps Script Web App URL and a separate random export key in
+Render:
+
+```text
+EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
+EVENT_APP_SHEETS_EXPORT_KEY=use-a-long-random-secret
+```
+
+Do not change `web/shared/config.js` away from `/api` for this arrangement.
+The step-by-step Sheet deployment and Script Property setup are in
+`apps-script/README.md`. Decide who may access the exported names, phone
+numbers, raffle numbers, operational activity results, and selections, along
+with retention and deletion, before enabling it with live attendees.
+
 ### Per-page preview fallback
 
 For isolated page checks on localhost, you can still append one of these query
@@ -180,6 +219,24 @@ page, its leader can publish:
 The attendee hub polls for that booth's published state and refreshes the
 current screen automatically. Leaders also see the wristband group scheduled
 for their booth, the shared timer, and that booth's recent check-ins.
+
+### Specialized Art Therapy controls
+
+Art Therapy keeps the existing attendee URL
+(`/phase2-booths/booth-art.html`) and staff URL
+(`/phase2-staff/art.html`). On Node/Render, Orange wristbands attend Session 1,
+Green attend Session 2, and Red attend Session 3. Each rotation follows the
+leader-paced sequence **welcome → definition → importance → purpose image →
+heart question → Proverbs 4:23 → Philippians 4:7 → create → finished →
+complete**. The heart question and two passages are progressive reveals within
+one conceptual slide, so attendees never skip ahead independently.
+
+The supplied heart-and-mind image has its own leader release and can be
+enlarged on an attendee phone. The activity collects no artwork, reflection
+text, rating, or comment. Only the final Done tap is persisted. Restarting a
+session archives its current run and immutable per-run completions before
+opening a clean welcome screen. This synchronized controller is Node/Render-
+only; the optional Art kiosk remains a separate fallback.
 
 ### Specialized New Song controls
 
@@ -229,18 +286,19 @@ event-app/
 │   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            Node rehearsal backend using a JSON data file
-├── apps-script/            Google Sheets + Apps Script core-journey backend
+├── apps-script/            Google Sheets export sink + limited legacy adapter
 ├── ARCHITECTURE.md         identity, timing, controls, and data design
 ├── DEMO_GUIDE.md           a short presentation/rehearsal script
 └── qr/QR_PLAN.md           recommended placement and print checklist
 ```
 
-Both backends implement the core attendee and staff data API. The Node version
-writes to `demo-server/db.json` and adds the protected rehearsal reset and
-shared-clock controls. The Apps Script version writes to Google Sheets and
-deliberately omits `resetDemo`, `setDemoClock`, and the public `eventClock`
-read. Switching backends is controlled by `API_BASE_URL` in
-`web/shared/config.js`.
+The Node version is the recommended backend for the complete current flow. It
+writes to `demo-server/db.json`, provides the protected reset and shared clock,
+and can optionally mirror that complete state to Google Sheets through Apps
+Script. `Code.gs` still contains a limited legacy implementation of the core
+attendee/staff API, but pointing `API_BASE_URL` directly at it omits the
+leader-paced controllers, `resetDemo`, `setDemoClock`, and the public
+`eventClock` read. The export-sink arrangement keeps `API_BASE_URL: "/api"`.
 
 The Apps Script implementation is deployment-shaped, not proof that the whole
 system is ready for a live event. Test it on the venue network, replace the
@@ -292,7 +350,7 @@ Script adapter does not implement it.
 - Phase 3 eligibility is enforced by the browser from saved check-ins and the
   shared clock, not as an authentication or authorization boundary at the API.
 - Booth leaders share one organizer key. Generic booth controls retain only
-  one current state; Bible Bowl, Draw Heaven, and New Song additionally
+  one current state; Bible Bowl, Draw Heaven, Art Therapy, and New Song additionally
   preserve session-isolated prior runs, but this is still not a full audited
   show-control system.
 - The shared clock controls are Node-service rehearsal helpers, available when
@@ -303,9 +361,16 @@ Script adapter does not implement it.
   they are not implemented by the Apps Script sketch.
 - Draw Heaven's leader-paced phases, attendee confirmations, catch-up flow,
   and archived run summaries likewise require the Node/Render backend.
+- Art Therapy's staff-paced slides, progressive verse reveals, completion
+  records, and archived runs also require Node/Render; its attendee activity
+  intentionally stores no artwork or reflection text.
 - New Song's session-separated live poll, winner and Revelation 14:3 reveals,
   locked first votes, and archived runs also require Node/Render; Apps Script
   supports only the legacy unsynchronized vote path.
+- The optional Google Sheet is a best-effort live mirror. It does not replace
+  the persistent Node data file or provide an audit-grade backup. A deployment
+  must monitor its protected status and establish data-access and retention
+  rules before collecting real attendee information.
 - QR codes must be regenerated and device-tested after the app has a stable
   public URL; never print localhost or preview-query links.
 

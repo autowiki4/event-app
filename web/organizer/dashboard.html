@@ -50,6 +50,27 @@
   .demo-reset-zone .btn-reset-danger{ width:100%; margin-top:13px; border:1px solid #a93042; background:#a93042; color:#fff; box-shadow:0 7px 18px rgba(169,48,66,.18); }
   .demo-reset-zone .btn-reset-danger:hover{ background:#8f2535; }
   .demo-reset-note{ margin-top:8px !important; font-size:10px !important; }
+  .sheet-export-card{ margin:18px 0 22px; padding:16px; border:1px solid rgba(29,122,120,.22); border-radius:16px; background:linear-gradient(145deg,#f1faf7,#fff); box-shadow:0 8px 24px rgba(43,36,74,.06); }
+  .sheet-export-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .sheet-export-title{ display:flex; align-items:flex-start; gap:10px; min-width:0; }
+  .sheet-export-icon{ display:grid; place-items:center; width:36px; height:36px; flex:0 0 36px; border-radius:11px; background:#dff2e9; font-size:18px; }
+  .sheet-export-title h2{ margin:0; color:var(--ink); font-size:17px; }
+  .sheet-export-title p{ margin:3px 0 0; color:var(--ink-soft); font-size:11px; line-height:1.4; }
+  .sheet-export-badge{ display:inline-flex; align-items:center; min-height:25px; padding:5px 9px; border-radius:999px; background:#eef0f5; color:#596174; font-size:9px; font-weight:900; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
+  .sheet-export-badge.ready{ background:#e2f4e8; color:#246942; }
+  .sheet-export-badge.busy{ background:#e7f3ff; color:#245f91; }
+  .sheet-export-badge.error{ background:#fff0ee; color:#963d32; }
+  .sheet-export-meta{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:13px; }
+  .sheet-export-meta div{ min-width:0; padding:9px 10px; border:1px solid rgba(78,72,112,.1); border-radius:10px; background:rgba(255,255,255,.78); }
+  .sheet-export-meta span{ display:block; color:var(--ink-soft); font-size:8px; font-weight:900; letter-spacing:.07em; text-transform:uppercase; }
+  .sheet-export-meta strong{ display:block; overflow-wrap:anywhere; margin-top:3px; color:var(--ink); font-size:10.5px; line-height:1.35; }
+  .sheet-export-counts{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .sheet-export-count{ padding:5px 8px; border-radius:999px; background:#edf7f3; color:#2b6751; font-size:9px; font-weight:800; }
+  .sheet-export-empty{ color:var(--ink-soft); font-size:10px; }
+  .sheet-export-error{ margin:10px 0 0; padding:8px 10px; border-radius:9px; background:#fff0ee; color:#8c352e; font-size:10px; line-height:1.4; }
+  .sheet-export-actions{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+  .sheet-export-actions p{ margin:0; color:var(--ink-soft); font-size:10px; line-height:1.4; }
+  .sheet-export-actions .btn{ flex:0 0 auto; margin:0; }
   .capacity-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; margin:10px 0 8px; }
   .capacity-card{ position:relative; overflow:hidden; padding:13px 10px; border:1px solid rgba(78,72,112,.14); border-radius:14px; background:#fff; text-align:center; }
   .capacity-card::before{ content:""; position:absolute; inset:0 0 auto; height:5px; background:var(--wristband-color,#8b97b8); }
@@ -81,7 +102,7 @@
   .wristband-empty{ padding:14px; color:var(--ink-soft); font-size:11px; text-align:center; }
   @media (max-width:700px){ .capacity-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
   @media (max-width:470px){ .wristband-group summary{ grid-template-columns:1fr; gap:7px; } .wristband-group summary::after{ justify-self:start; } .wristband-person{ align-items:start; } }
-  @media (max-width:520px){ .demo-clock-head{ display:block; } .demo-clock-badge{ margin-top:10px; } .demo-clock-readout{ grid-template-columns:1fr; } .demo-timeline-selection{ display:block; } .demo-time-field{ margin-top:12px; } .demo-timeline-actions{ grid-template-columns:1fr; } .demo-boundary-buttons{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:520px){ .demo-clock-head{ display:block; } .demo-clock-badge{ margin-top:10px; } .demo-clock-readout{ grid-template-columns:1fr; } .demo-timeline-selection{ display:block; } .demo-time-field{ margin-top:12px; } .demo-timeline-actions{ grid-template-columns:1fr; } .demo-boundary-buttons{ grid-template-columns:repeat(2,minmax(0,1fr)); } .sheet-export-head,.sheet-export-actions{ align-items:stretch; flex-direction:column; }.sheet-export-badge{ align-self:flex-start; }.sheet-export-actions .btn{ width:100%; } }
 </style>
 </head>
 <body>
@@ -100,7 +121,6 @@
       <div class="field">
         <label for="organizer-key">Organizer access key</label>
         <input id="organizer-key" type="password" autocomplete="off">
-        <div class="hint">Local demo default: <b>demo</b>. Production uses the key configured in Apps Script.</div>
         <div class="err" id="err-organizer-key"></div>
       </div>
       <button class="btn btn-primary" id="btn-organizer-unlock">Unlock staff view →</button>
@@ -159,6 +179,31 @@
       <p class="demo-clock-state" id="demo-clock-state" role="status">Unlocking shared demo clock…</p>
     </section>
 
+    <section class="sheet-export-card" id="sheet-export-card" aria-labelledby="sheet-export-title">
+      <div class="sheet-export-head">
+        <div class="sheet-export-title">
+          <span class="sheet-export-icon" aria-hidden="true">📊</span>
+          <div>
+            <h2 id="sheet-export-title">Google Sheets export</h2>
+            <p id="sheet-export-summary">Checking the connected export…</p>
+          </div>
+        </div>
+        <span class="sheet-export-badge" id="sheet-export-badge">Checking</span>
+      </div>
+      <div class="sheet-export-meta">
+        <div><span>Last successful sync</span><strong id="sheet-export-last-success">Not yet</strong></div>
+        <div><span>Last attempt</span><strong id="sheet-export-last-attempt">Not yet</strong></div>
+      </div>
+      <div class="sheet-export-counts" id="sheet-export-counts" aria-label="Rows in the latest export">
+        <span class="sheet-export-empty">No completed export yet.</span>
+      </div>
+      <p class="sheet-export-error" id="sheet-export-error" role="alert" style="display:none;"></p>
+      <div class="sheet-export-actions">
+        <p>Syncs the current event records to the connected Sheet.</p>
+        <button class="btn btn-small btn-primary" type="button" id="btn-sheet-export-sync" disabled>Sync now</button>
+      </div>
+    </section>
+
     <div class="dash-grid" id="totals-grid"></div>
 
     <div class="section-title">Wristband distribution · planning around 150</div>
@@ -195,7 +240,7 @@
     <section class="demo-reset-zone" id="demo-reset-zone" aria-labelledby="demo-reset-title">
       <p class="eyebrow">Rehearsal reset</p>
       <h2 id="demo-reset-title">Clear all attendee data and start fresh</h2>
-      <p>This permanently clears attendee registrations and wristband assignments, the raffle-number sequence, booth check-ins and Bible Bowl scores, New Song votes, Phase 3 selections and sign-ups, and every booth leader's presentation/control state.</p>
+      <p>This permanently clears attendee registrations and wristband assignments, the raffle-number sequence, booth check-ins and Bible Bowl scores, New Song votes, Phase 3 selections and sign-ups, and every booth leader's presentation/control state. If Google Sheets export is connected, its live data rows clear on the next successful sync.</p>
       <button class="btn btn-reset-danger" id="btn-reset">Clear all attendee data</button>
       <p class="demo-reset-note">This cannot be undone. The shared clock setting is not changed.</p>
     </section>
@@ -222,6 +267,8 @@ let demoTimelineOffsetSeconds = 0;
 let demoTimelineDirty = false;
 let demoTimelineInitialized = false;
 let lastTimelineSyncToken = null;
+let latestGoogleSheetsExport = null;
+let googleSheetsExportSyncInFlight = false;
 const planningAttendeeEstimate = 150;
 const planningPerColorGuide = Math.round(planningAttendeeEstimate / WRISTBAND_COLORS.length);
 const demoEventStartMs = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
@@ -243,6 +290,104 @@ const demoClockLabels = {
   "session3-final15": "Session 3 · final 15s",
   ended: "After booths",
 };
+
+function exportStatusPayload(source) {
+  if (!source || typeof source !== "object") return null;
+  if (source.googleSheetsExport && typeof source.googleSheetsExport === "object") return source.googleSheetsExport;
+  if (source.status && typeof source.status === "object") return source.status;
+  return source;
+}
+
+function exportDateLabel(value) {
+  if (!value) return "Not yet";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unavailable";
+  return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function exportCountLabel(key) {
+  const known = {
+    attendees: "Attendees",
+    registrations: "Registrations",
+    boothCheckins: "Booth visits",
+    checkins: "Booth visits",
+    signups: "Sign-ups",
+    signupSelections: "Sign-up choices",
+    triviaAnswers: "Bible Bowl answers",
+    songVotes: "New Song votes",
+  };
+  if (known[key]) return known[key];
+  return String(key || "Rows")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function renderGoogleSheetsExport(source, options = {}) {
+  const status = exportStatusPayload(source);
+  latestGoogleSheetsExport = status;
+  const badge = document.getElementById("sheet-export-badge");
+  const summary = document.getElementById("sheet-export-summary");
+  const syncButton = document.getElementById("btn-sheet-export-sync");
+  const error = document.getElementById("sheet-export-error");
+  const configured = !!(status && status.configured);
+  const enabled = configured && status.enabled !== false;
+  const rawState = String((status && status.state) || "").toLowerCase();
+  const syncing = googleSheetsExportSyncInFlight || !!(status && status.syncing) || rawState === "syncing";
+  const pending = !!(status && status.pending) || rawState === "pending" || rawState === "queued";
+  const failed = rawState === "error" || rawState === "failed" || !!(status && status.lastError);
+
+  badge.className = "sheet-export-badge";
+  if (options.locked) {
+    badge.textContent = "Locked";
+    summary.textContent = "Unlock the organizer dashboard to view export status.";
+  } else if (!status) {
+    badge.textContent = "Unavailable";
+    summary.textContent = "Export status is unavailable.";
+  } else if (!configured) {
+    badge.textContent = "Not connected";
+    summary.textContent = "Connect an export destination before syncing event records.";
+  } else if (!enabled) {
+    badge.textContent = "Paused";
+    summary.textContent = "The connected export is currently paused.";
+  } else if (syncing) {
+    badge.textContent = "Syncing";
+    badge.classList.add("busy");
+    summary.textContent = "Sending the latest event records to the connected Sheet…";
+  } else if (failed) {
+    badge.textContent = "Needs attention";
+    badge.classList.add("error");
+    summary.textContent = "The most recent export did not finish successfully.";
+  } else if (pending) {
+    badge.textContent = "Queued";
+    badge.classList.add("busy");
+    summary.textContent = "The latest event changes are waiting to sync.";
+  } else if (status.lastSuccessAt) {
+    badge.textContent = "Up to date";
+    badge.classList.add("ready");
+    summary.textContent = "The connected Sheet received the latest completed export.";
+  } else {
+    badge.textContent = "Ready";
+    badge.classList.add("ready");
+    summary.textContent = "The connected Sheet is ready for its first sync.";
+  }
+
+  document.getElementById("sheet-export-last-success").textContent = exportDateLabel(status && status.lastSuccessAt);
+  document.getElementById("sheet-export-last-attempt").textContent = exportDateLabel(status && status.lastAttemptAt);
+
+  const latestCounts = status && (status.lastRowCounts || status.lastCounts);
+  const counts = latestCounts && typeof latestCounts === "object" ? latestCounts : {};
+  const countRows = Object.entries(counts).filter(([, value]) => Number.isFinite(Number(value)));
+  document.getElementById("sheet-export-counts").innerHTML = countRows.length
+    ? countRows.map(([key, value]) => `<span class="sheet-export-count">${esc(exportCountLabel(key))}: ${Number(value)}</span>`).join("")
+    : `<span class="sheet-export-empty">No completed export yet.</span>`;
+
+  const lastError = status && typeof status.lastError === "string" ? status.lastError.trim() : "";
+  error.textContent = lastError;
+  error.style.display = lastError ? "block" : "none";
+  syncButton.disabled = options.locked || !enabled || syncing || (pending && !failed);
+  syncButton.textContent = syncing ? "Syncing…" : failed ? "Retry now" : pending ? "Sync queued…" : "Sync now";
+}
 
 function formatDemoClockTime(valueMs) {
   const value = new Date(valueMs);
@@ -568,6 +713,9 @@ function clearDashboard() {
   document.querySelector("#trivia-table tbody").innerHTML = "";
   document.querySelector("#song-table tbody").innerHTML = "";
   document.getElementById("signup-groups").innerHTML = "";
+  latestGoogleSheetsExport = null;
+  googleSheetsExportSyncInFlight = false;
+  renderGoogleSheetsExport(null, { locked: true });
 }
 
 async function refresh() {
@@ -583,6 +731,22 @@ async function refresh() {
     return false;
   }
   if (!OrganizerAuth.isCurrent(authGeneration)) return false;
+
+  if (demoBackend) {
+    if (data.googleSheetsExport && typeof data.googleSheetsExport === "object") {
+      renderGoogleSheetsExport(data.googleSheetsExport);
+    } else {
+      try {
+        const exportStatus = await EventAPI.googleSheetsExportStatus(organizerKey);
+        if (!OrganizerAuth.isCurrent(authGeneration)) return false;
+        renderGoogleSheetsExport(exportStatus);
+      } catch (error) {
+        if (OrganizerAuth.handleError(error, authGeneration)) return false;
+        console.error(error);
+        renderGoogleSheetsExport(null);
+      }
+    }
+  }
 
   document.getElementById("totals-grid").innerHTML = `
     <div class="dash-card"><div class="num">${data.totals.registered}</div><div class="lbl">Registered</div></div>
@@ -683,8 +847,50 @@ async function refresh() {
   return true;
 }
 
+document.getElementById("btn-sheet-export-sync").addEventListener("click", async () => {
+  if (googleSheetsExportSyncInFlight) return;
+  const requestGeneration = OrganizerAuth.generation();
+  const requestKey = OrganizerAuth.key();
+  if (!requestKey) return;
+
+  googleSheetsExportSyncInFlight = true;
+  renderGoogleSheetsExport(latestGoogleSheetsExport || { configured: true, enabled: true, state: "syncing" });
+  try {
+    const result = await EventAPI.syncGoogleSheetsExport(requestKey);
+    if (!OrganizerAuth.isCurrent(requestGeneration)) return;
+    googleSheetsExportSyncInFlight = false;
+    const status = exportStatusPayload(result);
+    renderGoogleSheetsExport(status);
+    if (status && status.lastError) {
+      toast("Google Sheets export needs attention.");
+    } else if ((result && result.queued) || (status && (status.pending || status.state === "pending"))) {
+      toast("Google Sheets sync queued.");
+    } else {
+      toast("Google Sheets export complete.");
+    }
+  } catch (error) {
+    if (OrganizerAuth.handleError(error, requestGeneration)) return;
+    console.error(error);
+    googleSheetsExportSyncInFlight = false;
+    renderGoogleSheetsExport({
+      ...(latestGoogleSheetsExport || {}),
+      configured: latestGoogleSheetsExport ? !!latestGoogleSheetsExport.configured : true,
+      enabled: latestGoogleSheetsExport ? latestGoogleSheetsExport.enabled !== false : true,
+      state: "error",
+      lastAttemptAt: new Date().toISOString(),
+      lastError: "The export could not be completed. Try again.",
+    });
+    toast("Couldn't sync the Google Sheet. Try again.");
+  } finally {
+    if (OrganizerAuth.isCurrent(requestGeneration) && googleSheetsExportSyncInFlight) {
+      googleSheetsExportSyncInFlight = false;
+      renderGoogleSheetsExport(latestGoogleSheetsExport);
+    }
+  }
+});
+
 document.getElementById("btn-reset").addEventListener("click", async () => {
-  if (!confirm("Clear all attendee data and start fresh?\n\nThis permanently removes attendee registrations and wristbands, resets the raffle-number sequence, clears booth check-ins and Bible Bowl scores, New Song votes, Phase 3 selections and sign-ups, and every booth leader's presentation/control state. This cannot be undone.")) return;
+  if (!confirm("Clear all attendee data and start fresh?\n\nThis permanently removes attendee registrations and wristbands, resets the raffle-number sequence, clears booth check-ins and Bible Bowl scores, New Song votes, Phase 3 selections and sign-ups, and every booth leader's presentation/control state. A connected Google Sheet mirror clears on the next successful sync. This cannot be undone.")) return;
   const requestGeneration = OrganizerAuth.generation();
   const requestKey = OrganizerAuth.key();
   const resetButton = document.getElementById("btn-reset");
@@ -706,6 +912,7 @@ document.getElementById("btn-reset").addEventListener("click", async () => {
 
 if (!demoBackend) {
   document.getElementById("demo-reset-zone").style.display = "none";
+  document.getElementById("sheet-export-card").style.display = "none";
 } else {
   document.getElementById("demo-clock-panel").style.display = "block";
 }

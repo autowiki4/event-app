@@ -1,9 +1,9 @@
 /**
- * Event app production backend — Google Apps Script Web App bound to a
- * Google Sheet ("EventDB"). Implements the core attendee and booth-staff
- * actions used by web/shared/api.js. The Node-only resetDemo, setDemoClock,
- * and eventClock actions are intentionally absent; selecting this adapter is
- * otherwise controlled by web/shared/config.js's API_BASE_URL.
+ * Event app Google Sheets integration — a bound Apps Script Web App used as
+ * the optional export sink for the authoritative Node/Render service. This
+ * file also retains a limited legacy attendee/staff adapter for compatibility;
+ * that adapter does not implement the Node-only shared clock, full reset, or
+ * specialized leader-paced activity controllers.
  *
  * For full step-by-step deployment instructions (including the "Google
  * hasn't verified this app" prompt you'll hit the first time, and how to
@@ -22,6 +22,73 @@ const SHEET_NAMES = {
 };
 
 const ORGANIZER_KEY_PROPERTY = "ORGANIZER_KEY";
+const EXPORT_KEY_PROPERTY = "EXPORT_KEY";
+const MAX_NODE_EXPORT_ROWS_PER_TAB = 10000;
+const MAX_NODE_EXPORT_CELL_LENGTH = 50000;
+// Node/Render remains the source of truth for these snapshots. Logical tab
+// names are part of the wire contract, while separate physical Live_* tabs
+// keep this export feed from overwriting the standalone Apps Script backend's
+// operational tabs above.
+const NODE_EXPORT_SCHEMAS = {
+  Attendees: {
+    sheetName: "Live_Attendees",
+    headers: [
+      "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor",
+      "registeredAt", "wristbandConfirmedAt", "phase3CompletedAt", "completedBoothIds",
+      "completedBoothCount", "signupOptionIds",
+    ],
+  },
+  BoothResults: {
+    sheetName: "Live_BoothResults",
+    headers: [
+      "id", "attendeeId", "name", "phone", "raffleNumber", "wristbandColor", "boothId",
+      "boothName", "checkedInBy", "checkedInAt", "sessionNumber", "runId", "runNumber",
+      "score", "correctCount", "answeredCount", "totalQuestions", "votedFor",
+      "featuredWinner", "extraData",
+    ],
+  },
+  SignUps: {
+    sheetName: "Live_SignUps",
+    headers: [
+      "id", "attendeeId", "name", "phone", "raffleNumber", "wristbandColor", "optionId",
+      "optionTitle", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt",
+    ],
+  },
+  TriviaAnswers: {
+    sheetName: "Live_TriviaAnswers",
+    headers: [
+      "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+      "runId", "runNumber", "questionId", "questionNumber", "answerIndex", "isCorrect",
+      "answeredAt",
+    ],
+  },
+  HeavenConfirmations: {
+    sheetName: "Live_HeavenConfirmations",
+    headers: [
+      "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+      "runId", "runNumber", "action", "confirmedAt",
+    ],
+  },
+  SongVotes: {
+    sheetName: "Live_SongVotes",
+    headers: [
+      "id", "attendeeId", "name", "raffleNumber", "wristbandColor", "sessionNumber",
+      "runId", "runNumber", "songTitle", "votedAt", "updatedAt",
+    ],
+  },
+  ExportMeta: {
+    sheetName: "Live_ExportMeta",
+    headers: ["key", "value"],
+  },
+};
+const NODE_EXPORT_DATA_TAB_NAMES = [
+  "Attendees", "BoothResults", "SignUps", "TriviaAnswers",
+  "HeavenConfirmations", "SongVotes",
+];
+// ExportMeta is intentionally last. Its generatedAt value is the commit
+// marker for a complete seven-tab snapshot; a failed earlier write leaves the
+// previous marker in place and the next full retry reconciles every tab.
+const NODE_EXPORT_TAB_NAMES = NODE_EXPORT_DATA_TAB_NAMES.concat(["ExportMeta"]);
 const BOOTH_IDS = ["heaven", "trivia", "story", "art", "newsong"];
 const WRISTBAND_COLORS = ["blue", "red", "orange", "green", "yellow"];
 const BOOTH_NAMES = {
@@ -136,6 +203,139 @@ function sheetSafeValue(value) {
     return "'" + value;
   }
   return value;
+}
+
+function hasExactKeys(value, expectedKeys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = expectedKeys.slice().sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function validExportTimestamp(value) {
+  return typeof value === "string" && value.length > 0 && !Number.isNaN(Date.parse(value));
+}
+
+function normalizeNodeExportCell(value, tabName, rowIndex, columnName) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") {
+    if (value.length > MAX_NODE_EXPORT_CELL_LENGTH) {
+      throw apiError(
+        `Node export ${tabName} row ${rowIndex + 1}, ${columnName} is too long.`,
+        "INVALID_EXPORT_SNAPSHOT"
+      );
+    }
+    return sheetSafeValue(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw apiError(
+        `Node export ${tabName} row ${rowIndex + 1}, ${columnName} is not a finite number.`,
+        "INVALID_EXPORT_SNAPSHOT"
+      );
+    }
+    return value;
+  }
+  if (typeof value === "boolean") return value;
+  throw apiError(
+    `Node export ${tabName} row ${rowIndex + 1}, ${columnName} must be a scalar value.`,
+    "INVALID_EXPORT_SNAPSHOT"
+  );
+}
+
+function normalizeNodeExportSnapshot(snapshot) {
+  if (!hasExactKeys(snapshot, ["generatedAt", "dataResetAt", "tabs"])) {
+    throw apiError("Node export snapshot has an invalid top-level schema.", "INVALID_EXPORT_SNAPSHOT");
+  }
+  if (!validExportTimestamp(snapshot.generatedAt)) {
+    throw apiError("Node export generatedAt must be a valid timestamp.", "INVALID_EXPORT_SNAPSHOT");
+  }
+  if (snapshot.dataResetAt !== "initial" && !validExportTimestamp(snapshot.dataResetAt)) {
+    throw apiError("Node export dataResetAt must be initial or a valid timestamp.", "INVALID_EXPORT_SNAPSHOT");
+  }
+  if (!hasExactKeys(snapshot.tabs, NODE_EXPORT_TAB_NAMES)) {
+    throw apiError("Node export must contain exactly the seven allowed tabs.", "INVALID_EXPORT_SNAPSHOT");
+  }
+
+  const tabs = {};
+  NODE_EXPORT_TAB_NAMES.forEach((tabName) => {
+    const schema = NODE_EXPORT_SCHEMAS[tabName];
+    const incoming = snapshot.tabs[tabName];
+    if (!hasExactKeys(incoming, ["headers", "rows"])) {
+      throw apiError(`Node export ${tabName} has an invalid schema.`, "INVALID_EXPORT_SNAPSHOT");
+    }
+    if (!Array.isArray(incoming.headers)
+      || incoming.headers.length !== schema.headers.length
+      || incoming.headers.some((header, index) => header !== schema.headers[index])) {
+      throw apiError(`Node export ${tabName} headers do not match the allowed schema.`, "INVALID_EXPORT_SNAPSHOT");
+    }
+    if (!Array.isArray(incoming.rows) || incoming.rows.length > MAX_NODE_EXPORT_ROWS_PER_TAB) {
+      throw apiError(`Node export ${tabName} has an invalid row list.`, "INVALID_EXPORT_SNAPSHOT");
+    }
+    tabs[tabName] = incoming.rows.map((row, rowIndex) => {
+      if (!Array.isArray(row) || row.length !== schema.headers.length) {
+        throw apiError(
+          `Node export ${tabName} row ${rowIndex + 1} does not match its headers.`,
+          "INVALID_EXPORT_SNAPSHOT"
+        );
+      }
+      return schema.headers.map((columnName, columnIndex) => (
+        normalizeNodeExportCell(row[columnIndex], tabName, rowIndex, columnName)
+      ));
+    });
+  });
+
+  return {
+    generatedAt: snapshot.generatedAt,
+    dataResetAt: snapshot.dataResetAt,
+    tabs,
+  };
+}
+
+function ensureNodeExportSheetCapacity(sheet, rowCount, columnCount) {
+  const currentRows = sheet.getMaxRows();
+  if (currentRows < rowCount) sheet.insertRowsAfter(currentRows, rowCount - currentRows);
+  const currentColumns = sheet.getMaxColumns();
+  if (currentColumns < columnCount) {
+    sheet.insertColumnsAfter(currentColumns, columnCount - currentColumns);
+  }
+}
+
+function replaceNodeExportSheet(tabName, rows) {
+  const schema = NODE_EXPORT_SCHEMAS[tabName];
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(schema.sheetName);
+  if (!sheet) sheet = ss.insertSheet(schema.sheetName);
+
+  const matrix = [schema.headers.slice()].concat(rows);
+  ensureNodeExportSheetCapacity(sheet, matrix.length, schema.headers.length);
+
+  // Capture the old used range, then put the complete new matrix in place
+  // before deleting anything. If setValues fails, the last good snapshot is
+  // left intact; a rare cleanup failure can only leave stale tail cells for
+  // the next retry rather than blanking the live export.
+  const previousLastRow = sheet.getLastRow();
+  const previousLastColumn = sheet.getLastColumn();
+  sheet.getRange(1, 1, matrix.length, schema.headers.length).setValues(matrix);
+  if (previousLastRow > matrix.length) {
+    sheet.getRange(
+      matrix.length + 1,
+      1,
+      previousLastRow - matrix.length,
+      Math.max(previousLastColumn, schema.headers.length)
+    ).clearContent();
+  }
+  if (previousLastColumn > schema.headers.length) {
+    sheet.getRange(
+      1,
+      schema.headers.length + 1,
+      Math.max(previousLastRow, matrix.length),
+      previousLastColumn - schema.headers.length
+    ).clearContent();
+  }
+  sheet.setFrozenRows(1);
+  return rows.length;
 }
 
 function toJsonSafe(val, fallback) {
@@ -268,6 +468,16 @@ function requireOrganizer(payload) {
   }
   if (!payload || payload.organizerKey !== configured) {
     throw apiError("Organizer access key is invalid.", "AUTH_REQUIRED");
+  }
+}
+
+function requireExportKey(payload) {
+  const configured = PropertiesService.getScriptProperties().getProperty(EXPORT_KEY_PROPERTY);
+  if (!configured) {
+    throw apiError("EXPORT_KEY is not configured in Script Properties.", "EXPORT_KEY_NOT_CONFIGURED");
+  }
+  if (!payload || typeof payload.exportKey !== "string" || payload.exportKey !== configured) {
+    throw apiError("Node export access key is invalid.", "EXPORT_AUTH_REQUIRED");
   }
 }
 
@@ -1108,6 +1318,30 @@ function actionBoothDashboardData(payload) {
   });
 }
 
+function actionImportNodeSnapshot(payload) {
+  // This credential is intentionally independent from the key staff type into
+  // organizer pages. Authentication happens before lock acquisition so an
+  // invalid public request cannot block a legitimate export.
+  requireExportKey(payload);
+  return withScriptLock(() => {
+    // Validate and normalize every tab before mutating any sheet. A malformed
+    // later tab therefore cannot leave an otherwise avoidable partial import.
+    const snapshot = normalizeNodeExportSnapshot(payload.snapshot);
+    const rowCounts = {};
+    NODE_EXPORT_DATA_TAB_NAMES.forEach((tabName) => {
+      rowCounts[tabName] = replaceNodeExportSheet(tabName, snapshot.tabs[tabName]);
+    });
+    rowCounts.ExportMeta = replaceNodeExportSheet("ExportMeta", snapshot.tabs.ExportMeta);
+    return {
+      ok: true,
+      generatedAt: snapshot.generatedAt,
+      dataResetAt: snapshot.dataResetAt,
+      importedAt: nowIso(),
+      rowCounts,
+    };
+  });
+}
+
 function actionVerifyOrganizer(payload) {
   requireOrganizer(payload);
   return { ok: true };
@@ -1150,6 +1384,7 @@ function doPost(e) {
       case "verifyOrganizer": result = actionVerifyOrganizer(payload); break;
       case "myCheckins": result = actionMyCheckins(payload); break;
       case "mySignupSelections": result = actionMySignupSelections(payload); break;
+      case "importNodeSnapshot": result = actionImportNodeSnapshot(payload); break;
       default: return jsonOutput({ error: "unknown action: " + action, code: "UNKNOWN_ACTION" });
     }
     return jsonOutput(result);
