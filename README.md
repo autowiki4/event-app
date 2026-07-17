@@ -162,20 +162,21 @@ environment variables below are needed when the live export is enabled.
 
 ### Optional live Google Sheets export
 
-The same-origin Node/Render service can mirror its current event data into a
-Google Sheet without giving up the shared clock or the leader-paced Bible
-Bowl, Draw Heaven, and New Song features. The Node JSON database remains the
-source of truth. A bound Apps Script receives a debounced, complete snapshot
-and replaces seven `Live_*` tabs for attendees, booth visits, Phase 3
-sign-ups, Draw Heaven confirmations, and export metadata. The existing
-`Live_TriviaAnswers` and `Live_SongVotes` contracts remain header-only so a
-sync clears older activity rows without requiring a new Apps Script URL.
+The same-origin Node/Render service can mirror its current event data directly
+into a Google Sheet through the Google Sheets API without giving up the shared
+clock or the leader-paced booth features. The Node JSON database remains the
+source of truth. The service-account writer sends a debounced, complete
+snapshot and atomically replaces seven `Live_*` tabs for attendees, booth
+visits, Phase 3 sign-ups, Draw Heaven confirmations, and export metadata.
+`Live_TriviaAnswers` and `Live_SongVotes` remain header-only so a
+sync clears older activity rows without exporting booth-only scores or votes.
 
 The Sheet mirror includes the collected attendee phone numbers but excludes
 attendee-entered Art reflections, Bible Bowl answers/scores,
 and New Song choices/results. `Live_BoothResults.extraData` contains only
 allowlisted non-activity operational metadata.
-`Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.
+`Live_ExportMeta` is the final tab in the atomic update and records the
+complete snapshot's `generatedAt` marker.
 
 This export is optional: without its two environment variables, the app keeps
 working normally and the protected organizer dashboard reports that no Sheet
@@ -186,16 +187,23 @@ and retries. Because each export is a full mirror, **Clear all attendee data**
 also clears the `Live_*` rows on the next successful sync. Treat the Sheet as
 an operational export, not as a backup or archive.
 
-Setup requires the Apps Script Web App URL and a separate random export key in
-Render:
+Setup requires the destination spreadsheet ID and a base64 copy of a dedicated
+service-account JSON key in Render:
 
 ```text
-EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
-EVENT_APP_SHEETS_EXPORT_KEY=use-a-long-random-secret
+EVENT_APP_GOOGLE_SHEET_ID=the-id-between-/d/-and-/edit
+EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=base64-of-the-entire-json-key
+
+# Optional tuning
+EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS=3000
+EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS=10000
 ```
 
 Do not change `web/shared/config.js` away from `/api` for this arrangement.
-The step-by-step Sheet deployment and Script Property setup are in
+Enable the Google Sheets API, share only the destination Sheet with the JSON
+key's `client_email` as **Editor**, and do not assign the service account a
+project role or domain-wide delegation. No Apps Script deployment, `/exec`
+URL, `EXPORT_KEY`, Admin SDK, or Drive API is used. The full Render setup is in
 `apps-script/README.md`. Decide who may access the exported names, phone
 numbers, raffle numbers, operational activity results, and selections, along
 with retention and deletion, before enabling it with live attendees.
@@ -307,7 +315,7 @@ event-app/
 │   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            Node rehearsal backend using a JSON data file
-├── apps-script/            Google Sheets export sink + limited legacy adapter
+├── apps-script/            direct-Sheets setup docs + limited legacy adapter
 ├── ARCHITECTURE.md         identity, timing, controls, and data design
 ├── DEMO_GUIDE.md           a short presentation/rehearsal script
 └── qr/QR_PLAN.md           recommended placement and print checklist
@@ -315,16 +323,17 @@ event-app/
 
 The Node version is the recommended backend for the complete current flow. It
 writes to `demo-server/db.json`, provides the protected reset and shared clock,
-and can optionally mirror that complete state to Google Sheets through Apps
-Script. `Code.gs` still contains a limited legacy implementation of the core
+and can optionally mirror that complete state directly through the Sheets API.
+`Code.gs` still contains a limited legacy implementation of the core
 attendee/staff API, but pointing `API_BASE_URL` directly at it omits the
 leader-paced controllers, `resetDemo`, `setDemoClock`, and the public
-`eventClock` read. The export-sink arrangement keeps `API_BASE_URL: "/api"`.
+`eventClock` read. The service-account export keeps `API_BASE_URL: "/api"`.
 
-The Apps Script implementation is deployment-shaped, not proof that the whole
-system is ready for a live event. Test it on the venue network, replace the
-shared organizer-key model, confirm privacy/retention requirements, and define
-an offline fallback before collecting real attendee data.
+This remains an event mock, not proof that the whole system is ready for a live
+event. Test it on the venue network, replace the shared organizer-key model,
+confirm privacy/retention requirements, and define an offline fallback before
+collecting real attendee data. The legacy Apps Script adapter is retained only
+for compatibility testing.
 
 ## Test and reset
 
@@ -402,6 +411,6 @@ Script adapter does not implement it.
 | `ARCHITECTURE.md` | How identity, schedule synchronization, routing, and booth controls connect |
 | `DEMO_GUIDE.md` | How to present the unified flow using the shared timeline |
 | `demo-server/README.md` | Node backend, data file, reset, and API differences |
-| `apps-script/README.md` | Google Apps Script deployment sketch |
+| `apps-script/README.md` | Direct Google Sheets service-account setup and legacy adapter note |
 | `apps-script/SHEET_SCHEMA.md` | Sheet tabs and columns |
 | `qr/QR_PLAN.md` | Unified-flow QR destinations, placement, and print checklist |

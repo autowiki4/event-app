@@ -1,13 +1,14 @@
 "use strict";
 
-const http = require("http");
-const https = require("https");
+const {
+  createGoogleSheetsServiceAccountSink,
+  googleRequestJson,
+} = require("./google-sheets-service-account");
 
 const DEFAULT_DEBOUNCE_MS = 3000;
 const DEFAULT_TIMEOUT_MS = 10000;
 const INITIAL_RETRY_MS = 5000;
 const MAX_RETRY_MS = 60000;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 const TAB_HEADERS = Object.freeze({
   Attendees: Object.freeze([
@@ -58,10 +59,10 @@ function normalizedCell(value) {
   if (value === undefined || value === null) return "";
   if (typeof value === "number") return Number.isFinite(value) ? value : "";
   if (typeof value === "boolean") return value;
-  const text = String(value);
-  // The Apps Script sink applies the same guard. Keeping it here too means a
-  // captured or redirected payload is already safe to place into a Sheet.
-  return (/^[\t\r\n]/.test(text) || /^\s*[=+\-@]/.test(text)) ? `'${text}` : text;
+  // Formula safety is enforced at the Sheet boundary: the direct API writer
+  // always emits stringValue and never formulaValue. Keeping the original text
+  // here avoids displaying an escape apostrophe in the live Sheet.
+  return String(value);
 }
 
 function jsonCell(value, fallback) {
@@ -228,8 +229,8 @@ function buildExportSnapshot(rawDb, options = {}) {
   });
 
   // Bible Bowl answers and New Song votes are booth-only operational data.
-  // Keep their tab contracts so the existing Apps Script deployment can
-  // atomically clear older rows without changing its URL or credentials.
+  // Keep their tab contracts so a full sync atomically clears older rows
+  // without changing the connected spreadsheet or its schema.
   const triviaRows = [];
 
   const heavenRows = arrayOrEmpty(db.heavenConfirmations).map((confirmation) => {
@@ -280,127 +281,6 @@ function buildExportSnapshot(rawDb, options = {}) {
   };
 }
 
-function importUrl(baseUrl) {
-  const url = new URL(String(baseUrl || "").trim());
-  const trimmedPath = url.pathname.replace(/\/+$/, "");
-  url.pathname = trimmedPath.endsWith("/importNodeSnapshot")
-    ? trimmedPath
-    : `${trimmedPath}/importNodeSnapshot`;
-  return url.toString();
-}
-
-function isLoopbackHostname(hostname) {
-  const normalized = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
-  const ipv4Parts = normalized.split(".");
-  const isLoopbackIpv4 = ipv4Parts.length === 4
-    && ipv4Parts[0] === "127"
-    && ipv4Parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
-  return normalized === "localhost"
-    || normalized.endsWith(".localhost")
-    || normalized === "::1"
-    || isLoopbackIpv4;
-}
-
-function validExportUrl(url) {
-  if (url.username || url.password) return false;
-  return url.protocol === "https:"
-    || (url.protocol === "http:" && isLoopbackHostname(url.hostname));
-}
-
-function requestJson(urlValue, body, options = {}) {
-  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
-  const redirectsRemaining = options.redirectsRemaining === undefined
-    ? 5
-    : options.redirectsRemaining;
-  const method = options.method || "POST";
-  const serialized = method === "GET" ? "" : JSON.stringify(body);
-
-  return new Promise((resolve, reject) => {
-    let url;
-    try {
-      url = new URL(urlValue);
-    } catch (error) {
-      reject(new Error("Google Sheets export URL is invalid."));
-      return;
-    }
-    if (!validExportUrl(url)) {
-      reject(new Error("Google Sheets export URL must use HTTPS outside loopback."));
-      return;
-    }
-    const transport = url.protocol === "https:" ? https : http;
-    const headers = { Accept: "application/json" };
-    if (method !== "GET") {
-      headers["Content-Type"] = "application/json; charset=utf-8";
-      headers["Content-Length"] = Buffer.byteLength(serialized);
-    }
-    const request = transport.request(url, { method, headers }, (response) => {
-      const status = Number(response.statusCode) || 0;
-      if ([301, 302, 303, 307, 308].includes(status) && response.headers.location) {
-        response.resume();
-        if (redirectsRemaining <= 0) {
-          reject(new Error("Google Sheets export followed too many redirects."));
-          return;
-        }
-        const redirected = new URL(response.headers.location, url);
-        const redirectedMethod = [301, 302, 303].includes(status) ? "GET" : method;
-        if (url.protocol === "https:" && redirected.protocol !== "https:") {
-          reject(new Error("Google Sheets export refused an insecure redirect."));
-          return;
-        }
-        if (redirectedMethod !== "GET" && redirected.origin !== url.origin) {
-          reject(new Error("Google Sheets export refused to resend data across origins."));
-          return;
-        }
-        requestJson(redirected.toString(), body, {
-          timeoutMs,
-          redirectsRemaining: redirectsRemaining - 1,
-          method: redirectedMethod,
-        }).then(resolve, reject);
-        return;
-      }
-
-      let responseBody = "";
-      let responseBytes = 0;
-      response.setEncoding("utf8");
-      response.on("data", (chunk) => {
-        responseBytes += Buffer.byteLength(chunk);
-        if (responseBytes > MAX_RESPONSE_BYTES) {
-          request.destroy(new Error("Google Sheets export response was too large."));
-          return;
-        }
-        responseBody += chunk;
-      });
-      response.on("end", () => {
-        let parsed = {};
-        try {
-          parsed = responseBody ? JSON.parse(responseBody) : {};
-        } catch (error) {
-          reject(new Error("Google Sheets export returned an invalid response."));
-          return;
-        }
-        if (status < 200 || status >= 300) {
-          reject(new Error(`Google Sheets export returned HTTP ${status}.`));
-          return;
-        }
-        if (parsed && parsed.error) {
-          const exportError = new Error(String(parsed.error));
-          if (parsed.code) exportError.code = String(parsed.code);
-          reject(exportError);
-          return;
-        }
-        resolve(parsed);
-      });
-      response.on("error", reject);
-    });
-    request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error("Google Sheets export timed out."));
-    });
-    request.on("error", reject);
-    if (serialized) request.write(serialized);
-    request.end();
-  });
-}
-
 function sanitizedError(error, redactedValues = []) {
   let message = error && error.message ? String(error.message) : "Google Sheets export failed.";
   redactedValues.filter(Boolean).forEach((value) => {
@@ -421,9 +301,6 @@ function createGoogleSheetsExporter(options = {}) {
   }
   const env = options.env || process.env;
   const logger = options.logger || console;
-  const send = options.requestJson || requestJson;
-  const configuredUrl = String(env.EVENT_APP_SHEETS_EXPORT_URL || "").trim();
-  const exportKey = String(env.EVENT_APP_SHEETS_EXPORT_KEY || "").trim();
   const debounceMs = boundedInteger(
     env.EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS,
     DEFAULT_DEBOUNCE_MS,
@@ -436,24 +313,17 @@ function createGoogleSheetsExporter(options = {}) {
     1000,
     60000
   );
-  let endpoint = "";
-  let configurationError = null;
-  if (configuredUrl || exportKey) {
-    if (!configuredUrl || !exportKey) {
-      configurationError = "Both Google Sheets export environment variables are required.";
-    } else {
-      try {
-        endpoint = importUrl(configuredUrl);
-        const parsed = new URL(endpoint);
-        if (!validExportUrl(parsed)) {
-          configurationError = "Google Sheets export URL must use HTTPS outside loopback.";
-        }
-      } catch (error) {
-        configurationError = "Google Sheets export URL is invalid.";
-      }
-    }
-  }
-  const configured = Boolean(endpoint && exportKey && !configurationError);
+  const sheetsWriter = options.sheetsWriter || createGoogleSheetsServiceAccountSink({
+    env,
+    requestJson: options.requestJson,
+    timeoutMs,
+    now: options.now,
+  });
+  const configurationError = sheetsWriter.configurationError || null;
+  const configured = Boolean(sheetsWriter.configured && !configurationError);
+  const redactedValues = Array.isArray(sheetsWriter.redactedValues)
+    ? sheetsWriter.redactedValues
+    : [];
 
   let dirty = false;
   let timer = null;
@@ -532,15 +402,13 @@ function createGoogleSheetsExporter(options = {}) {
     const operation = (async () => {
       try {
         const snapshot = buildExportSnapshot(options.getSnapshot());
-        await send(endpoint, { exportKey, snapshot }, { timeoutMs });
+        await sheetsWriter.writeSnapshot(snapshot);
         lastSuccessAt = new Date().toISOString();
         lastError = null;
         lastRowCounts = rowCountsForSnapshot(snapshot);
         retryDelayMs = INITIAL_RETRY_MS;
       } catch (error) {
-        let endpointHost = "";
-        try { endpointHost = new URL(endpoint).hostname; } catch (urlError) { /* already validated */ }
-        lastError = sanitizedError(error, [exportKey, configuredUrl, endpoint, endpointHost]);
+        lastError = sanitizedError(error, redactedValues);
         dirty = true;
         if (logger && typeof logger.error === "function") {
           try {
@@ -579,5 +447,5 @@ module.exports = {
   buildExportSnapshot,
   createGoogleSheetsExporter,
   normalizedCell,
-  requestJson,
+  requestJson: googleRequestJson,
 };

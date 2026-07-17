@@ -7,9 +7,9 @@
  * there's no "npm install" step, nothing that can fail to fetch on a
  * conference wifi, and no version drift. Just: node server.js.
  *
- * An optional server-side Apps Script webhook mirrors the full Node data into
- * Google Sheets without changing API_BASE_URL. The older direct Apps Script
- * adapter remains limited and has no remote rehearsal clock or resetDemo.
+ * An optional server-side service account mirrors the full Node data directly
+ * through the Google Sheets API without changing API_BASE_URL. The older Apps
+ * Script adapter remains limited and has no remote rehearsal clock or resetDemo.
  *
  * Run: node server.js   (serves web/ + the /api/* routes on :3000)
  */

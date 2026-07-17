@@ -1,6 +1,7 @@
 /* Thin fetch wrapper around the backend API. The current attendee registration,
    shared-clock, reset, and leader-paced journey uses demo-server/server.js.
-   apps-script/Code.gs remains a limited legacy adapter and Sheet export sink. */
+   apps-script/Code.gs remains only as a limited legacy API adapter; the Node
+   service writes its optional Sheet mirror directly with a service account. */
 const EventAPI = (function () {
   function base() {
     return window.EVENT_APP_CONFIG.API_BASE_URL;

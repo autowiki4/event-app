@@ -12,15 +12,16 @@ The browser UI is a collection of static HTML, CSS, and JavaScript files under
 - `demo-server/server.js`: a zero-dependency Node service backed by
   `demo-server/db.json`, with protected reset and shared rehearsal-clock
   features; it can run locally or as the same-origin service on Render; and
-- optionally, `apps-script/Code.gs` as a separately authenticated export sink
-  that mirrors the current Node state into a bound Google Sheet.
+- optionally, `demo-server/google-sheets-service-account.js` as the server-only
+  direct Sheets API writer that mirrors current Node state into a shared Google
+  Sheet.
 
 `Code.gs` also retains a limited legacy implementation of the core attendee
 and staff API. `web/shared/config.js` can select that adapter, but it does not
 implement the shared clock, full reset, or specialized leader-paced booth
 controllers. The Sheet export does not select that adapter: the web app keeps
 `API_BASE_URL: "/api"`, Node remains authoritative, and only the server knows
-the export URL and secret.
+the spreadsheet ID, service-account key, and short-lived access token.
 
 The primary attendee path is:
 
@@ -299,7 +300,8 @@ collections are not implemented by the legacy Apps Script API adapter.
 
 When the optional exporter is configured, every successful durable Node write
 queues a complete snapshot. Bursts are coalesced and only the newest pending
-snapshot is retained. The bound script strictly maps the logical export to
+snapshot is retained. A server-only service account writes directly through
+the Google Sheets API and strictly maps the logical export to
 `Live_Attendees`, `Live_BoothResults`, `Live_SignUps`, `Live_TriviaAnswers`,
 `Live_HeavenConfirmations`, `Live_SongVotes`, and `Live_ExportMeta`. Full
 replacement prevents duplicate rows and reconciles changed selections,
@@ -307,13 +309,15 @@ identity merges, and reset deletions. The distinct `Live_*` names avoid
 colliding with tabs used if the same script is tested as the legacy backend.
 Free-text Art reflections, Bible Bowl answer/score data, and New
 Song vote/result data are excluded from the mirror. The two activity tabs stay
-header-only so a full sync clears old rows without changing the Apps Script
-contract; `Live_BoothResults.extraData` contains only allowlisted non-activity
+header-only so a full sync clears old rows while preserving the Sheet schema;
+`Live_BoothResults.extraData` contains only allowlisted non-activity
 operational metadata.
-`Live_ExportMeta.generatedAt` is written after the six data tabs and acts as
-the complete-snapshot commit marker. If a later-tab write fails, that marker
-does not advance and the full-snapshot retry reconciles the temporary mixed
-generation.
+Missing managed tabs, necessary grid expansion, header freezing, stale-value
+clearing, and all seven replacements are submitted as one atomic
+`spreadsheets.batchUpdate`. Strings are always sent as `stringValue`, never as
+formulas. A rejected batch leaves the prior snapshot intact and the retry sends
+the newest complete state. `Live_ExportMeta` is the final managed tab in the
+batch and records that snapshot's `generatedAt` marker.
 The export is a best-effort operational mirror rather than a second source of
 truth or backup.
 
@@ -334,7 +338,8 @@ The protected actions shared by both backends are `verifyOrganizer`,
 `confirmSignupInPerson`. The Node service additionally has protected
 `resetDemo`, `setDemoClock`, `googleSheetsExportStatus`, and
 `syncGoogleSheetsExport` actions plus the public, PII-free `eventClock` read.
-The export status is sanitized and never returns its destination URL or secret.
+The export status is sanitized and never returns the spreadsheet ID,
+service-account email/key, or access token.
 The leader-paced Bible Bowl adds attendee `triviaState`,
 `submitTriviaAnswer`, and `completeTrivia` actions plus protected
 `triviaDashboardData`, `advanceTriviaSession`, and `resetTriviaSession`
@@ -385,7 +390,7 @@ dashboard data.
 - Test real devices, accessibility, staff handoff, and recovery from late or
   incorrectly assigned wristbands.
 
-The included Apps Script code provides the optional full-state export sink and
-legacy core-journey compatibility for testing. Its legacy API mode still has
-no remote clock, full-data reset, or specialized run parity. Neither mode
-removes these operating and security decisions.
+The included Apps Script code now remains only for legacy core-journey
+compatibility testing; it is not in the direct Sheets export path. Its legacy
+API mode still has no remote clock, full-data reset, or specialized run parity.
+Neither arrangement removes these operating and security decisions.

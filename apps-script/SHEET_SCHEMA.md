@@ -1,10 +1,9 @@
 # Sheet schema
 
-Reference for the six standalone-backend tabs `Code.gs` creates automatically
-— you don't need to make any of these by hand. For how to actually deploy
-`Code.gs` and get this Sheet up and running, see `README.md` in this same
-folder. A separate set of `Live_*` tabs used by the optional Node/Render export
-is documented below.
+Reference for the six legacy standalone-backend tabs `Code.gs` creates and the
+separate `Live_*` tabs written directly by the Node/Render service. For the
+current service-account setup, see `README.md` in this folder. You do not need
+to create any `Live_*` tab by hand.
 
 ## Attendees
 | attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor | phase3CompletedAt |
@@ -80,60 +79,30 @@ Node/Render mirror, use `Live_Attendees`. **File → Download → CSV** in Googl
 Sheets gives you name, phone, raffle number, wristband, progress, and Phase 3
 completion without another app export step.
 
-## Optional Node/Render live export
+## Direct Node/Render live export
 
-When the event app continues using the Node/Render backend, it can mirror a
-complete read-only snapshot into this bound spreadsheet by posting to:
+The current Node/Render backend uses a dedicated service account and the
+Google Sheets API. No Apps Script Web App URL or `EXPORT_KEY` is involved. The
+server validates the fixed seven-tab schema below, reads spreadsheet metadata,
+creates any missing managed tabs, and sends one atomic
+`spreadsheets.batchUpdate`.
 
-```text
-https://script.google.com/macros/s/DEPLOYMENT_ID/exec/importNodeSnapshot
-```
+Each managed tab's complete matrix is written while stale trailing rows and
+obsolete extra columns are cleared. The batch also grows undersized grids and
+freezes each header row. Google validates the whole request before applying
+it, so a rejected export leaves the previous Sheet snapshot intact. Every
+string is sent as text rather than as a formula. The exporter retries the
+newest complete snapshot and the protected Overall Organizer card reports its
+sanitized status.
 
-Add a separate `EXPORT_KEY` value under **Apps Script → Project Settings →
-Script Properties**, then configure the same secret only on the Node/Render
-service. This is intentionally not the `ORGANIZER_KEY`, and it must never be
-placed in browser JavaScript or a public URL.
+Removing a selection or clearing all attendee data removes stale Sheet rows on
+the next successful sync. The seven `Live_*` tabs are app-managed; put manual
+notes on unrelated tabs. Unrelated tabs are not changed.
 
-The payload is:
-
-```json
-{
-  "exportKey": "server-only secret",
-  "snapshot": {
-    "generatedAt": "2026-07-18T20:15:00.000Z",
-    "dataResetAt": "initial",
-    "tabs": {
-      "Attendees": { "headers": [], "rows": [] },
-      "BoothResults": { "headers": [], "rows": [] },
-      "SignUps": { "headers": [], "rows": [] },
-      "TriviaAnswers": { "headers": [], "rows": [] },
-      "HeavenConfirmations": { "headers": [], "rows": [] },
-      "SongVotes": { "headers": [], "rows": [] },
-      "ExportMeta": { "headers": [], "rows": [] }
-    }
-  }
-}
-```
-
-Every `headers` array must exactly match the corresponding schema below, in
-the same order. Every row is an array with exactly the same number of cells.
-The importer rejects missing, renamed, reordered, or additional tabs and
-columns. It validates the whole snapshot and holds one script lock across all
-seven replacements. Each tab's complete new matrix is bulk-written before its
-stale trailing rows or obsolete extra columns are cleared, so a failed write
-cannot blank that tab's last good export. A failure on a later tab can
-temporarily leave earlier tabs on the new generation and later tabs on the old
-one. `Live_ExportMeta` is written last: its `generatedAt` value is the commit
-marker for a complete snapshot and does not advance after an earlier failure.
-Wait for the protected export card to recover before treating all tabs as one
-consistent snapshot. Removing a selection or resetting Node data still removes
-stale Sheet rows after a successful retry. Formula-like strings are stored as
-text.
-
-Logical payload names are written to isolated physical tabs so this export
+Logical snapshot names are written to isolated physical tabs so this export
 cannot collide with the tabs used when Apps Script itself is the app backend:
 
-| Payload tab | Physical Sheet tab |
+| Snapshot tab | Physical Sheet tab |
 |---|---|
 | `Attendees` | `Live_Attendees` |
 | `BoothResults` | `Live_BoothResults` |
@@ -173,7 +142,7 @@ those details remain in their respective protected booth portals.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 This compatibility tab is intentionally header-only. A full sync removes old
-answer rows while preserving the existing Apps Script wire contract.
+answer rows while preserving the stable Sheet schema.
 
 ### Live_HeavenConfirmations
 
@@ -194,6 +163,6 @@ winning result remain visible only in the New Song booth-leader portal.
 |---|---|
 
 `Live_ExportMeta` records the snapshot schema version, `generatedAt`,
-`dataResetAt`, and each data tab's row count. It is written last and its
-`generatedAt` is the complete-snapshot commit marker. Array/object fields in
-the other tabs are serialized JSON text rather than nested Sheet values.
+`dataResetAt`, and each data tab's row count. It is the final managed tab in the
+atomic replacement. Array/object fields in the other tabs are serialized JSON
+text rather than nested Sheet values.

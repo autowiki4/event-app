@@ -1,4 +1,5 @@
 const assert = require("assert/strict");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
@@ -12,6 +13,8 @@ process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
 process.env.NODE_ENV = "test";
 delete process.env.EVENT_APP_SHEETS_EXPORT_URL;
 delete process.env.EVENT_APP_SHEETS_EXPORT_KEY;
+delete process.env.EVENT_APP_GOOGLE_SHEET_ID;
+delete process.env.EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
 const { server, startServer } = require("../server");
 const { TRIVIA_QUESTIONS } = require("../trivia-questions");
@@ -21,6 +24,13 @@ const {
   createGoogleSheetsExporter,
   normalizedCell,
 } = require("../google-sheets-export");
+const {
+  MANAGED_TAB_NAMES,
+  buildAtomicSnapshotRequests,
+  createGoogleSheetsServiceAccountSink,
+  parseServiceAccountConfiguration,
+  serviceAccountJwt,
+} = require("../google-sheets-service-account");
 const EXPECTED_NEW_SONG_CHOICES = Object.freeze([
   "He Turned It",
   "Victory",
@@ -305,11 +315,11 @@ async function runGoogleSheetsExporterRegression() {
     "HeavenConfirmations", "SongVotes", "ExportMeta",
   ]);
 
-  assert.equal(normalizedCell("=1+1"), "'=1+1");
-  assert.equal(normalizedCell(" +SUM(A1:A2)"), "' +SUM(A1:A2)");
-  assert.equal(normalizedCell("-2+3"), "'-2+3");
-  assert.equal(normalizedCell("@IMPORTDATA(example)"), "'@IMPORTDATA(example)");
-  assert.equal(normalizedCell("\tformula-shaped"), "'\tformula-shaped");
+  assert.equal(normalizedCell("=1+1"), "=1+1");
+  assert.equal(normalizedCell(" +SUM(A1:A2)"), " +SUM(A1:A2)");
+  assert.equal(normalizedCell("-2+3"), "-2+3");
+  assert.equal(normalizedCell("@IMPORTDATA(example)"), "@IMPORTDATA(example)");
+  assert.equal(normalizedCell("\tformula-shaped"), "\tformula-shaped");
   assert.equal(normalizedCell("ordinary text"), "ordinary text");
   assert.equal(normalizedCell(42), 42);
 
@@ -345,7 +355,7 @@ async function runGoogleSheetsExporterRegression() {
   const formulaAttendee = sheetRowObject(snapshot, "Attendees", 0);
   assert.equal(formulaAttendee.attendeeId, "attendee-formula");
   assert.equal(formulaAttendee.aliasIds, '["attendee-alias"]');
-  assert.equal(formulaAttendee.name, "'=SUM(1,1)");
+  assert.equal(formulaAttendee.name, "=SUM(1,1)");
   assert.equal(formulaAttendee.completedBoothIds, '["trivia"]');
   assert.equal(formulaAttendee.completedBoothCount, 1);
   assert.equal(formulaAttendee.signupOptionIds, '["future"]');
@@ -358,7 +368,7 @@ async function runGoogleSheetsExporterRegression() {
 
   const boothResult = sheetRowObject(snapshot, "BoothResults");
   assert.equal(boothResult.attendeeId, "attendee-formula", "alias check-in should map to its canonical attendee");
-  assert.equal(boothResult.name, "'=SUM(1,1)");
+  assert.equal(boothResult.name, "=SUM(1,1)");
   assert.equal(boothResult.raffleNumber, "1001");
   assert.equal(boothResult.wristbandColor, "blue");
   assert.equal(boothResult.sessionNumber, 1);
@@ -378,9 +388,9 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(boothResult.extraData.includes("privateArtReflection"), false);
 
   const signup = sheetRowObject(snapshot, "SignUps");
-  assert.equal(signup.name, "'=SUM(1,1)");
+  assert.equal(signup.name, "=SUM(1,1)");
   assert.equal(signup.raffleNumber, "1001");
-  assert.equal(signup.optionTitle, "'+Keep me posted");
+  assert.equal(signup.optionTitle, "+Keep me posted");
   assert.equal(signup.confirmedInPerson, true);
 
   assert.equal(snapshot.tabs.TriviaAnswers.rows.length, 0);
@@ -434,6 +444,205 @@ async function runGoogleSheetsExporterRegression() {
     [["house-a", "Alex One", "2001"], ["house-b", "Alex Two", "2002"]]
   );
 
+  const emptyConfiguration = parseServiceAccountConfiguration({});
+  assert.equal(emptyConfiguration.configured, false);
+  assert.equal(emptyConfiguration.configurationError, null);
+  const legacyOnlyConfiguration = parseServiceAccountConfiguration({
+    EVENT_APP_SHEETS_EXPORT_URL: "https://script.google.com/macros/s/legacy/exec",
+    EVENT_APP_SHEETS_EXPORT_KEY: "retired-export-key",
+  });
+  assert.equal(legacyOnlyConfiguration.configured, false);
+  assert.match(legacyOnlyConfiguration.configurationError, /no longer used/i);
+  const partialConfiguration = parseServiceAccountConfiguration({
+    EVENT_APP_GOOGLE_SHEET_ID: "test-spreadsheet-id-1234567890",
+  });
+  assert.equal(partialConfiguration.configured, false);
+  assert.match(partialConfiguration.configurationError, /both .* are required/i);
+  const invalidCredentialConfiguration = parseServiceAccountConfiguration({
+    EVENT_APP_GOOGLE_SHEET_ID: "test-spreadsheet-id-1234567890",
+    EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: "not base64!",
+  });
+  assert.equal(invalidCredentialConfiguration.configured, false);
+  assert.match(invalidCredentialConfiguration.configurationError, /not valid base64/i);
+
+  const testKeyPair = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 1024,
+    publicKeyEncoding: { type: "spki", format: "pem" },
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
+  const spreadsheetId = "test-spreadsheet-id-1234567890";
+  const clientEmail = "event-app-test@test-project.iam.gserviceaccount.com";
+  const encodedCredentials = Buffer.from(JSON.stringify({
+    type: "service_account",
+    project_id: "test-project",
+    private_key_id: "unit-test-key-id",
+    private_key: testKeyPair.privateKey,
+    client_email: clientEmail,
+  })).toString("base64");
+  const serviceAccountEnv = {
+    EVENT_APP_GOOGLE_SHEET_ID: spreadsheetId,
+    EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64: encodedCredentials,
+  };
+  const validConfiguration = parseServiceAccountConfiguration(serviceAccountEnv);
+  assert.equal(validConfiguration.configured, true);
+  assert.equal(validConfiguration.configurationError, null);
+  assert.equal(validConfiguration.spreadsheetId, spreadsheetId);
+  assert.equal(validConfiguration.clientEmail, clientEmail);
+
+  const jwtNowMs = Date.parse("2026-07-18T22:00:00.000Z");
+  const jwt = serviceAccountJwt(validConfiguration, jwtNowMs);
+  const jwtParts = jwt.split(".");
+  assert.equal(jwtParts.length, 3);
+  const decodeJwtPart = (part) => JSON.parse(Buffer.from(
+    part.replace(/-/g, "+").replace(/_/g, "/"),
+    "base64"
+  ).toString("utf8"));
+  assert.deepEqual(decodeJwtPart(jwtParts[0]), {
+    alg: "RS256",
+    typ: "JWT",
+    kid: "unit-test-key-id",
+  });
+  const jwtClaims = decodeJwtPart(jwtParts[1]);
+  assert.equal(jwtClaims.iss, clientEmail);
+  assert.equal(jwtClaims.scope, "https://www.googleapis.com/auth/spreadsheets");
+  assert.equal(jwtClaims.aud, "https://oauth2.googleapis.com/token");
+  assert.equal(jwtClaims.iat, Math.floor(jwtNowMs / 1000));
+  assert.equal(jwtClaims.exp, jwtClaims.iat + 3600);
+  assert.equal(crypto.verify(
+    "RSA-SHA256",
+    Buffer.from(`${jwtParts[0]}.${jwtParts[1]}`),
+    testKeyPair.publicKey,
+    Buffer.from(jwtParts[2].replace(/-/g, "+").replace(/_/g, "/"), "base64")
+  ), true);
+
+  const metadata = {
+    sheets: [
+      ...MANAGED_TAB_NAMES.slice(0, -1).map((name, index) => ({
+        properties: {
+          sheetId: 100 + index,
+          title: `Live_${name}`,
+          gridProperties: {
+            rowCount: name === "Attendees" ? 1 : 50,
+            columnCount: name === "Attendees" ? 1 : 30,
+            frozenRowCount: name === "Attendees" ? 0 : 1,
+          },
+        },
+      })),
+      {
+        properties: {
+          sheetId: 999,
+          title: "Notes",
+          gridProperties: { rowCount: 100, columnCount: 20, frozenRowCount: 0 },
+        },
+      },
+    ],
+  };
+  const atomicRequests = buildAtomicSnapshotRequests(snapshot, metadata);
+  const exportMetaAdd = atomicRequests.find((entry) => (
+    entry.addSheet && entry.addSheet.properties.title === "Live_ExportMeta"
+  ));
+  assert.ok(exportMetaAdd, "missing managed tabs should be created in the atomic batch");
+  assert.equal(Number.isInteger(exportMetaAdd.addSheet.properties.sheetId), true);
+  const attendeeResize = atomicRequests.find((entry) => (
+    entry.updateSheetProperties && entry.updateSheetProperties.properties.sheetId === 100
+  ));
+  assert.ok(attendeeResize, "undersized managed tabs should grow before their values are replaced");
+  assert.equal(attendeeResize.updateSheetProperties.properties.gridProperties.rowCount >= 3, true);
+  assert.equal(attendeeResize.updateSheetProperties.properties.gridProperties.columnCount, TAB_HEADERS.Attendees.length);
+  const atomicCellUpdates = atomicRequests.filter((entry) => entry.updateCells);
+  assert.equal(atomicCellUpdates.length, MANAGED_TAB_NAMES.length);
+  assert.equal(
+    atomicCellUpdates[atomicCellUpdates.length - 1].updateCells.range.sheetId,
+    exportMetaAdd.addSheet.properties.sheetId,
+    "ExportMeta should remain the final managed tab in the atomic replacement"
+  );
+  const boothUpdate = atomicCellUpdates.find((entry) => entry.updateCells.range.sheetId === 101);
+  assert.equal(boothUpdate.updateCells.range.endRowIndex, 50, "stale tail rows must be covered and cleared");
+  assert.equal(boothUpdate.updateCells.range.endColumnIndex, 30, "stale extra columns must be covered and cleared");
+  const attendeeUpdate = atomicCellUpdates.find((entry) => entry.updateCells.range.sheetId === 100);
+  const formulaNameCell = attendeeUpdate.updateCells.rows[1].values[TAB_HEADERS.Attendees.indexOf("name")];
+  assert.equal(formulaNameCell.userEnteredValue.stringValue, "=SUM(1,1)");
+  assert.equal("formulaValue" in formulaNameCell.userEnteredValue, false);
+  assert.equal(JSON.stringify(atomicRequests).includes('"sheetId":999'), false, "unmanaged tabs must not be changed");
+
+  const fullMetadata = {
+    sheets: MANAGED_TAB_NAMES.map((name, index) => ({
+      properties: {
+        sheetId: 200 + index,
+        title: `Live_${name}`,
+        gridProperties: { rowCount: 50, columnCount: 30, frozenRowCount: 1 },
+      },
+    })),
+  };
+  let tokenCalls = 0;
+  const serviceAccountCalls = [];
+  const directSink = createGoogleSheetsServiceAccountSink({
+    env: serviceAccountEnv,
+    now: () => jwtNowMs,
+    requestJson: async (url, options = {}) => {
+      serviceAccountCalls.push({ url, options });
+      if (url === "https://oauth2.googleapis.com/token") {
+        tokenCalls += 1;
+        assert.equal(options.method, "POST");
+        const tokenForm = new URLSearchParams(options.body);
+        assert.equal(tokenForm.get("grant_type"), "urn:ietf:params:oauth:grant-type:jwt-bearer");
+        assert.equal(tokenForm.get("assertion").split(".").length, 3);
+        return { access_token: "unit-test-access-token", expires_in: 3600 };
+      }
+      assert.equal(options.headers.Authorization, "Bearer unit-test-access-token");
+      if (options.method === "GET") return fullMetadata;
+      if (url.endsWith(":batchUpdate")) return { replies: [] };
+      throw new Error(`Unexpected Google API test call: ${url}`);
+    },
+  });
+  assert.equal(directSink.configured, true);
+  await directSink.writeSnapshot(snapshot);
+  const emptySnapshot = buildExportSnapshot(
+    { dataResetAt: "2026-07-18T23:00:00.000Z" },
+    { generatedAt: "2026-07-18T23:00:01.000Z" }
+  );
+  await directSink.writeSnapshot(emptySnapshot);
+  assert.equal(tokenCalls, 1, "the service-account token should be reused until its refresh window");
+  const directBatches = serviceAccountCalls.filter((call) => call.url.endsWith(":batchUpdate"));
+  assert.equal(directBatches.length, 2);
+  directBatches.forEach((call) => {
+    assert.equal(call.options.method, "POST");
+    assert.equal(call.options.body.requests.filter((entry) => entry.updateCells).length, 7);
+  });
+  const resetCellUpdates = directBatches[1].options.body.requests.filter((entry) => entry.updateCells);
+  resetCellUpdates.slice(0, -1).forEach((entry) => {
+    assert.equal(entry.updateCells.rows.length, 1, "a reset sync should leave only each data tab header");
+    assert.equal(entry.updateCells.range.endRowIndex, 50, "a reset sync should clear prior data rows");
+  });
+  assert.equal(resetCellUpdates[resetCellUpdates.length - 1].updateCells.rows.length > 1, true);
+
+  let authorizationTokenCalls = 0;
+  let rejectedFirstToken = false;
+  const authorizationRetrySink = createGoogleSheetsServiceAccountSink({
+    env: serviceAccountEnv,
+    now: () => jwtNowMs,
+    requestJson: async (url, options = {}) => {
+      if (url === "https://oauth2.googleapis.com/token") {
+        authorizationTokenCalls += 1;
+        return { access_token: `authorization-token-${authorizationTokenCalls}`, expires_in: 3600 };
+      }
+      if (
+        options.method === "GET"
+        && options.headers.Authorization === "Bearer authorization-token-1"
+        && !rejectedFirstToken
+      ) {
+        rejectedFirstToken = true;
+        const error = new Error("expired unit-test token");
+        error.statusCode = 401;
+        throw error;
+      }
+      if (options.method === "GET") return fullMetadata;
+      return { replies: [] };
+    },
+  });
+  await authorizationRetrySink.writeSnapshot(snapshot);
+  assert.equal(authorizationTokenCalls, 2, "one 401 should invalidate the cached token and retry once");
+
   let disabledSendCount = 0;
   const disabledExporter = createGoogleSheetsExporter({
     getSnapshot: googleSheetsExportFixture,
@@ -459,51 +668,46 @@ async function runGoogleSheetsExporterRegression() {
   });
 
   const successfulCalls = [];
-  const exportUrl = "https://sheets-export.example.test/deployment";
-  const exportKey = "unit-test-export-secret";
   const successfulExporter = createGoogleSheetsExporter({
     getSnapshot: googleSheetsExportFixture,
-    env: {
-      EVENT_APP_SHEETS_EXPORT_URL: exportUrl,
-      EVENT_APP_SHEETS_EXPORT_KEY: exportKey,
-      EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000",
+    env: { EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000" },
+    sheetsWriter: {
+      configured: true,
+      configurationError: null,
+      redactedValues: [],
+      writeSnapshot: async (exportedSnapshot) => { successfulCalls.push(exportedSnapshot); },
     },
-    requestJson: async (...args) => { successfulCalls.push(args); return { ok: true }; },
   });
   successfulExporter.markDirty();
   assert.equal(successfulExporter.status().state, "pending");
   const successfulStatus = await successfulExporter.flush();
   assert.equal(successfulCalls.length, 1);
-  assert.equal(successfulCalls[0][0], `${exportUrl}/importNodeSnapshot`);
-  assert.equal(successfulCalls[0][1].exportKey, exportKey);
-  assert.deepEqual(sheetDataRowCounts(successfulCalls[0][1].snapshot), expectedCounts);
+  assert.deepEqual(sheetDataRowCounts(successfulCalls[0]), expectedCounts);
   assert.equal(successfulStatus.state, "idle");
   assert.equal(successfulStatus.lastError, null);
   assert.deepEqual(successfulStatus.lastRowCounts, expectedCounts);
   assertIsoTimestamp(successfulStatus.lastAttemptAt, "export lastAttemptAt");
   assertIsoTimestamp(successfulStatus.lastSuccessAt, "export lastSuccessAt");
-  const successfulPublicStatus = JSON.stringify(successfulStatus);
-  assert.equal(successfulPublicStatus.includes(exportUrl), false);
-  assert.equal(successfulPublicStatus.includes(exportKey), false);
 
   let retryAttempts = 0;
-  const retryUrl = "https://retry-sheets.example.test/deployment";
-  const retryKey = "retry-export-secret";
+  const spreadsheetSecret = "retry-sheet-id-123456789012345";
+  const credentialSecret = "retry-service-account-credential";
+  const emailSecret = "retry@test-project.iam.gserviceaccount.com";
   const loggedErrors = [];
   const retryingExporter = createGoogleSheetsExporter({
     getSnapshot: googleSheetsExportFixture,
-    env: {
-      EVENT_APP_SHEETS_EXPORT_URL: retryUrl,
-      EVENT_APP_SHEETS_EXPORT_KEY: retryKey,
-      EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000",
-    },
+    env: { EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS: "60000" },
     logger: { error: (message) => loggedErrors.push(message) },
-    requestJson: async () => {
-      retryAttempts += 1;
-      if (retryAttempts === 1) {
-        throw new Error(`Failed sending ${retryKey} to ${retryUrl} at retry-sheets.example.test.`);
-      }
-      return { ok: true };
+    sheetsWriter: {
+      configured: true,
+      configurationError: null,
+      redactedValues: [spreadsheetSecret, credentialSecret, emailSecret],
+      writeSnapshot: async () => {
+        retryAttempts += 1;
+        if (retryAttempts === 1) {
+          throw new Error(`Failed sending ${credentialSecret} to ${spreadsheetSecret} for ${emailSecret}.`);
+        }
+      },
     },
   });
   retryingExporter.markDirty();
@@ -513,7 +717,7 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(failedStatus.pending, true);
   assertIsoTimestamp(failedStatus.nextRetryAt, "export nextRetryAt");
   assert.equal(failedStatus.lastError.includes("[redacted]"), true);
-  [retryKey, retryUrl, "retry-sheets.example.test"].forEach((secretValue) => {
+  [spreadsheetSecret, credentialSecret, emailSecret].forEach((secretValue) => {
     assert.equal(failedStatus.lastError.includes(secretValue), false);
     assert.equal(loggedErrors.some((message) => message.includes(secretValue)), false);
   });

@@ -1,6 +1,12 @@
 node_modules/
 .DS_Store
 *.log
+.env
+.env.*
+!.env.example
+credentials.json
+service-account*.json
+*-service-account*.json
 
 # Local demo data — regenerated automatically (empty) on first run.
 demo-server/db.json

@@ -1,15 +1,13 @@
 /**
- * Event app Google Sheets integration — a bound Apps Script Web App used as
- * the optional export sink for the authoritative Node/Render service. This
- * file also retains a limited legacy attendee/staff adapter for compatibility;
- * that adapter does not implement the Node-only shared clock, full reset, or
- * specialized leader-paced activity controllers.
+ * Legacy Event app Apps Script adapter. The current Node/Render service writes
+ * its optional live Sheet mirror directly through the Google Sheets API with a
+ * service account; this file is no longer in that export path. It remains for
+ * compatibility testing of a limited attendee/staff adapter, which does not
+ * implement the Node-only shared clock, full reset, or specialized
+ * leader-paced activity controllers.
  *
- * For full step-by-step deployment instructions (including the "Google
- * hasn't verified this app" prompt you'll hit the first time, and how to
- * push out changes after the first deploy), see README.md in this same
- * folder. For the exact spreadsheet columns this creates, see
- * SHEET_SCHEMA.md.
+ * For the current direct Sheets API setup and Render variables, see README.md
+ * in this folder. For the exact spreadsheet columns, see SHEET_SCHEMA.md.
  */
 
 const SHEET_NAMES = {
@@ -25,10 +23,8 @@ const ORGANIZER_KEY_PROPERTY = "ORGANIZER_KEY";
 const EXPORT_KEY_PROPERTY = "EXPORT_KEY";
 const MAX_NODE_EXPORT_ROWS_PER_TAB = 10000;
 const MAX_NODE_EXPORT_CELL_LENGTH = 50000;
-// Node/Render remains the source of truth for these snapshots. Logical tab
-// names are part of the wire contract, while separate physical Live_* tabs
-// keep this export feed from overwriting the standalone Apps Script backend's
-// operational tabs above.
+// Retired Node-snapshot import compatibility. Current Node/Render deployments
+// write Live_* tabs directly through the Sheets API and do not call this code.
 const NODE_EXPORT_SCHEMAS = {
   Attendees: {
     sheetName: "Live_Attendees",
@@ -1344,6 +1340,8 @@ function actionBoothDashboardData(payload) {
 }
 
 function actionImportNodeSnapshot(payload) {
+  // Deprecated compatibility route. The current exporter authenticates with a
+  // service account and calls the Google Sheets API directly.
   // This credential is intentionally independent from the key staff type into
   // organizer pages. Authentication happens before lock acquisition so an
   // invalid public request cannot block a legitimate export.

@@ -181,25 +181,27 @@ current simulated/live clock mode unchanged.
 
 ## Optional Google Sheets mirror
 
-The Node database can be mirrored to a bound Google Sheet while `/api` remains
-the frontend backend. This preserves every synchronized booth and clock
-feature. The export is best-effort and nonblocking: after a durable JSON write,
-the server queues the newest complete snapshot, coalesces bursts, and retries a
-failed delivery without changing the attendee or staff API response.
+The Node database can be mirrored directly to a Google Sheet through the
+Google Sheets API while `/api` remains the frontend backend. This preserves
+every synchronized booth and clock feature. The export is best-effort and
+nonblocking: after a durable JSON write, the server queues the newest complete
+snapshot, coalesces bursts, and retries a failed delivery without changing the
+attendee or staff API response.
 
 Configure these server-only environment variables locally or in Render:
 
 ```text
-EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
-EVENT_APP_SHEETS_EXPORT_KEY=use-a-long-random-secret
+EVENT_APP_GOOGLE_SHEET_ID=the-id-between-/d/-and-/edit
+EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=base64-of-the-entire-json-key
 ```
 
 Optional tuning values are `EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS` and
-`EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS`. The export key must match the
-`EXPORT_KEY` Script Property in the bound Apps Script. Neither value belongs in
-`web/shared/config.js`, a public URL, or client-side storage. Keep
-`API_BASE_URL: "/api"`; the Apps Script URL is only the server-to-server export
-destination.
+`EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS` (defaults: `3000` and `10000`). Enable the
+Google Sheets API, create a dedicated service account with no project role,
+share only the destination Sheet with its `client_email` as **Editor**, and
+base64-encode the complete downloaded JSON key before placing it in Render.
+Neither required value belongs in `web/shared/config.js`, a public URL, or
+client-side storage. Keep `API_BASE_URL: "/api"`.
 
 Each successful snapshot fully replaces `Live_Attendees`,
 `Live_BoothResults`, `Live_SignUps`, `Live_TriviaAnswers`,
@@ -212,8 +214,8 @@ though no sign-up row exists.
 Bible Bowl answers/scores and New Song votes/results stay in their protected
 booth portals and are not exported. The `Live_TriviaAnswers` and
 `Live_SongVotes` tabs remain in the wire schema with zero data rows so the next
-successful full snapshot clears any older rows without changing the Apps
-Script deployment URL or credentials.
+successful full snapshot clears any older rows while keeping the Sheet schema
+stable.
 
 Every registered attendee reaches this mirror, including the phone collected
 in Phase 1. The Sheet therefore contains attendee contact information and must
@@ -221,18 +223,19 @@ use appropriately restricted access and retention rules.
 
 `Live_BoothResults.extraData` mirrors only allowlisted operational metadata;
 attendee-entered Art reflections remain out of the Sheet.
-`Live_ExportMeta.generatedAt` is written last as the commit marker. If a
-transient failure interrupts the tab sequence, the marker stays on the prior
-generation and the protected dashboard reports the error until a full retry
-succeeds.
+All seven tab replacements are one atomic `spreadsheets.batchUpdate`; a failed
+request leaves the prior Sheet snapshot intact. `Live_ExportMeta` is the final
+managed tab in that request and records the successful snapshot's
+`generatedAt` marker.
 
 Overall Organizer shows whether the export is connected, queued, syncing, up
 to date, or failing, plus the latest row counts. **Sync now** is protected by
 the organizer key and queues the current snapshot. The status never exposes
-the Apps Script URL or export key. `resetDemo` remains the deletion boundary;
-after it succeeds, the next export clears the live Sheet mirror too. The Sheet
+the spreadsheet ID, service-account email/key, or access token. `resetDemo`
+remains the deletion boundary; after it succeeds, the next export clears the
+live Sheet mirror too. The Sheet
 is therefore an operational view, not a separate backup or immutable archive.
-See `../apps-script/README.md` for Sheet and Web App setup.
+See `../apps-script/README.md` for service-account and Render setup.
 
 ## Tests
 
@@ -354,10 +357,10 @@ Run one Node instance with a persistent `EVENT_APP_DB_PATH`; the Apps Script
 adapter does not implement these synchronized booth workflows. Its New Song
 support remains the legacy unsynchronized vote path.
 
-The optional Apps Script export sink is different from using Apps Script as
-the app backend: it mirrors the complete Node data model into `Live_*` tabs and
-does not change `API_BASE_URL`. This is the recommended Sheet arrangement for
-the current full experience.
+The optional direct Sheets API writer mirrors the complete Node data model into
+`Live_*` tabs and does not change `API_BASE_URL`. Apps Script is not in this
+export path. This is the recommended Sheet arrangement for the current full
+experience.
 
 The Node service also exposes the public, PII-free `eventClock` read so pages
 can follow the shared rehearsal time and durable reset marker. `resetDemo`,

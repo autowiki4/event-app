@@ -1,99 +1,117 @@
-# Connecting the Node app to a live Google Sheet
+# Connect the Node app directly to Google Sheets
 
-The recommended setup keeps the full event app on the same-origin Node/Render
-`/api` backend and uses this Apps Script only as a protected export sink. That
-preserves the shared timer, protected reset, and leader-paced Bible Bowl, Draw
-Heaven, Art Therapy, and New Song workflows while giving operations a live Sheet containing
-attendees, results, and Phase 3 selections.
+The current event app exports from the Node/Render service directly through
+the Google Sheets API. **Apps Script is no longer part of the export path.**
+Keep `web/shared/config.js` on the same-origin Node API:
 
-The Node JSON database remains the source of truth. Apps Script receives a
-debounced full snapshot and replaces seven `Live_*` tabs. Do **not** point
-`web/shared/config.js` at Apps Script for this arrangement.
+```js
+API_BASE_URL: "/api",
+```
 
-Phone numbers collected during one-step attendee registration appear in the
-live operational rows. Restrict Sheet access and define retention and deletion
-rules before enabling the export with real attendee data.
+The Node JSON database remains the source of truth. The Sheet is a live,
+best-effort mirror containing attendee names, phone numbers, raffle numbers,
+booth visits, Draw Heaven confirmations, and Phase 3 selections. Restrict its
+access and decide retention/deletion ownership before using real attendee data.
 
 ## Access required
 
 You need a Google account that can:
 
-- create and edit a Google Sheet;
-- open **Extensions → Apps Script** for that Sheet; and
-- deploy the script as a Web App that the Render server can reach.
+- create or select a Google Cloud project;
+- enable the Google Sheets API;
+- create a dedicated service account and download one JSON key; and
+- share the destination spreadsheet with that service account as **Editor**.
 
-This export does not require Google Admin SDK, Google Meet API, domain-wide
-delegation, or a service-account key. If your Workspace policy does not allow a
-Web App to be reached without an interactive Google login, ask the Workspace
-administrator for an approved deployment path before enabling the export.
+The service account does not need a Google Cloud project role, Workspace Admin
+role, domain-wide delegation, Admin SDK, Meet API, Drive API, OAuth consent
+screen, or Apps Script deployment. Direct access comes from sharing only the
+chosen spreadsheet with the service account's `client_email`.
 
-## Set up the Sheet export
+## Set up the live export
 
-### 1. Create the Sheet
+### 1. Create or choose the spreadsheet
 
-Create a blank spreadsheet at [sheets.google.com](https://sheets.google.com).
-Choose a clear restricted-access name, such as `Event Operations Data`.
-
-### 2. Add the script
-
-Open **Extensions → Apps Script**. Delete the placeholder function, copy the
-entire contents of this repository's `apps-script/Code.gs`, paste it into the
-editor, and save.
-
-### 3. Create a separate export secret
-
-Generate a long random value in a password manager. In Apps Script, open
-**Project Settings → Script Properties** and add:
+Create a blank spreadsheet and give it a restricted-access name such as
+`Event Operations Data`. Copy the spreadsheet ID from its URL:
 
 ```text
-Property: EXPORT_KEY
-Value:    your-long-random-export-secret
+https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
 ```
 
-`EXPORT_KEY` is only for the Node-to-Sheet export. Do not reuse the organizer
-key and do not put either secret in a URL or any file under `web/`.
+Copy only the value between `/d/` and `/edit`, not the whole URL.
 
-### 4. Deploy the Web App
+### 2. Enable the Sheets API
 
-Choose **Deploy → New deployment → Web app** and set:
+In [Google Cloud Console](https://console.cloud.google.com/), select the project
+that will own the service account. Open **APIs & Services → Library**, find
+**Google Sheets API**, and enable it.
 
-- **Execute as:** Me
-- **Who has access:** Anyone
+### 3. Create a dedicated service account and JSON key
 
-Authorize the script when Google prompts, then copy the Web App URL ending in
-`/exec`. The export endpoint itself still rejects requests without the matching
-`EXPORT_KEY`.
+Open **IAM & Admin → Service Accounts**, create a service account such as
+`event-app-sheets-export`, and skip optional project-role assignment. Open the
+new account, choose **Keys → Add key → Create new key → JSON**, and download the
+file.
 
-### 5. Configure Render
+The JSON key is a credential. Do not paste it into GitHub, browser code, a
+public URL, Slack, or this repository. Store the original securely and delete
+or rotate the key after the event according to the team's retention plan.
+Leave the downloaded file outside this repository (for example in Downloads)
+and inspect `git status --short` before committing; Google's default key
+filename is project-specific and cannot be safely covered by one narrow ignore
+pattern.
 
-Add these environment variables to the same Render service that runs the Node
-app:
+### 4. Share the exact spreadsheet
+
+Open the downloaded JSON locally, copy its `client_email`, then share the
+destination spreadsheet with that address as **Editor**. Sharing a folder or
+granting the service account a broad project role is unnecessary.
+
+### 5. Encode the JSON for Render
+
+On macOS, this copies the entire JSON file as one-line base64, which avoids
+multiline private-key formatting problems in an environment variable:
+
+```bash
+openssl base64 -A -in "/path/to/service-account-key.json" | pbcopy
+```
+
+Replace the example path with the downloaded key's actual path. Do not run the
+command from a shared terminal recording or paste its output anywhere except
+the secret Render environment variable.
+
+### 6. Configure Render
+
+On the same Render web service that runs `demo-server/server.js`, add:
 
 ```text
-EVENT_APP_SHEETS_EXPORT_URL=https://script.google.com/macros/s/YOUR_ID/exec
-EVENT_APP_SHEETS_EXPORT_KEY=the-same-value-as-EXPORT_KEY
+EVENT_APP_GOOGLE_SHEET_ID=the-id-between-/d/-and-/edit
+EVENT_APP_GOOGLE_SERVICE_ACCOUNT_JSON_BASE64=the-base64-value-from-step-5
 ```
 
-Optional tuning:
+Optional tuning values can stay at their defaults:
 
 ```text
 EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS=3000
 EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS=10000
 ```
 
-Keep this frontend configuration unchanged:
+Delete the retired Apps Script variables if they still exist:
 
-```js
-API_BASE_URL: "/api",
+```text
+EVENT_APP_SHEETS_EXPORT_URL
+EVENT_APP_SHEETS_EXPORT_KEY
 ```
 
-Redeploy or restart the Render service after setting the environment variables.
+Choose **Save and deploy**. Clearing Render's build cache is not required for
+an environment-variable change. The frontend URL and `API_BASE_URL` do not
+change.
 
-### 6. Verify it
+### 7. Verify the connection
 
 Open **Staff portal → Overall Organizer**. The **Google Sheets export** card
 should change from **Not connected** to **Ready** or **Up to date**. Choose
-**Sync now**, then open the Sheet and confirm these tabs exist:
+**Sync now**, then confirm the spreadsheet has these app-managed tabs:
 
 - `Live_Attendees`
 - `Live_BoothResults`
@@ -103,77 +121,73 @@ should change from **Not connected** to **Ready** or **Up to date**. Choose
 - `Live_SongVotes`
 - `Live_ExportMeta`
 
-`Live_TriviaAnswers` and `Live_SongVotes` are intentionally header-only. Bible
-Bowl rankings and New Song tallies stay in their protected booth-leader
-portals. Keeping the tabs lets the existing Web App clear previously exported
-rows without changing its deployment URL or export credentials.
+Register one throwaway attendee, assign a wristband, and select one Phase 3
+option. After the short debounce, confirm the corresponding rows update. Keep
+manual notes on separate tabs: each successful sync fully replaces values in
+the seven `Live_*` tabs.
 
-Register one throwaway attendee, assign a wristband, and choose a Phase 3
-option. After the short debounce, the corresponding rows should update without
-refreshing the Sheet.
+`Live_TriviaAnswers` and `Live_SongVotes` intentionally remain header-only.
+Bible Bowl rankings and New Song tallies stay in their protected booth-leader
+portals.
 
-## How synchronization behaves
+After the direct exporter reaches **Up to date**, retire the old Apps Script
+writer: open **Apps Script → Deploy → Manage deployments**, archive/delete the
+old Web App deployment, and remove its `EXPORT_KEY` Script Property. This
+prevents an unused public endpoint or a second writer from remaining active.
 
-- Node saves the local/persistent JSON database first. A Sheet failure never
-  changes a successful attendee or staff response into an error.
-- Bursts are coalesced and only the newest pending complete snapshot is sent.
-- The exporter retries failed delivery and the protected dashboard displays a
-  sanitized status; it never displays the Web App URL or export secret.
-- Full replacement prevents duplicate rows and removes stale selections after
-  an attendee changes their Phase 3 choices.
-- `Live_ExportMeta.generatedAt` is written last and is the commit marker for a
-  complete snapshot. If an import fails between tabs, the export card reports
-  an error and that marker does not advance; wait for the automatic retry or
-  choose **Retry now** before treating the tabs as one consistent snapshot.
-- Free-text Art reflections are intentionally omitted from
-  `Live_BoothResults.extraData`; only allowlisted operational metadata is
-  mirrored.
-- **No thanks, finish** creates no `Live_SignUps` row, but the attendee still
-  has `phase3CompletedAt` in `Live_Attendees`.
-- **Clear all attendee data** is a deletion boundary. The next successful sync
-  clears the exported data rows as well.
+## Synchronization and reset behavior
 
-The Sheet is a live operational mirror, not an immutable backup. Before using
-real attendee data, decide who may access names, phone numbers, raffle numbers,
-activity results, and selections, and define retention/deletion ownership.
+- Node saves the persistent JSON database before queuing a Sheet update. A
+  Google outage never changes a successful attendee save into an error.
+- Bursts are coalesced, access tokens are cached, and the newest complete
+  snapshot retries automatically after a failed delivery.
+- Missing `Live_*` tabs are created automatically. All seven replacements,
+  stale-row clearing, and required grid expansion happen in one atomic Sheets
+  API batch, so a rejected request leaves the prior Sheet snapshot intact.
+- The protected organizer status never exposes the spreadsheet ID,
+  service-account email/key, or Google access token.
+- **Clear all attendee data** resets Node first. The next successful sync keeps
+  the `Live_*` headers, clears their old data rows, and updates
+  `Live_ExportMeta` with the reset marker and zero row counts.
+- Unrelated spreadsheet tabs are never changed.
 
-## Updating `Code.gs`
-
-Saving a script edit does not update an existing Web App deployment. Use:
-
-1. **Deploy → Manage deployments**
-2. Select the pencil/edit icon
-3. Choose **New version**
-4. Choose **Deploy**
-
-The `/exec` URL stays the same.
+The reset does **not** create a CSV, duplicate spreadsheet, or historical
+archive. If rehearsal/event history must be retained, download the relevant
+tabs as CSV, make a copy of the spreadsheet, or connect a new shared
+spreadsheet **before** clearing attendee data. After clearing, wait until the
+organizer card says **Up to date** before treating the Sheet as empty.
 
 ## Troubleshooting
 
-- **Not connected** — one or both Render environment variables are absent.
-- **Needs attention** — open the status card, verify the Render URL ends in
-  `/exec`, confirm `EXPORT_KEY` matches exactly, and ensure the Web App is
-  reachable by the Render service.
-- **Unknown action** — deploy a new Apps Script version containing the current
-  `Code.gs`.
-- **No live tabs yet** — choose **Sync now** after connecting; the tabs are
-  created on the first successful import.
-- **Old rows remain after a reset** — the Sheet delivery failed or is still
-  queued. Do not delete individual rows as a substitute for checking the
-  protected export status.
-- **Organization blocks “Anyone” deployments** — the webhook cannot work until
-  Workspace administrators approve a non-interactive route. A future direct
-  Sheets API/service-account integration is the alternative, but it requires a
-  Cloud project, the Sheets API, credential management, and sharing the Sheet
-  with that service account.
+- **Not connected** — confirm both required Render variables exist on the same
+  web service and choose **Save and deploy**.
+- **Apps Script variables are no longer used** — remove the old URL/key and add
+  the new Sheet ID and base64 service-account JSON variables.
+- **Access was denied** — confirm the Google Sheets API is enabled in the
+  service account's project and share the exact spreadsheet with its
+  `client_email` as **Editor**.
+- **Spreadsheet was not found** — use only the ID between `/d/` and `/edit`,
+  then check sharing again.
+- **Authentication failed** — recreate or re-encode the JSON key and replace
+  the Render secret; never edit the private-key text by hand.
+- **No live tabs yet** — choose **Sync now** and inspect the sanitized error in
+  Overall Organizer.
+- **Old rows remain after reset** — the empty replacement is queued or failing;
+  do not manually delete rows until the organizer export status is **Up to
+  date**.
+- **Key creation or sharing is blocked** — an organization policy may prohibit
+  service-account keys or sharing with that address. Use a project and Sheet
+  where those actions are allowed, or ask the Workspace/Cloud administrator
+  for the approved equivalent; do not work around the policy in code.
 
-## Legacy Apps Script backend mode
+## Legacy `Code.gs` adapter
 
-`Code.gs` still includes the older attendee and staff API actions for
-compatibility testing. Pointing `API_BASE_URL` directly at its `/exec` URL is
-not the recommended current deployment: that mode lacks the Node shared clock,
-full reset, and specialized leader-paced run controllers. Use the export-sink
-setup above for the full experience.
+`Code.gs` remains in this repository only for compatibility testing of an
+older, limited attendee/staff backend. Pointing `API_BASE_URL` at its `/exec`
+URL is not the current deployment: it lacks the Node shared clock, full reset,
+and specialized leader-paced booth controllers. Its retired Node snapshot
+import route is not needed for the direct Sheets API export and should not be
+deployed as a second writer.
 
-See `SHEET_SCHEMA.md` for the exact export columns and the separate legacy tab
-schemas.
+See `SHEET_SCHEMA.md` for the exact `Live_*` columns and the separate legacy
+adapter schemas.
