@@ -37,11 +37,11 @@ The color selected in Phase 1 determines all three stops:
 
 | Wristband | Session 1 | Session 2 | Session 3 |
 |---|---|---|---|
-| Blue | Can You Draw Heaven? | Bible Bowl | The Sower, Live |
+| Blue | Can You Draw Heaven? | Bible Bowl | The Heaven Booth |
 | Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
-| Orange | Art Therapy Table | The Sower, Live | The New Song in Nashville |
+| Orange | Art Therapy Table | The Heaven Booth | The New Song in Nashville |
 | Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
-| Yellow | The Sower, Live | The New Song in Nashville | Bible Bowl |
+| Yellow | The Heaven Booth | The New Song in Nashville | Bible Bowl |
 
 The current mock schedule is:
 
@@ -172,7 +172,7 @@ sign-ups, Draw Heaven confirmations, and export metadata. The existing
 sync clears older activity rows without requiring a new Apps Script URL.
 
 The Sheet mirror includes the collected attendee phone numbers but excludes
-attendee-entered Story answers, Art reflections, Bible Bowl answers/scores,
+attendee-entered Art reflections, Bible Bowl answers/scores,
 and New Song choices/results. `Live_BoothResults.extraData` contains only
 allowlisted non-activity operational metadata.
 `Live_ExportMeta.generatedAt` is written last as the complete-snapshot marker.

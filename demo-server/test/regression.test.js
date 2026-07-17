@@ -967,7 +967,7 @@ async function runApiRegression(port) {
     attendeeId: "entry-a",
     phone: "6155550101",
     boothId: "story",
-    boothName: "The Sower, Live",
+    boothName: "The Heaven Booth",
     checkedInBy: "staff-kiosk",
   });
   assert.equal(res.status, 401);
@@ -976,7 +976,7 @@ async function runApiRegression(port) {
     attendeeId: "entry-a",
     phone: "6155550101",
     boothId: "story",
-    boothName: "The Sower, Live",
+    boothName: "The Heaven Booth",
     checkedInBy: "staff-kiosk",
     organizerKey,
   });
@@ -991,7 +991,7 @@ async function runApiRegression(port) {
     attendeeId: "entry-a",
     phone: "6155550101",
     boothId: "story",
-    boothName: "The Sower, Live",
+    boothName: "The Heaven Booth",
     checkedInBy: "self",
     rating: 4,
   });
@@ -1006,7 +1006,7 @@ async function runApiRegression(port) {
   res = await request(port, "boothCheckin", {
     attendeeId: "entry-a",
     boothId: "story",
-    boothName: "The Sower, Live",
+    boothName: "The Heaven Booth",
     checkedInBy: "scheduled-attendee",
     extraData: { sessionNumber: 2, wristbandColor: "blue" },
   });
@@ -3923,6 +3923,7 @@ async function runFrontendContractRegression() {
   const artStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "art.html"), "utf8");
   const artStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "art-staff.js"), "utf8");
   const storyRoomSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-story.html"), "utf8");
+  const storyAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "story-attendee.js"), "utf8");
   const phase1Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase1-entry", "index.html"), "utf8");
   const phase2Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-booths", "hub.html"), "utf8");
   const phase3Source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase3-signup", "index.html"), "utf8");
@@ -4030,7 +4031,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /phase3\.href = EventSchedule\.linkWithPreview\("\.\.\/phase3-signup\/index\.html"\)/);
   assert.match(phase2Source, /\["phase2-name", "phase2-phone"\]/);
   assert.match(phase2Source, /id="phase2-phone"[^>]*autocomplete="tel-national"/);
-  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "art", "newsong"\]\.includes\(currentBooth\.id\)/);
+  assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "story", "art", "newsong"\]\.includes\(currentBooth\.id\)/);
   assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
@@ -4052,6 +4053,40 @@ async function runFrontendContractRegression() {
   [artRoomSource, storyRoomSource, newSongSource, triviaRoomSource, heavenRoomSource].forEach((source) => {
     assert.doesNotMatch(source, /id="booth-phone-input"|id="btn-booth-checkin"/);
   });
+
+  // The Heaven Booth is paced entirely by the booth leader. Attendee phones
+  // render only the published presentation step; there are no local answers,
+  // Next/Back controls, or completion action before the Thank you screen.
+  assert.match(storyRoomSource, /shared\/story-attendee\.js/);
+  assert.match(storyRoomSource, /StoryAttendee\.init\(/);
+  assert.match(storyRoomSource, /const BOOTH_NAME = "The Heaven Booth"/);
+  assert.doesNotMatch(storyRoomSource, /JourneyState|STORY_BEATS|story-input|btn-story-(?:next|prev)|<input|<textarea/);
+  assert.match(storyAttendeeSource, /EventAPI\.boothPresentation\(BOOTH_ID\)/);
+  assert.match(storyAttendeeSource, /updatedMs < snapshot\.session\.startMs/);
+  assert.match(storyAttendeeSource, /const FINAL_STEP_INDEX = 12/);
+  assert.equal((storyAttendeeSource.match(/type: "verse"/g) || []).length, 4);
+  [
+    "Matthew 13:31–32",
+    "Matthew 13:33",
+    "Matthew 13:44",
+    "Matthew 13:47–48",
+    "about sixty pounds of flour",
+    "collected the good fish in baskets",
+    "All rights reserved worldwide.",
+  ].forEach((copy) => assert.ok(storyAttendeeSource.includes(copy), copy));
+  [
+    "heaven-booth-mustard-seed.png",
+    "heaven-booth-yeast.png",
+    "heaven-booth-treasure.png",
+    "heaven-booth-net.png",
+  ].forEach((filename) => {
+    assert.ok(storyAttendeeSource.includes(filename), filename);
+    assert.ok(fs.statSync(path.join(__dirname, "..", "..", "web", "assets", filename)).size > 0, filename);
+  });
+  assert.match(storyAttendeeSource, /<h2>The Heaven Booth<\/h2>/);
+  assert.match(storyAttendeeSource, /<h2>Thank you<\/h2>/);
+  assert.match(storyAttendeeSource, /id="btn-booth-done"/);
+  assert.doesNotMatch(storyAttendeeSource, /score|leaderboard|data-story-answer|btn-story-(?:next|prev)/i);
 
   // Bible Bowl questions are now speaker-controlled and server-scored. The
   // attendee bundle has no answer-key data or local Next-question mechanism;
@@ -4350,6 +4385,27 @@ async function runFrontendContractRegression() {
   assert.equal(boothConfigs.length, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.page)).size, 5);
   assert.equal(new Set(boothConfigs.map((booth) => booth.staffPage)).size, 5);
+  const storyBoothConfig = boothConfigs.find((booth) => booth.id === "story");
+  assert.equal(storyBoothConfig.title, "The Heaven Booth");
+  assert.equal(storyBoothConfig.leaderSteps.length, 13);
+  assert.deepEqual(
+    Array.from(storyBoothConfig.leaderSteps, (step) => step.title),
+    [
+      "The Heaven Booth",
+      "Picture 1",
+      "Picture 2",
+      "Picture 3",
+      "Picture 4",
+      "Are they related?",
+      "They actually are",
+      "The Kingdom of Heaven",
+      "Matthew 13:31–32",
+      "Matthew 13:33",
+      "Matthew 13:44",
+      "Matthew 13:47–48",
+      "Thank you",
+    ]
+  );
 
   const expectedRoutes = {
     blue: ["heaven", "trivia", "story"],
@@ -4681,22 +4737,17 @@ function runBoothDraftPersistenceRegression() {
   assert.doesNotMatch(boothCommonSource, /["']booth-(?:note|stars)["']/);
   assert.doesNotMatch(boothCommonSource, /\brating\s*:|\bnote\s*:/);
 
-  ["story"].forEach((boothId) => {
-    const source = fs.readFileSync(
-      path.join(__dirname, "..", "..", "web", "phase2-booths", `booth-${boothId}.html`),
-      "utf8"
-    );
-    const identityScript = source.indexOf('src="../shared/identity.js"');
-    const journeyScript = source.indexOf('src="../shared/journey-state.js"');
-    const portalScript = source.indexOf('src="../shared/attendee-portal.js"');
-    const menuScript = source.indexOf('src="../shared/attendee-menu.js"');
-    assert.ok(identityScript >= 0 && identityScript < journeyScript);
-    assert.ok(journeyScript < portalScript && portalScript < menuScript);
-    assert.match(source, /_DRAFT_SCOPE = `booth\.\$\{BOOTH_ID\}\.activity`/);
-    assert.match(source, /JourneyState\.load\(/);
-    assert.match(source, /JourneyState\.save\(/);
-    assert.doesNotMatch(source, /renderBoothFooter\(|id="booth-note"|id="booth-stars"|Rate this booth/);
-  });
+  // The Heaven Booth is now leader-paced. Its shared presentation is restored
+  // from the backend, so a local draft must never override the published step.
+  const storySource = fs.readFileSync(
+    path.join(__dirname, "..", "..", "web", "phase2-booths", "booth-story.html"),
+    "utf8"
+  );
+  assert.doesNotMatch(
+    storySource,
+    /_DRAFT_SCOPE|STORY_BEATS|JourneyState\.(?:load|save)\(|renderBoothFooter\(|btn-story-(?:next|prev)/
+  );
+  assert.match(storySource, /shared\/story-attendee\.js/);
 
   // Bible Bowl is the deliberate exception: answers and score restoration
   // are authoritative on the server, so the attendee page must not revive a

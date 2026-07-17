@@ -406,7 +406,7 @@ function renderSchedule() {
         ? `Reopen ${currentBooth.title} activity →`
         : `Open ${currentBooth.title} activity →`;
       const alreadyComplete = completedBooths.has(currentBooth.id);
-      const completionLivesInActivity = ["trivia", "heaven", "art", "newsong"].includes(currentBooth.id);
+      const completionLivesInActivity = ["trivia", "heaven", "story", "art", "newsong"].includes(currentBooth.id);
       completeButton.hidden = completionLivesInActivity;
       completeButton.disabled = completionLivesInActivity || alreadyComplete;
       completeButton.textContent = completionLivesInActivity
@@ -471,7 +471,7 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
     toast("The session just changed. Check your newly active booth before finishing.");
     return;
   }
-  if (["trivia", "heaven"].includes(booth.id)) {
+  if (["trivia", "heaven", "story", "art", "newsong"].includes(booth.id)) {
     toast(`Finish ${booth.title} from its final screen so your visit is saved.`);
     window.location.href = EventSchedule.linkWithPreview(booth.page);
     return;

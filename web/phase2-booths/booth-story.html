@@ -2,38 +2,137 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>The Sower, Live — The Perfect Summer Day</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>The Heaven Booth — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
-  :root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+  :root{
+    --phase-color:#6898d8; --phase-color-deep:#315f9d;
+    --story-sky:#dff3ff; --story-blue:#477dbb; --story-blue-deep:#244f86;
+    --story-gold:#d7a73b; --story-cream:#fffaf0; --story-ink:#26384d;
+  }
+  body{
+    background:
+      radial-gradient(circle at 12% 9%,rgba(255,255,255,.92) 0 7%,transparent 7.5%),
+      radial-gradient(circle at 89% 18%,rgba(255,255,255,.78) 0 9%,transparent 9.5%),
+      linear-gradient(160deg,#dff3ff 0%,#f7fbff 48%,#fff6df 100%);
+  }
+  .story-shell-head{ position:relative; overflow:hidden; }
+  .story-shell-head::after{
+    content:"✦"; position:absolute; right:20px; top:16px; color:rgba(215,167,59,.62);
+    font:800 34px/1 'Fraunces',serif; pointer-events:none;
+  }
+  .story-stage{ min-height:420px; }
+  .story-card{
+    position:relative; overflow:hidden; padding:22px 17px; border:1px solid rgba(49,95,157,.17);
+    border-radius:24px; background:rgba(255,255,255,.96); color:var(--story-ink);
+    box-shadow:0 25px 55px -42px rgba(36,79,134,.95);
+    animation:storyIn .28s ease-out both;
+  }
+  .story-card::before{
+    content:""; position:absolute; width:150px; height:72px; right:-42px; top:-38px;
+    border-radius:50%; background:rgba(223,243,255,.9); box-shadow:-58px 18px 0 rgba(223,243,255,.72);
+    pointer-events:none;
+  }
+  .story-card > *{ position:relative; }
+  .story-card h2{
+    margin:0; color:var(--story-blue-deep); font-family:'Fraunces',serif;
+    font-size:29px; line-height:1.13;
+  }
+  .story-slide-label{
+    margin:0 0 10px; color:var(--story-blue); font:800 10px/1.4 'JetBrains Mono',monospace;
+    letter-spacing:.09em; text-transform:uppercase;
+  }
+  .story-welcome{
+    display:grid; place-items:center; min-height:390px; text-align:center;
+    background:linear-gradient(150deg,#f9fdff,#e5f5ff 54%,#fff6dc);
+  }
+  .story-welcome h2{ max-width:330px; font-size:42px; }
+  .story-picture-card{ text-align:center; }
+  .story-picture{
+    display:block; width:100%; margin:0 0 18px; overflow:hidden; border:1px solid rgba(36,79,134,.18);
+    border-radius:19px; background:#edf7ff; box-shadow:0 22px 38px -30px rgba(36,79,134,.85);
+  }
+  .story-picture img{ display:block; width:100%; aspect-ratio:1; object-fit:cover; }
+  .story-picture-card h2{ max-width:360px; margin:0 auto; }
+  .story-question,.story-reveal,.story-complete{
+    display:grid; align-content:center; min-height:390px; text-align:center;
+    background:linear-gradient(145deg,#f7fcff,#e6f4ff 58%,#fff8e7);
+  }
+  .story-question h2,.story-reveal h2{ max-width:370px; margin:0 auto; font-size:36px; }
+  .story-reveal .story-kicker{
+    margin:0 0 13px; color:var(--story-gold); font:800 14px/1.4 'JetBrains Mono',monospace;
+    letter-spacing:.04em; text-transform:uppercase;
+  }
+  .story-kingdom{ text-align:center; }
+  .story-gallery{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:17px 0; }
+  .story-gallery img{ display:block; width:100%; aspect-ratio:1; object-fit:cover; border-radius:13px; }
+  .story-kingdom h2{ font-size:34px; }
+  .story-verse-card .story-picture{ max-width:245px; margin:0 auto 17px; }
+  .story-verse-card blockquote{
+    margin:0; padding:17px 16px; border-left:4px solid var(--story-gold); border-radius:0 17px 17px 0;
+    background:var(--story-cream); text-align:left;
+  }
+  .story-verse-card blockquote p{
+    margin:0; color:#3d4856; font-family:'Fraunces',serif; font-size:15.5px; line-height:1.58;
+  }
+  .story-verse-card cite{
+    display:block; margin-top:10px; color:#8d6918; font:800 10px/1.4 'JetBrains Mono',monospace;
+    font-style:normal; letter-spacing:.06em; text-transform:uppercase;
+  }
+  .story-niv-notice{ margin:13px 0 0; color:#727a84; font-size:8.5px; line-height:1.45; }
+  .story-announcement{
+    margin:14px 0 0; padding:11px 12px; border-radius:13px; background:#edf6ff;
+    color:#3e638e; font-size:11px; line-height:1.45; text-align:center;
+  }
+  .story-complete-mark{
+    display:grid; place-items:center; width:78px; height:78px; margin:0 auto 17px; border-radius:50%;
+    background:linear-gradient(145deg,#f3cc6c,#d7a73b); color:#fff; font-size:34px;
+    box-shadow:0 20px 34px -26px #8d6918;
+  }
+  .story-complete h2{ font-size:39px; }
+  .story-done{ width:100%; margin-top:23px; }
+  .story-loading,.story-error{ min-height:310px; display:grid; place-items:center; align-content:center; text-align:center; }
+  .story-loading-dots{ display:flex; gap:8px; margin-bottom:18px; }
+  .story-loading-dots i{ width:14px; height:14px; border-radius:50%; background:var(--story-blue); animation:storyBounce .75s ease-in-out infinite alternate; }
+  .story-loading-dots i:nth-child(2){ background:var(--story-gold); animation-delay:.15s; }
+  .story-loading-dots i:nth-child(3){ background:#83b7d8; animation-delay:.3s; }
+  .story-sync-issue{ margin:13px 0 0; padding:10px; border-radius:11px; background:#fff0e9; color:#8c3b35; font-size:10.5px; line-height:1.4; }
+  @keyframes storyIn{ from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:none; } }
+  @keyframes storyBounce{ to{ transform:translateY(-8px); opacity:.62; } }
+  @media(max-width:390px){
+    .story-card{ padding:19px 14px; }.story-card h2{ font-size:26px; }.story-welcome h2{ font-size:37px; }
+    .story-question h2,.story-reveal h2{ font-size:31px; }.story-verse-card blockquote p{ font-size:14.2px; }
+  }
+  @media(prefers-reduced-motion:reduce){ .story-card,.story-loading-dots i{ animation:none; } }
 </style>
 </head>
 <body>
 
 <div class="phone" id="phone">
   <div id="booth-room-content" style="display:none;">
-  <div class="progress" id="progress"></div>
-  <section class="screen">
-    <p class="eyebrow">Phase 2 · Sower booth room</p>
-    <h1 class="display" style="display:flex; align-items:center; gap:10px;"><span>🌾</span><em>The Sower, Live</em></h1>
-    <p class="lede">Follow Matthew 13 with prompts that pop up as the booth leader talks.</p>
-  </section>
-
-  <section id="booth-gate" class="screen">
-    <p class="eyebrow">The Sower, Live</p>
-    <h2>Opening your activity…</h2>
-    <p class="lede">Your event pass is already saved. No booth check-in details are needed.</p>
-  </section>
-
-  <div id="booth-interface" style="display:none;">
-    <section class="screen" style="padding-top:0;">
-      <div id="booth-content"></div>
+    <div class="progress" id="progress"></div>
+    <section class="screen story-shell-head">
+      <p class="eyebrow">Phase 2 · The Heaven Booth</p>
+      <h1 class="display"><em>The Heaven Booth</em></h1>
     </section>
-    <section class="screen" style="padding-top:0;">
-      <button class="btn btn-primary" id="btn-booth-done">Finish this booth →</button>
+
+    <section id="booth-gate" class="screen">
+      <p class="eyebrow">The Heaven Booth</p>
+      <h2>Opening your activity…</h2>
+      <p class="lede">Your event pass is already saved. No booth check-in details are needed.</p>
     </section>
-  </div>
+
+    <div id="booth-interface" style="display:none;">
+      <section class="screen" style="padding-top:0;">
+        <div id="booth-content" class="story-stage" role="region" aria-label="The Heaven Booth shared activity" aria-live="polite">
+          <article class="story-card story-loading" aria-busy="true">
+            <div class="story-loading-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <h2>Connecting to The Heaven Booth…</h2>
+          </article>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -41,7 +140,6 @@
 <script src="../shared/api.js"></script>
 <script src="../shared/pending-checkins.js"></script>
 <script src="../shared/identity.js"></script>
-<script src="../shared/journey-state.js"></script>
 <script src="../shared/attendee-portal.js"></script>
 <script src="../shared/attendee-menu.js"></script>
 <script src="../shared/toast.js"></script>
@@ -50,124 +148,29 @@
 <script src="../shared/phone.js"></script>
 <script src="../shared/booth-common.js"></script>
 <script src="../shared/booth-room.js"></script>
+<script src="../shared/story-attendee.js"></script>
 <script>
 const BOOTH_ID = "story";
-const BOOTH_NAME = "The Sower, Live";
-const BOOTH_ROOM_NAME = "Sower";
-const STORY_DRAFT_SCOPE = `booth.${BOOTH_ID}.activity`;
+const BOOTH_NAME = "The Heaven Booth";
+const BOOTH_ROOM_NAME = "Heaven Booth";
 
 function renderProgress() {
-  const el = document.getElementById("progress");
-  el.innerHTML = "";
-  for (let i = 0; i < 3; i++) {
-    const d = document.createElement("div");
-    d.className = "dot" + (i < 1 ? " done" : i === 1 ? " current" : "");
-    el.appendChild(d);
+  const progress = document.getElementById("progress");
+  progress.innerHTML = "";
+  for (let index = 0; index < 3; index += 1) {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (index < 1 ? " done" : index === 1 ? " current" : "");
+    progress.appendChild(dot);
   }
 }
 renderProgress();
 
-const storyState = { index: 0, answers: {}, drafts: {} };
-let storyStateOwner = "";
-
-function cleanStoryEntries(value) {
-  const allowed = new Set(STORY_BEATS.map((beat) => beat.id));
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return Object.fromEntries(Object.entries(value)
-    .filter(([key, entry]) => allowed.has(key) && typeof entry === "string")
-    .map(([key, entry]) => [key, entry.slice(0, 80)]));
-}
-
-function restoreStoryState() {
-  const owner = String((Identity.peek() || {}).attendeeId || "");
-  if (!owner || storyStateOwner === owner) return;
-  const saved = JourneyState.load(STORY_DRAFT_SCOPE, {}) || {};
-  const index = Number(saved.index);
-  storyState.index = Number.isInteger(index) ? Math.min(STORY_BEATS.length - 1, Math.max(0, index)) : 0;
-  storyState.answers = cleanStoryEntries(saved.answers);
-  storyState.drafts = cleanStoryEntries(saved.drafts);
-  storyStateOwner = owner;
-}
-
-function saveStoryState() {
-  JourneyState.save(STORY_DRAFT_SCOPE, {
-    index: storyState.index,
-    answers: { ...storyState.answers },
-    drafts: { ...storyState.drafts },
-  });
-}
-
-function renderStory() {
-  restoreStoryState();
-  const wrap = document.getElementById("booth-content");
-  const beat = STORY_BEATS[storyState.index];
-  const answered = storyState.answers.hasOwnProperty(beat.id);
-  let inner = `<p class="lede" style="margin-top:0;">${beat.text}</p>`;
-  if (beat.prompt) {
-    if (!answered) {
-      inner += `
-        <div class="field">
-          <label>${beat.prompt}</label>
-          <input type="text" id="story-input" placeholder="${beat.placeholder || ""}" maxlength="80">
-        </div>`;
-    } else {
-      inner += `<p class="lede"><strong>You wrote:</strong> "${escapeHtml(storyState.answers[beat.id])}"</p>`;
-    }
-  }
-  wrap.innerHTML = inner + `
-    <div class="poll-nav" style="margin-top:6px;">
-      <button class="btn btn-ghost" id="btn-story-prev">← Back</button>
-      <button class="btn btn-primary" id="btn-story-next">${storyState.index === STORY_BEATS.length - 1 ? "Finish →" : "Next →"}</button>
-    </div>
-  `;
-  const storyInput = document.getElementById("story-input");
-  if (storyInput) {
-    storyInput.value = storyState.drafts[beat.id] || "";
-    storyInput.addEventListener("input", () => {
-      storyState.drafts[beat.id] = storyInput.value;
-      saveStoryState();
-    });
-  }
-  document.getElementById("btn-story-prev").style.visibility = storyState.index === 0 ? "hidden" : "visible";
-  document.getElementById("btn-story-prev").addEventListener("click", () => {
-    if (storyState.index > 0) {
-      storyState.index--;
-      saveStoryState();
-      renderStory();
-    }
-  });
-  document.getElementById("btn-story-next").addEventListener("click", () => {
-    const input = document.getElementById("story-input");
-    if (input) {
-      const val = input.value.trim();
-      if (beat.prompt && !val && !answered) { input.focus(); return; }
-      if (val) {
-        storyState.answers[beat.id] = val;
-        storyState.drafts[beat.id] = input.value;
-      }
-    }
-    if (storyState.index < STORY_BEATS.length - 1) {
-      storyState.index++;
-      saveStoryState();
-      renderStory();
-    } else {
-      saveStoryState();
-      toast("Great following along!");
-    }
-  });
-}
-
-window.getBoothExtraData = () => {
-  const answers = {};
-  STORY_BEATS.forEach((beat) => {
-    const value = String(storyState.answers[beat.id] || storyState.drafts[beat.id] || "").trim();
-    if (value) answers[beat.id] = value;
-  });
-  return { answers, reachedBeat: storyState.index };
-};
-
-initBoothRoom({ boothId: BOOTH_ID, boothName: BOOTH_NAME, roomName: BOOTH_ROOM_NAME, onReady: renderStory });
-document.getElementById("btn-booth-done").addEventListener("click", () => finishBooth(BOOTH_ID, BOOTH_NAME));
+initBoothRoom({
+  boothId: BOOTH_ID,
+  boothName: BOOTH_NAME,
+  roomName: BOOTH_ROOM_NAME,
+  onReady: () => StoryAttendee.init({ containerId: "booth-content" }),
+});
 </script>
 </body>
 </html>

@@ -125,7 +125,7 @@ refreshing the Sheet.
   complete snapshot. If an import fails between tabs, the export card reports
   an error and that marker does not advance; wait for the automatic retry or
   choose **Retry now** before treating the tabs as one consistent snapshot.
-- Free-text Story answers and Art reflections are intentionally omitted from
+- Free-text Art reflections are intentionally omitted from
   `Live_BoothResults.extraData`; only allowlisted operational metadata is
   mirrored.
 - **No thanks, finish** creates no `Live_SignUps` row, but the attendee still

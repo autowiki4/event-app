@@ -31,7 +31,7 @@ const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
 const BOOTH_NAMES = Object.freeze({
   heaven: "Can You Draw Heaven?",
   trivia: "Bible Bowl",
-  story: "The Sower, Live",
+  story: "The Heaven Booth",
   art: "Art Therapy Table",
   newsong: "The New Song in Nashville",
 });

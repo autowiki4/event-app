@@ -41,10 +41,9 @@ const TAB_HEADERS = Object.freeze({
   ExportMeta: Object.freeze(["key", "value"]),
 });
 
-// Keep the Sheet useful for operations without turning activity reflection
-// fields into a second free-text data store. Story answers and Art reflections
-// remain in the authoritative Node database but are deliberately omitted from
-// the export mirror.
+// Keep the Sheet useful for operations without turning Art reflection fields
+// into a second free-text data store. They remain in the authoritative Node
+// database but are deliberately omitted from the export mirror.
 const EXPORTED_BOOTH_METADATA_FIELDS = Object.freeze([
   "sessionNumber", "runId", "runNumber", "promptShown", "reachedBeat",
 ]);

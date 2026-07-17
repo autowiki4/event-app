@@ -220,7 +220,7 @@ in Phase 1. The Sheet therefore contains attendee contact information and must
 use appropriately restricted access and retention rules.
 
 `Live_BoothResults.extraData` mirrors only allowlisted operational metadata;
-attendee-entered Story answers and Art reflections remain out of the Sheet.
+attendee-entered Art reflections remain out of the Sheet.
 `Live_ExportMeta.generatedAt` is written last as the commit marker. If a
 transient failure interrupts the tab sequence, the marker stays on the prior
 generation and the protected dashboard reports the error until a full retry

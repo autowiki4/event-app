@@ -73,7 +73,7 @@ In Window A:
 
    - Session 1, 3:10–3:30: Can You Draw Heaven?
    - Session 2, 3:30–3:50: Bible Bowl
-   - Session 3, 3:50–4:10: The Sower, Live
+   - Session 3, 3:50–4:10: The Heaven Booth
 
 Suggested explanation: “The color is assigned once at entry. The attendee
 continues directly into one hub and does not scan or sign in separately at
@@ -128,7 +128,7 @@ matching booth-leader screen rotate together. The shared clock ticks forward
 from each chosen anchor; the session windows remain 3:10–3:30, 3:30–3:50, and
 3:50–4:10.
 
-For Blue, the current booth changes to Bible Bowl and then The Sower, Live.
+For Blue, the current booth changes to Bible Bowl and then The Heaven Booth.
 The matching leader pages are:
 
 ```text
@@ -152,11 +152,11 @@ The complete routing matrix is:
 
 | Wristband | Session 1 | Session 2 | Session 3 |
 |---|---|---|---|
-| Blue | Draw Heaven | Bible Bowl | The Sower, Live |
+| Blue | Draw Heaven | Bible Bowl | The Heaven Booth |
 | Red | Bible Bowl | Draw Heaven | Art Therapy |
-| Orange | Art Therapy | The Sower, Live | New Song |
+| Orange | Art Therapy | The Heaven Booth | New Song |
 | Green | New Song | Art Therapy | Draw Heaven |
-| Yellow | The Sower, Live | New Song | Bible Bowl |
+| Yellow | The Heaven Booth | New Song | Bible Bowl |
 
 ## 6. Finish early and show the 4:10 message handoff
 

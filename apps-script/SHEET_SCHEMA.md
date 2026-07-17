@@ -33,7 +33,7 @@ is documented below.
 
 - One row per booth visit.
 - `checkedInBy`: `"self"` (attendee's own phone) or `"staff-kiosk"`.
-- `extraData`: JSON string, shape depends on the booth (e.g. `{"score":300}` for trivia, `{"votedFor":"Victory"}` for the song booth, `{"answers":{...}}` for the story booth).
+- `extraData`: JSON string, shape depends on the booth (e.g. `{"score":300}` for trivia or `{"votedFor":"Victory"}` for the song booth).
 - `rating` and `note` remain only for backward compatibility with older saved
   rows. The current attendee and Art kiosk screens do not ask for either.
 
@@ -158,7 +158,7 @@ into the attendee's operational result and sign-up rows.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 `extraData` contains only allowlisted non-activity operational metadata.
-Attendee-entered Story answers and Art reflections stay out of the Sheet
+Attendee-entered Art reflections stay out of the Sheet
 mirror. Bible Bowl score columns and New Song vote/result columns are blank;
 those details remain in their respective protected booth portals.
 

@@ -98,11 +98,11 @@ leader steps, colors, routes, and session timestamps.
 
 | Wristband | Session 1 | Session 2 | Session 3 |
 |---|---|---|---|
-| Blue | Can You Draw Heaven? | Bible Bowl | The Sower, Live |
+| Blue | Can You Draw Heaven? | Bible Bowl | The Heaven Booth |
 | Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
-| Orange | Art Therapy Table | The Sower, Live | The New Song in Nashville |
+| Orange | Art Therapy Table | The Heaven Booth | The New Song in Nashville |
 | Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
-| Yellow | The Sower, Live | The New Song in Nashville | Bible Bowl |
+| Yellow | The Heaven Booth | The New Song in Nashville | Bible Bowl |
 
 Each group visits three of the five booths. The inverse lookup also tells a
 booth-leader portal which wristband group should be at that booth during the
@@ -305,7 +305,7 @@ snapshot is retained. The bound script strictly maps the logical export to
 replacement prevents duplicate rows and reconciles changed selections,
 identity merges, and reset deletions. The distinct `Live_*` names avoid
 colliding with tabs used if the same script is tested as the legacy backend.
-Free-text Story answers, Art reflections, Bible Bowl answer/score data, and New
+Free-text Art reflections, Bible Bowl answer/score data, and New
 Song vote/result data are excluded from the mirror. The two activity tabs stay
 header-only so a full sync clears old rows without changing the Apps Script
 contract; `Live_BoothResults.extraData` contains only allowlisted non-activity

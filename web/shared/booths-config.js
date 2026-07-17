@@ -39,19 +39,26 @@ const CONNECTOR_BOOTHS = [
   },
   {
     id: "story",
-    title: "The Sower, Live",
-    icon: "🌾",
-    blurb: "Follow Matthew 13 with prompts that pop up as the booth leader talks. ~20 min",
+    title: "The Heaven Booth",
+    icon: "☁️",
+    blurb: "A simple, leader-paced sequence through four pictures and four Matthew 13 passages. ~20 min",
     mode: "self",
     page: "booth-story.html",
     staffPage: "story.html",
     leaderSteps: [
-      { title: "Welcome to The Sower, Live", body: "Settle in and listen for the four places where the farmer's seed lands." },
-      { title: "The path", body: "What tends to take your attention before something meaningful can sink in?" },
-      { title: "Rocky ground", body: "Think about what helps a good beginning grow deeper roots." },
-      { title: "Among the thorns", body: "Notice the worries or distractions that can crowd out what matters." },
-      { title: "Good soil", body: "What would being good soil look like for you in this season?" },
-      { title: "Wrap up", body: "Hold onto one thing that stood out, then mark this booth complete." },
+      { title: "The Heaven Booth", body: "Keep the opening screen on the booth name until you are ready to begin." },
+      { title: "Picture 1", body: "Show the mustard seed and tree picture and ask: What do you see in this picture?" },
+      { title: "Picture 2", body: "Show the yeast and dough picture and ask: What do you see in this picture?" },
+      { title: "Picture 3", body: "Show the hidden treasure picture and ask: What do you see in this picture?" },
+      { title: "Picture 4", body: "Show the fishing net picture and ask: What do you see in this picture?" },
+      { title: "Are they related?", body: "Ask whether all four pictures are related." },
+      { title: "They actually are", body: "Reveal that the pictures are related and ask what they describe." },
+      { title: "The Kingdom of Heaven", body: "Show the four pictures together and reveal the shared subject." },
+      { title: "Matthew 13:31–32", body: "Show the mustard seed picture with the complete NIV passage." },
+      { title: "Matthew 13:33", body: "Show the yeast and dough picture with the complete NIV passage." },
+      { title: "Matthew 13:44", body: "Show the hidden treasure picture with the complete NIV passage." },
+      { title: "Matthew 13:47–48", body: "Show the fishing net picture with the complete NIV passage." },
+      { title: "Thank you", body: "Show the final Thank you screen and release the attendee Done button." },
     ],
   },
   {
@@ -144,16 +151,6 @@ const HEAVEN_DETAILS = [
   { id: "tree", text: "The tree of life, bearing fruit every month" },
   { id: "nomore", text: "No more tears, death, or pain" },
   { id: "light", text: "No sun or moon needed — God's glory is the light" },
-];
-
-/* ---- The Sower, Live (Matthew 13) ---- */
-const STORY_BEATS = [
-  { id: "b1", text: "Jesus told the crowd a story about a farmer scattering seed — some fell on the path, some on rocky ground, some among thorns, and some on good soil." },
-  { id: "b2", text: "Some seed never had a chance — birds snatched it up before it could even take root.", prompt: "What's one thing that tends to “snatch” your attention before God's word can sink in?", placeholder: "e.g. my phone, busyness…" },
-  { id: "b3", text: "Some seed sprang up fast in shallow soil — but with no real root, it withered as soon as the sun got hot." },
-  { id: "b4", text: "Some seed grew, but thorns choked it out. Jesus said this is like worry and the pull of money crowding out what God's planted in us.", prompt: "What's one “thorn” that tends to crowd things out for you?", placeholder: "e.g. stress, comparison…" },
-  { id: "b5", text: "And some seed landed on good soil — and produced far more than was planted.", prompt: "What would it look like for you to be “good soil” this season?", placeholder: "Type a word or phrase…" },
-  { id: "b6", text: "Jesus often taught in parables — stories that revealed truth to those who were really listening. Take a second to sit with what stood out to you today." },
 ];
 
 /* ---- Art Therapy Table ---- */
