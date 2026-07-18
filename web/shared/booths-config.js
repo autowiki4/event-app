@@ -18,7 +18,7 @@ const CONNECTOR_BOOTHS = [
       { title: "Show the New Jerusalem size", body: "Let attendees study the United States comparison graphic and its final question." },
       { title: "Reveal what the size means", body: "Publish the burst transition and explanation only when the speaker reaches it." },
       { title: "Preview five programs", body: "Show the Nashville Christian Collective opportunities as information only; this does not enter Phase 3." },
-      { title: "Finish the shared run", body: "Release the Done button so attendees can save this visit and return to their timed route." },
+      { title: "Finish the shared run", body: "Release the Finish booth button so attendees can save this visit and return to their timed route." },
     ],
   },
   {
@@ -58,7 +58,7 @@ const CONNECTOR_BOOTHS = [
       { title: "Matthew 13:33", body: "Show the yeast and dough picture with the complete NIV passage." },
       { title: "Matthew 13:44", body: "Show the hidden treasure picture with the complete NIV passage." },
       { title: "Matthew 13:47–48", body: "Show the fishing net picture with the complete NIV passage." },
-      { title: "Thank you", body: "Show the final Thank you screen and release the attendee Done button." },
+      { title: "Thank you", body: "Show the final Thank you screen and release the attendee Finish booth button." },
     ],
   },
   {
@@ -92,7 +92,7 @@ const CONNECTOR_BOOTHS = [
       { title: "Open the eleven-song vote", body: "Give every attendee one vote, watch the live graph, and wait until the room has had time to choose." },
       { title: "Reveal the winner", body: "Freeze the result for this run. If the vote is tied, every tied title remains visible and the canonical-order tiebreak is explained." },
       { title: "Reveal Revelation 14:3", body: "Move every screen to the new-song passage and its visual when the speaker reaches the lesson." },
-      { title: "Finish the shared run", body: "Release the Done button so guests save this visit and return to their timed route." },
+      { title: "Finish the shared run", body: "Release the Finish booth button so guests save this visit and return to their timed route." },
     ],
   },
 ];

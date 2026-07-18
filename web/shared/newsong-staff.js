@@ -5,6 +5,7 @@
  * welcome -> voting -> winner -> verse -> complete.
  */
 function initNewSongStaff() {
+  document.body.classList.add("has-booth-leader-dock");
   const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
@@ -309,23 +310,71 @@ function initNewSongStaff() {
       stage.innerHTML = `
         <div class="newsong-stage-icon complete" aria-hidden="true">✓</div>
         <h3>Run ${session.state.runNumber} is complete.</h3>
-        <p>The Done button is live. Attendees can save this visit and return to the timed route. Archive only after this group has cleared the booth.</p>
+        <p>The Finish booth button is live. Attendees can save this visit and return to the timed route. Archive only after this group has cleared the booth.</p>
         ${resultMarkup(session.state.result)}
       `;
     }
   }
 
-  function actionButton(id, label, action, secondary = false) {
-    return `<button type="button" class="btn ${secondary ? "btn-ghost" : "btn-primary"}" id="${id}" data-newsong-action="${action}">${escapeHtml(label)}</button>`;
+  function nextActionButton(id, description, action) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Next on attendee phones</span>
+          <strong>${escapeHtml(description)}</strong>
+          <small>One tap updates everyone in this session.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" id="${id}" data-newsong-action="${action}" aria-label="Next: ${escapeHtml(description)}">Next →</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function liveSessionSwitchTarget() {
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    return activeSessionNumber >= 1
+      && activeSessionNumber <= SESSION_COUNT
+      && activeSessionNumber !== selectedSessionNumber
+      ? activeSessionNumber
+      : 0;
+  }
+
+  function liveSessionSwitchButton(sessionNumber) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Live rotation changed</span>
+          <strong>Session ${sessionNumber} is active now</strong>
+          <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" data-newsong-switch-session="${sessionNumber}" aria-label="Switch to live Session ${sessionNumber}">Switch to Session ${sessionNumber} →</button>
+        </div>
+      </div>
+    `;
   }
 
   function renderActions(session) {
+    const switchTarget = liveSessionSwitchTarget();
+    if (switchTarget) {
+      actions.innerHTML = liveSessionSwitchButton(switchTarget);
+      actions.querySelector("[data-newsong-switch-session]").addEventListener("click", (event) => {
+        const sessionNumber = integer(event.currentTarget.dataset.newsongSwitchSession);
+        selectSession(sessionNumber, false);
+        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+      });
+      return;
+    }
     const phase = session.state.phase;
-    if (phase === "welcome") actions.innerHTML = actionButton("btn-newsong-start", "Open voting for everyone →", "start");
-    else if (phase === "voting") actions.innerHTML = actionButton("btn-newsong-winner", "Close voting & reveal the result →", "show_winner");
-    else if (phase === "winner") actions.innerHTML = actionButton("btn-newsong-verse", "Reveal Revelation 14:3 →", "show_verse");
-    else if (phase === "verse") actions.innerHTML = actionButton("btn-newsong-finish", "Finish this shared run →", "finish");
+    if (phase === "welcome") actions.innerHTML = nextActionButton("btn-newsong-start", "Open voting", "start");
+    else if (phase === "voting") actions.innerHTML = nextActionButton("btn-newsong-winner", "Close voting and show the winning song", "show_winner");
+    else if (phase === "winner") actions.innerHTML = nextActionButton("btn-newsong-verse", "Show Revelation 14:3", "show_verse");
+    else if (phase === "verse") actions.innerHTML = nextActionButton("btn-newsong-finish", "Show Finish booth button", "finish");
     else actions.innerHTML = `<p class="newsong-finished-note">This run is complete. Start another run only when you intentionally want a fresh welcome screen for this same session.</p>`;
+    actions.querySelectorAll("[data-newsong-action]").forEach((button) => {
+      button.addEventListener("click", () => advance(String(button.dataset.newsongAction || "")));
+    });
   }
 
   function liveLeaders(session) {
@@ -531,7 +580,7 @@ function initNewSongStaff() {
     if (!value) return "Session controls loaded.";
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return "Session controls loaded.";
-    return `Published ${parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+    return `Phones updated ${parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
   }
 
   async function startSharedDemoClock() {
@@ -601,7 +650,7 @@ function initNewSongStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
-      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = sessionByNumber();
@@ -616,8 +665,8 @@ function initNewSongStaff() {
     const pending = {
       start: "Opening the eleven-song vote…",
       show_winner: "Freezing and publishing the room result…",
-      show_verse: "Publishing Revelation 14:3…",
-      finish: "Releasing the final Done button…",
+      show_verse: "Updating phones with Revelation 14:3…",
+      finish: "Releasing the final Finish booth button…",
     };
     setStatus(pending[action] || "Updating attendee screens…");
     try {
@@ -629,7 +678,7 @@ function initNewSongStaff() {
         start: "Voting is live.",
         show_winner: "The room result is frozen and visible.",
         show_verse: "Revelation 14:3 is live.",
-        finish: "The final Done button is live.",
+        finish: "The final Finish booth button is live.",
       };
       toast(messages[action] || "Attendee screens updated.");
     } catch (error) {
@@ -738,10 +787,6 @@ function initNewSongStaff() {
       tabs[nextIndex].focus();
       selectSession(tabs[nextIndex].dataset.newsongSession);
     });
-  });
-  actions.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-newsong-action]");
-    if (button) advance(String(button.dataset.newsongAction || ""));
   });
   refreshButton.addEventListener("click", () => refresh());
   restartButton.addEventListener("click", restartSelectedRun);

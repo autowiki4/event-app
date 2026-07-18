@@ -281,7 +281,7 @@ const TriviaAttendee = (() => {
         </div>
         <p class="trivia-stage-copy">Great job learning more about the Bible. Every answer helped you grow!</p>
         ${podium}
-        <button type="button" class="btn btn-primary" id="btn-trivia-done">Done — return to my schedule →</button>
+        <button type="button" class="btn btn-primary" id="btn-trivia-done">Finish booth →</button>
         ${sessionLine(value) ? `<p class="trivia-sync-note">${escapeHtml(sessionLine(value))}</p>` : ""}
       </div>
     `;

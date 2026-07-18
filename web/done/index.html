@@ -21,7 +21,7 @@
     </div>
     <p class="eyebrow">Checking your journey</p>
     <h1 class="display">Loading your <em>saved progress…</em></h1>
-    <p class="lede" id="done-loading-copy">This page only opens after you finish Phase 3.</p>
+    <p class="lede" id="done-loading-copy">This page opens after you finish choosing your next steps.</p>
   </section>
   <section class="screen" id="done-content" style="display:none;">
     <div class="attendee-banner">
@@ -36,7 +36,7 @@
       </div>
     </div>
     <div class="done-badge">✓</div>
-    <p class="eyebrow" id="done-eyebrow" style="text-align:center;">Phase 3 saved</p>
+    <p class="eyebrow" id="done-eyebrow" style="text-align:center;">Choices saved</p>
     <h1 class="display" style="text-align:center;">Thank you for joining us, <em id="done-first-name">friend</em>.</h1>
     <p class="lede" id="done-lede" style="text-align:center;">Your choices are saved. Stay with us for the main message.</p>
 
@@ -45,7 +45,7 @@
       <h2 id="next-up-title">You don't want to miss what's next…</h2>
       <div class="next-up-timer" id="next-up-timer">--:--</div>
       <div class="next-up-label" id="next-up-label">Until the main message · 4:00 PM</div>
-      <p id="next-up-copy">Your Phase 3 choices are saved. Keep this screen open and stay nearby for the 4:00 PM main message.</p>
+      <p id="next-up-copy">Your choices are saved. Keep this screen open and stay nearby for the 4:00 PM main message.</p>
     </div>
 
     <a class="btn btn-ghost" id="btn-return-booth" href="../phase2-booths/hub.html" style="display:none; margin-top:12px; text-decoration:none;">Return to my booth before 3:50 →</a>
@@ -100,7 +100,7 @@ function renderMessageState() {
     document.getElementById("next-up-label").textContent = "Until the main message · 4:00 PM";
     document.getElementById("next-up-copy").textContent = snapshot.phase === "waiting"
       ? "Both booth rotations are complete. Keep this screen open and stay nearby for the main message."
-      : "Your Phase 3 choices are saved. Keep this screen open while the booth rotations finish.";
+      : "Your choices are saved. Keep this screen open while the booth rotations finish.";
     document.getElementById("done-lede").textContent = "Your choices are saved. Stay with us for the main message at 4:00 PM.";
     returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
     returnButton.style.display = snapshot.phase === "active" ? "block" : "none";
@@ -164,7 +164,7 @@ async function render() {
     <li>📜 ${boothIds.length} of ${routeLength} scheduled booth visits marked complete.</li>
   `;
   if (!chosen.length) {
-    list.innerHTML += "<li>Phase 3 finished with no additional selections.</li>";
+    list.innerHTML += "<li>No additional sign-ups selected.</li>";
   } else {
     chosen.forEach((option) => {
       list.innerHTML += `<li>✅ ${escapeHtml(option.title)}</li>`;
@@ -205,7 +205,7 @@ async function initCompletePage() {
   } catch (error) {
     console.error(error);
     identity = cachedIdentity;
-    document.getElementById("done-loading-copy").textContent = "You're still signed in on this phone. Reconnecting to your saved Phase 3 progress…";
+    document.getElementById("done-loading-copy").textContent = "You're still signed in on this phone. Reconnecting to your saved choices…";
     window.setTimeout(initCompletePage, 3000);
   }
 }

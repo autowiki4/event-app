@@ -12,11 +12,11 @@
   <div class="progress" id="progress"></div>
 
   <section class="screen" id="phase2-login" style="display:none;">
-    <p class="eyebrow">Phase 2 · One attendee link</p>
+    <p class="eyebrow">My booth schedule</p>
     <h1 class="display">Find your <em>booth route.</em></h1>
     <p class="lede">On a new device, enter the name and mobile number used at registration. Your raffle number remains part of your pass, but it is not a login credential.</p>
     <div class="field">
-      <label for="phase2-name">Name used in Phase 1</label>
+      <label for="phase2-name">Name used at registration</label>
       <input id="phase2-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
@@ -24,8 +24,8 @@
       <input id="phase2-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="err" id="phase2-login-error"></div>
     </div>
-    <button class="btn btn-primary" id="btn-phase2-login">Open my schedule →</button>
-    <a class="btn-link" href="../phase1-entry/index.html" style="display:block; text-align:center; margin-top:12px;">Start at Phase 1</a>
+    <button class="btn btn-primary" id="btn-phase2-login">Next →</button>
+    <a class="btn-link" href="../phase1-entry/index.html" style="display:block; text-align:center; margin-top:12px;">Go to registration</a>
   </section>
 
   <section class="screen" id="phase2-content" style="display:none;">
@@ -72,7 +72,7 @@
         <div class="current-booth-head">
           <div class="booth-icon" id="current-booth-icon">✨</div>
           <div>
-            <span id="presentation-status" class="status-pill waiting">Waiting</span>
+            <span id="presentation-status" class="status-pill waiting">Getting ready</span>
             <h2 id="current-booth-name">Booth</h2>
           </div>
         </div>
@@ -84,14 +84,14 @@
             <p id="leader-step-body">Your booth leader will begin soon.</p>
             <div class="leader-message" id="leader-message" style="display:none;"></div>
           </div>
-          <button class="btn btn-ghost" id="btn-complete-booth">Mark this booth complete ✓</button>
+          <button class="btn btn-ghost" id="btn-complete-booth">Done with this booth ✓</button>
           <p class="top-note" id="presentation-updated"></p>
         </div>
       </div>
 
       <div id="phase3-ready" style="display:none; margin-top:14px;">
         <div class="placeholder-note" id="phase3-note"></div>
-        <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:block; text-decoration:none;">Continue to Phase 3 →</a>
+        <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:block; text-decoration:none;">Next →</a>
       </div>
     </div>
 
@@ -251,13 +251,17 @@ function displayPresentation(booth) {
     title: "You're in the right place.",
     body: "Your booth leader will begin soon.",
   };
-  const statusLabels = { waiting: "Waiting", live: "Live", paused: "Paused", wrap: "Wrapping up", complete: "Finished" };
+  const serverScreenTitle = String(state.screenTitle || "").trim();
+  const serverScreenBody = String(state.screenBody || "").trim();
+  const statusLabels = { waiting: "Getting ready", live: "Activity open", paused: "Hold here", wrap: "Finishing soon", complete: "Finished" };
   const status = Object.prototype.hasOwnProperty.call(statusLabels, state.status) ? state.status : "waiting";
   const pill = document.getElementById("presentation-status");
   pill.className = `status-pill ${status}`;
   pill.textContent = statusLabels[status];
   document.getElementById("leader-step-label").textContent = status === "live" || status === "wrap"
-    ? `Leader screen · Step ${stepIndex + 1} of ${(booth.leaderSteps || []).length}`
+    ? serverScreenTitle
+      ? "Leader screen · Current activity"
+      : `Leader screen · Step ${stepIndex + 1} of ${(booth.leaderSteps || []).length}`
     : "Booth leader screen";
   document.getElementById("leader-step-title").textContent = status === "waiting"
     ? "You're in the right place."
@@ -265,19 +269,19 @@ function displayPresentation(booth) {
       ? "Please hold here."
       : status === "complete"
         ? "This booth has finished."
-        : step.title;
+        : serverScreenTitle || step.title;
   document.getElementById("leader-step-body").textContent = status === "waiting"
     ? "Your booth leader will begin when the group is ready."
     : status === "paused"
       ? "Keep this page open. The leader will continue the activity shortly."
       : status === "complete"
         ? ["trivia", "heaven", "story", "art", "newsong"].includes(booth.id)
-          ? `Open ${booth.title} above and tap Done on its final screen. Your next booth stays locked until its session begins.`
+          ? `Open ${booth.title} above and tap Finish booth on its final screen. Your next booth stays locked until its session begins.`
           : "Mark your visit complete below, then check your route for what comes next."
-        : step.body;
+        : serverScreenBody || step.body;
   const message = document.getElementById("leader-message");
   message.textContent = state.message || "";
-  message.style.display = state.message ? "block" : "none";
+  message.style.display = state.message && !serverScreenTitle ? "block" : "none";
   document.getElementById("presentation-updated").textContent = formatUpdated(state.updatedAt);
 }
 
@@ -470,7 +474,7 @@ function renderSchedule() {
         ? `Finish ${currentBooth.title} from its final screen`
         : alreadyComplete
           ? "Completed ✓ · Open until session ends"
-          : "Mark this booth complete ✓";
+          : "Done with this booth ✓";
       if (activeBoothId !== currentBooth.id) {
         activeBoothId = currentBooth.id;
         presentation = null;
@@ -492,14 +496,14 @@ function renderSchedule() {
       ? EventSchedule.formatCountdown(snapshot.remainingMs)
       : "NOW";
     document.getElementById("countdown-label").textContent = waitingForMessage ? "Until the main message" : "Message time";
-    document.getElementById("current-kicker").textContent = phase2Complete ? "Phase 2 complete" : "Phase 2 time ended";
+    document.getElementById("current-kicker").textContent = phase2Complete ? "Booth visits complete" : "Booth time ended";
     document.getElementById("current-heading").innerHTML = phase2Complete
       ? "Tick your <em>next steps</em> and go."
       : "Continue with your <em>saved progress.</em>";
     document.getElementById("current-copy").textContent = phase2Complete
       ? waitingForMessage
-        ? "Your two completion taps are saved. Finish Phase 3, then stay nearby for the 4:00 PM main message."
-        : "The main message is starting now. Complete Phase 3 quickly if needed, then please get seated."
+        ? "Your two completion taps are saved. Choose your next steps, then stay nearby for the 4:00 PM main message."
+        : "The main message is starting now. Choose your next steps quickly if needed, then please get seated."
       : catchUpCount
         ? `You marked ${completedCount} of ${route.length} visits complete. ${catchUpCount} ${catchUpCount === 1 ? "stop is" : "stops are"} marked for possible catch-up, and you can still continue.`
         : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;
@@ -569,7 +573,7 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
     if (Identity.restartIfMissing(error, "../phase1-entry/index.html")) return;
     toast("Couldn't save this booth yet — try again.");
     button.disabled = false;
-    button.textContent = "Mark this booth complete ✓";
+    button.textContent = "Done with this booth ✓";
     PendingCheckins.retry(identity.attendeeId, applyPendingCompletionResult);
   }
 });
@@ -587,7 +591,7 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
   try {
     identity = await AttendeePortal.signIn(PORTAL, name, phone);
     if (!identity.wristbandColor) {
-      showLogin("A wristband color has not been assigned yet. Ask the Phase 1 Guardian Angel for help.");
+      showLogin("A wristband color has not been assigned yet. Ask the registration Guardian Angel for help.");
       return;
     }
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
@@ -599,7 +603,7 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
     showLogin(error.message || "We couldn't find that registration.");
   } finally {
     button.disabled = false;
-    button.textContent = "Open my schedule →";
+    button.textContent = "Next →";
   }
 });
 
@@ -627,7 +631,7 @@ async function initPortal() {
       ? await AttendeePortal.restore(PORTAL)
       : await AttendeePortal.continueAs(PORTAL);
     if (!identity.wristbandColor) {
-      showLogin("A wristband color has not been assigned yet. Ask the Phase 1 Guardian Angel for help.");
+      showLogin("A wristband color has not been assigned yet. Ask the registration Guardian Angel for help.");
       return;
     }
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
@@ -641,7 +645,7 @@ async function initPortal() {
       note.textContent = "You're still signed in on this phone. Live saving is reconnecting; keep this page open and tap your name only if you choose to log out.";
       note.style.display = "block";
     } else if (error.code === "PHASE1_INCOMPLETE") {
-      showLogin("Finish Phase 1 and receive a wristband before opening your booth route.");
+      showLogin("Finish registration and receive a wristband before opening your booth route.");
     } else {
       showLogin();
     }

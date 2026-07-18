@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Phase 3 · Sign up — The Perfect Summer Day</title>
+<title>Choose Your Next Steps — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>:root{ --phase-color:var(--violet); --phase-color-deep:var(--violet-deep); }</style>
 </head>
@@ -12,11 +12,11 @@
   <div class="progress" id="progress"></div>
 
   <section class="screen" id="phase3-login" style="display:none;">
-    <p class="eyebrow">Phase 3 · New device</p>
+    <p class="eyebrow">Next steps · New device</p>
     <h1 class="display">Find your <em>registration.</em></h1>
     <p class="lede">Enter the name and mobile number used at registration. Your raffle number is still shown on your pass, but it is not used to sign in.</p>
     <div class="field">
-      <label for="phase3-name">Name used in Phase 1</label>
+      <label for="phase3-name">Name used at registration</label>
       <input id="phase3-name" type="text" autocomplete="name" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
@@ -24,7 +24,7 @@
       <input id="phase3-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="err" id="phase3-login-error"></div>
     </div>
-    <button class="btn btn-primary" id="btn-phase3-login">Open Phase 3 →</button>
+    <button class="btn btn-primary" id="btn-phase3-login">Next →</button>
   </section>
 
   <section class="screen" id="phase3-content" style="display:none;">
@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <p class="eyebrow">Phase 3 · Tick and go</p>
+    <p class="eyebrow">Quick sign-ups · Tick and go</p>
     <h1 class="display">What's <em>next</em> for you?</h1>
     <p class="lede">Tick anything that fits, then finish. Your choices are already connected to the name and raffle number above.</p>
     <p class="top-note" id="phase3-sync-note" role="status" style="display:none;"></p>
@@ -233,7 +233,7 @@ async function showPortal(attendeeIdentity) {
   returnButton.style.display = schedule.phase === "active" ? "block" : "none";
   const syncNote = document.getElementById("phase3-sync-note");
   syncNote.textContent = preloadFailed
-    ? "You're still signed in at Phase 3. Live progress is reconnecting; this page will not send you backward unless the saved route confirms a booth is unfinished."
+    ? "You're still signed in. Live progress is reconnecting; this page will not send you backward unless the saved route confirms a booth is unfinished."
     : "";
   syncNote.style.display = preloadFailed ? "block" : "none";
   renderOptions();
@@ -290,7 +290,7 @@ document.getElementById("btn-phase3-login").addEventListener("click", async () =
     showLogin(error.message || "We couldn't find that registration.");
   } finally {
     button.disabled = false;
-    button.textContent = "Open Phase 3 →";
+    button.textContent = "Next →";
   }
 });
 

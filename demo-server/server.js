@@ -1511,22 +1511,29 @@ function triviaBoothPresentation(db, eventState = eventSessionState()) {
   const session = triviaSessionFromDb(db, sessionNumber);
   let stepIndex = 0;
   let status = "waiting";
+  let screenTitle = "Welcome to Bible Bowl";
   let message = "The Bible Bowl leader will start the first question when the group is ready.";
   if (session.phase === "question" || session.phase === "reveal") {
     status = "live";
     stepIndex = session.questionIndex < 5 ? 1 : session.questionIndex < 10 ? 2 : 3;
+    screenTitle = session.phase === "reveal"
+      ? `Question ${session.questionIndex + 1} answer revealed`
+      : `Question ${session.questionIndex + 1} is open`;
     message = session.phase === "reveal"
       ? `Question ${session.questionIndex + 1} answer revealed. Keep the activity open for what comes next.`
       : `Question ${session.questionIndex + 1} of ${TRIVIA_QUESTIONS.length} is open in the Bible Bowl activity.`;
   } else if (session.phase === "complete") {
     status = "complete";
     stepIndex = 4;
+    screenTitle = "Final Bible Bowl results";
     message = "Final Bible Bowl results are ready. Open the activity to finish this visit.";
   }
   return {
     boothId: "trivia",
     stepIndex,
     status,
+    screenTitle,
+    screenBody: message,
     message,
     createdAt: session.startedAt,
     updatedAt: session.updatedAt,
@@ -1540,20 +1547,22 @@ function heavenBoothPresentation(db, eventState = eventSessionState()) {
     : 1;
   const session = heavenSessionFromDb(db, sessionNumber);
   const phaseDetails = {
-    welcome: [0, "waiting", "Welcome to Draw Heaven. The leader will begin when everyone is ready."],
-    drawing: [1, "live", "Draw what comes to mind when you picture Heaven, then respond on your screen."],
-    verse: [2, "live", "The verse and size reflection are now open on attendee screens."],
-    comparison: [3, "live", "The comparison and impact reflection are now open on attendee screens."],
-    reflection: [4, "live", "The leader is guiding the group through the final reflection."],
-    programs: [5, "live", "Explore the five programs, then confirm when you are ready."],
-    complete: [6, "complete", "Draw Heaven is complete. Attendees can finish this booth visit."],
+    welcome: [0, "waiting", "Welcome to Draw Heaven", "The leader will begin when everyone is ready."],
+    drawing: [1, "live", "Draw what Heaven looks like", "Draw what comes to mind, then respond on your screen."],
+    verse: [2, "live", "Revelation 21:10–11", "The Bible description of the Holy City is now open on attendee screens."],
+    comparison: [3, "live", "New Jerusalem size comparison", "The United States comparison is now open on attendee screens."],
+    reflection: [4, "live", "Reflection question", "The leader is guiding the group through the final reflection."],
+    programs: [5, "live", "Five-program preview", "Explore the five programs, then confirm when you are ready."],
+    complete: [6, "complete", "Draw Heaven complete", "Attendees can finish this booth visit."],
   };
-  const [stepIndex, status, message] = phaseDetails[session.phase];
+  const [stepIndex, status, screenTitle, screenBody] = phaseDetails[session.phase];
   return {
     boothId: "heaven",
     stepIndex,
     status,
-    message,
+    screenTitle,
+    screenBody,
+    message: screenBody,
     createdAt: session.startedAt,
     updatedAt: session.updatedAt,
     version: session.version,
@@ -1566,23 +1575,25 @@ function artBoothPresentation(db, eventState = eventSessionState()) {
     : 1;
   const session = artSessionFromDb(db, sessionNumber);
   const phaseDetails = {
-    welcome: [0, "waiting", "Welcome to Art Therapy. The booth leader will begin when everyone is ready."],
-    definition: [1, "live", "What is art therapy? The first shared slide is now open."],
-    importance: [2, "live", "Why is art therapy important? Follow the booth leader on your screen."],
-    purpose_image: [3, "live", "The heart-and-mind visual is now showing on attendee screens."],
-    heart_question: [4, "live", "What does the Bible say about the heart? The question is now open."],
-    proverbs: [4, "live", "Proverbs 4:23 is now revealed on attendee screens."],
-    philippians: [4, "live", "Philippians 4:7 is now revealed alongside Proverbs 4:23."],
-    create: [5, "live", "It is time for the guided Art Therapy activity."],
-    finished: [6, "wrap", "The final reflection is now showing on attendee screens."],
-    complete: [7, "complete", "Art Therapy is complete. Attendees can finish this booth visit."],
+    welcome: [0, "waiting", "Welcome to Art Therapy", "The booth leader will begin when everyone is ready."],
+    definition: [1, "live", "What is art therapy?", "The definition is now open on attendee screens."],
+    importance: [2, "live", "Why is art therapy important?", "Follow the booth leader on your screen."],
+    purpose_image: [3, "live", "Heart-and-mind picture", "The supplied visual is now showing on attendee screens."],
+    heart_question: [4, "live", "What does the Bible say about the heart?", "The question is now open."],
+    proverbs: [4, "live", "Proverbs 4:23", "The first Bible passage is now showing."],
+    philippians: [4, "live", "Proverbs 4:23 and Philippians 4:7", "Both Bible passages are now showing together."],
+    create: [5, "live", "Now it’s your turn", "It is time for the guided Art Therapy activity."],
+    finished: [6, "wrap", "I’m finished—now what?", "The final reflection is now showing on attendee screens."],
+    complete: [7, "complete", "Art Therapy complete", "Attendees can finish this booth visit."],
   };
-  const [stepIndex, status, message] = phaseDetails[session.phase];
+  const [stepIndex, status, screenTitle, screenBody] = phaseDetails[session.phase];
   return {
     boothId: "art",
     stepIndex,
     status,
-    message,
+    screenTitle,
+    screenBody,
+    message: screenBody,
     createdAt: session.startedAt,
     updatedAt: session.updatedAt,
     version: session.version,
@@ -1595,18 +1606,20 @@ function newSongBoothPresentation(db, eventState = eventSessionState()) {
     : 1;
   const session = newSongSessionFromDb(db, sessionNumber);
   const phaseDetails = {
-    welcome: [0, "waiting", "Welcome to New Song. The booth leader will open the poll when everyone is ready."],
-    voting: [1, "live", "The New Song poll is open. Choose a song on the activity screen."],
-    winner: [2, "live", "The poll is closed and the most-voted song is ready."],
-    verse: [3, "live", "Revelation 14:3 is now showing on attendee screens."],
-    complete: [4, "complete", "The New Song activity is complete. Attendees can finish this booth visit."],
+    welcome: [0, "waiting", "Welcome to New Song", "The booth leader will open the poll when everyone is ready."],
+    voting: [1, "live", "Voting is open", "Choose one song on the activity screen."],
+    winner: [2, "live", "The winning song", "The poll is closed and the room result is ready."],
+    verse: [3, "live", "Revelation 14:3", "The Bible passage and artwork are now showing."],
+    complete: [4, "complete", "New Song complete", "Attendees can finish this booth visit."],
   };
-  const [stepIndex, status, message] = phaseDetails[session.phase];
+  const [stepIndex, status, screenTitle, screenBody] = phaseDetails[session.phase];
   return {
     boothId: "newsong",
     stepIndex,
     status,
-    message,
+    screenTitle,
+    screenBody,
+    message: screenBody,
     createdAt: session.startedAt,
     updatedAt: session.updatedAt,
     version: session.version,

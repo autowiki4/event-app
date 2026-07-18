@@ -17,11 +17,11 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   login.className = "screen";
   login.id = "booth-room-login";
   login.innerHTML = `
-    <p class="eyebrow">Phase 2 · Booth room</p>
+    <p class="eyebrow">Current booth</p>
     <h1 class="display">Welcome to the <em id="booth-login-room-name"></em> room.</h1>
     <p class="lede">On a new device or direct link, enter the name and mobile number used at registration. Opening this room from your schedule skips this step.</p>
     <div class="field">
-      <label for="booth-login-name">Name used in Phase 1</label>
+      <label for="booth-login-name">Name used at registration</label>
       <input id="booth-login-name" type="text" autocomplete="off" placeholder="e.g. Jordan Lee">
     </div>
     <div class="field">
@@ -161,7 +161,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       return {
         kicker: "Booths finished",
         title: "The main message starts at 4:00 PM.",
-        copy: "Return to your schedule, finish the quick Phase 3 selection if needed, and stay nearby for the message.",
+        copy: "Return to your schedule, choose your quick next steps if needed, and stay nearby for the message.",
         time: `${EventSchedule.formatCountdown(snapshot.remainingMs)} until the message`,
       };
     }

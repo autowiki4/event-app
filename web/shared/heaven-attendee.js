@@ -368,7 +368,7 @@ const HeavenAttendee = (() => {
       <div class="heaven-card heaven-programs">
         <p class="eyebrow">A preview · No sign-up yet</p>
         <h2>Nashville Christian Collective programs</h2>
-        <p class="heaven-copy">Here is information about each of the five opportunities. This is only a preview: nothing is selected or submitted here, and you are not entering Phase 3 yet.</p>
+        <p class="heaven-copy">Here is information about each of the five opportunities. This is only a preview; nothing is selected or submitted here yet.</p>
         <div class="heaven-program-list">${programOptions()}</div>
         ${waitingCard("Program preview complete", "Stay with your group. Your booth leader will close the shared experience when everyone is ready.", "✅")}
         ${sessionMeta(value)}
@@ -383,7 +383,7 @@ const HeavenAttendee = (() => {
         <p class="eyebrow">Draw Heaven complete</p>
         <h2>Your imagination made room for something bigger.</h2>
         <p class="heaven-copy">Great job creating, wondering, and learning more about the New Jerusalem with your group.</p>
-        <button type="button" class="btn btn-primary heaven-action" id="btn-booth-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Done — return to my schedule →"}</button>
+        <button type="button" class="btn btn-primary heaven-action" id="btn-booth-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Finish booth →"}</button>
         ${sessionMeta(value)}
       </div>
     `;

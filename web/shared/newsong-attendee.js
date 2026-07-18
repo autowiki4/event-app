@@ -263,7 +263,7 @@ const NewSongAttendee = (() => {
           <cite>Revelation 14:3 · KJV</cite>
         </blockquote>
         <p class="newsong-copy">The room could choose a favorite from eleven songs. Revelation points to a song that belongs to the redeemed — learned through a life with God, not simply selected from a list.</p>
-        ${cloudNote("Hold onto the thought", "Your host will release the final Done button when the shared reflection is complete.", "✨")}
+        ${cloudNote("Hold onto the thought", "Your host will release the Finish booth button when the shared reflection is complete.", "✨")}
         ${sessionMeta(value)}
       </div>
     `;
@@ -276,7 +276,7 @@ const NewSongAttendee = (() => {
         <p class="eyebrow">New Song complete</p>
         <h2>Keep your heart tuned to the song.</h2>
         <p class="newsong-copy">Great job voting, listening, and discovering more about the new song in Revelation 14:3.</p>
-        <button type="button" class="btn btn-primary newsong-done" id="btn-newsong-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Done — return to my schedule →"}</button>
+        <button type="button" class="btn btn-primary newsong-done" id="btn-newsong-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Finish booth →"}</button>
         ${sessionMeta(value)}
       </div>
     `;

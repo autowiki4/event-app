@@ -225,7 +225,7 @@ const ArtAttendee = (() => {
       <h2>I’m finished, now what?</h2>
       <p class="art-copy">Pause and look at what you created. Notice one color, shape, or detail that stands out.</p>
       <div class="art-create-reminder"><strong>No explanation is required.</strong><span>Keep your artwork with you and listen for your booth leader’s closing thought.</span></div>
-      ${leaderNote("The final Done button will appear when your guide closes the shared experience.", "🕰️")}
+      ${leaderNote("The Finish booth button will appear when your guide closes the shared experience.", "🕰️")}
     `);
   }
 
@@ -235,7 +235,7 @@ const ArtAttendee = (() => {
       <p class="art-slide-label">Art Therapy complete</p>
       <h2>Great job creating from the heart.</h2>
       <p class="art-copy">Take your artwork with you and carry one thing you noticed into the rest of your day.</p>
-      <button type="button" class="btn btn-primary art-done" id="btn-art-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Done — return to my schedule →"}</button>
+      <button type="button" class="btn btn-primary art-done" id="btn-art-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Finish booth →"}</button>
     `);
   }
 

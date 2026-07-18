@@ -5,6 +5,7 @@
  * published phase and receive Done only after the leader closes the run.
  */
 function initArtStaff() {
+  document.body.classList.add("has-booth-leader-dock");
   const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2100 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set([
@@ -20,50 +21,50 @@ function initArtStaff() {
     welcome: {
       label: "Welcome lobby", icon: "🎨", title: "Attendees see the waiting canvas.",
       copy: "Introduce the activity. When the room is ready, publish Slide 1 to every phone.",
-      action: "start", actionLabel: "Show Slide 1: What is art therapy? →",
+      action: "start", actionLabel: "Show “What is art therapy?”",
     },
     definition: {
       label: "Slide 1", icon: "🖌️", title: "“What is art therapy?” is live.",
       copy: "Attendees see the definition, the non-clinical activity note, and a reminder that expression matters more than perfection.",
-      action: "show_importance", actionLabel: "Show Slide 2: Why is it important? →",
+      action: "show_importance", actionLabel: "Show why art therapy matters",
     },
     importance: {
       label: "Slide 2", icon: "💛", title: "“Why is art therapy important?” is live.",
       copy: "The room sees three ideas: express beyond words, slow down and notice, and make room for reflection.",
-      action: "show_purpose_image", actionLabel: "Show Slide 2 visual: Heart & mind →",
+      action: "show_purpose_image", actionLabel: "Show the heart-and-mind picture",
     },
     purpose_image: {
       label: "Slide 2 · Visual", icon: "🧠", title: "The heart-and-mind visual is live.",
       copy: "Give everyone time to study the illustration. The image can be enlarged on each phone.",
-      action: "ask_heart", actionLabel: "Show Slide 3: What does the Bible say? →",
+      action: "ask_heart", actionLabel: "Ask what the Bible says about the heart",
     },
     heart_question: {
       label: "Slide 3", icon: "♥", title: "The Bible heart question is live.",
       copy: "Attendees can see the question, but neither passage is visible yet. Reveal Proverbs when the speaker reaches it.",
-      action: "show_proverbs", actionLabel: "Reveal Proverbs 4:23 →",
+      action: "show_proverbs", actionLabel: "Show Proverbs 4:23",
     },
     proverbs: {
       label: "Slide 3 · Verse 1", icon: "📖", title: "Proverbs 4:23 is live.",
       copy: "The first verse remains on screen. Publish Philippians next so both passages can be considered together.",
-      action: "show_philippians", actionLabel: "Reveal Philippians 4:7 →",
+      action: "show_philippians", actionLabel: "Show Philippians 4:7",
     },
     philippians: {
       label: "Slide 3 · Both verses", icon: "🕊️", title: "Both Bible passages are live.",
       copy: "Connect guarding the heart with the peace of God, then begin the hands-on activity.",
-      action: "start_art", actionLabel: "Show Slide 5: Let’s create →",
+      action: "start_art", actionLabel: "Start the art activity",
     },
     create: {
       label: "Slide 5", icon: "🖍️", title: "The creative activity is live.",
       copy: "Lead the physical art prompt in the room. Phones collect no artwork, text, rating, or comment.",
-      action: "show_finished", actionLabel: "Show Slide 6: I’m finished—now what? →",
+      action: "show_finished", actionLabel: "Show the closing reflection",
     },
     finished: {
       label: "Slide 6", icon: "🖼️", title: "The closing reflection is live.",
-      copy: "Ask attendees to notice one detail in their art and listen for the closing thought. Release Done only when the shared moment is complete.",
-      action: "finish", actionLabel: "Release Done for everyone →",
+      copy: "Ask attendees to notice one detail in their art and listen for the closing thought. Release Finish booth only when the shared moment is complete.",
+      action: "finish", actionLabel: "Show Finish booth button",
     },
     complete: {
-      label: "Complete", icon: "✅", title: "Done is released for this run.",
+      label: "Complete", icon: "✅", title: "Finish booth is available for this run.",
       copy: "Attendees can save the booth visit and return to their timed route. Restart only when you intentionally want another run in this session.",
       action: null, actionLabel: "",
     },
@@ -271,12 +272,50 @@ function initArtStaff() {
   }
 
   function renderActions(session) {
-    const model = phaseModel(session.state.phase);
-    if (!model.action) {
-      actions.innerHTML = `<p class="art-finished-note">This run is complete. Attendees now have their Done button. Use “Archive run &amp; start another” only for an intentional fresh run in this same timed session.</p>`;
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    if (
+      activeSessionNumber >= 1
+        && activeSessionNumber <= SESSION_COUNT
+        && activeSessionNumber !== selectedSessionNumber
+    ) {
+      actions.innerHTML = `
+        <div class="booth-leader-dock">
+          <div class="booth-leader-dock-copy">
+            <span>Live rotation changed</span>
+            <strong>Session ${activeSessionNumber} is active now</strong>
+            <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
+          </div>
+          <div class="booth-leader-dock-actions">
+            <button type="button" class="btn btn-primary" data-art-switch-session="${activeSessionNumber}" aria-label="Switch to live Session ${activeSessionNumber}">Switch to Session ${activeSessionNumber} →</button>
+          </div>
+        </div>
+      `;
+      actions.querySelector("[data-art-switch-session]").addEventListener("click", (event) => {
+        const sessionNumber = integer(event.currentTarget.dataset.artSwitchSession);
+        selectSession(sessionNumber, true, false);
+        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+      });
       return;
     }
-    actions.innerHTML = `<button type="button" class="btn btn-primary" id="btn-art-advance" data-art-action="${model.action}" ${controlBusy ? "disabled" : ""}>${controlBusy ? "Publishing…" : escapeHtml(model.actionLabel)}</button>`;
+    const model = phaseModel(session.state.phase);
+    if (!model.action) {
+      actions.innerHTML = `<p class="art-finished-note">This run is complete. Attendees now have their Finish booth button. Use “Archive run &amp; start another” only for an intentional fresh run in this same timed session.</p>`;
+      return;
+    }
+    actions.innerHTML = `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Next on attendee phones</span>
+          <strong>${escapeHtml(model.actionLabel)}</strong>
+          <small>One tap updates everyone in this session.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" id="btn-art-advance" data-art-action="${model.action}" aria-label="Next: ${escapeHtml(model.actionLabel)}" ${controlBusy ? "disabled" : ""}>${controlBusy ? "Updating…" : "Next →"}</button>
+        </div>
+      </div>
+    `;
+    const button = actions.querySelector("[data-art-action]");
+    if (button) button.addEventListener("click", () => advance(String(button.dataset.artAction || "")));
   }
 
   function participantRows(session) {
@@ -344,7 +383,7 @@ function initArtStaff() {
     renderParticipants(session);
     renderArchivedRuns(session);
     document.getElementById("art-publish-state").textContent = session.state.updatedAt
-      ? `Published ${model.label} · version ${session.state.version} · updated ${formatSavedTime(session.state.updatedAt)}`
+      ? `Attendee phones show ${model.label} · updated ${formatSavedTime(session.state.updatedAt)}`
       : `Run ${session.state.runNumber} is ready in the welcome lobby.`;
     restartButton.disabled = controlBusy;
     refreshButton.disabled = refreshInFlight || controlBusy;
@@ -416,7 +455,7 @@ function initArtStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSession();
-      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = currentSession();
@@ -501,8 +540,9 @@ function initArtStaff() {
       renderTimer();
       if (!selectionPinned && dashboard) {
         const snapshot = EventSchedule.current();
-        if (snapshot.phase === "active" && snapshot.sessionNumber !== selectedSessionNumber) {
-          selectedSessionNumber = snapshot.sessionNumber;
+        const activeSessionNumber = snapshot && snapshot.session ? integer(snapshot.session.number) : 0;
+        if (snapshot.phase === "active" && activeSessionNumber && activeSessionNumber !== selectedSessionNumber) {
+          selectedSessionNumber = activeSessionNumber;
           renderSession();
         }
       }
@@ -521,10 +561,10 @@ function initArtStaff() {
     setSyncNote("");
   }
 
-  function selectSession(sessionNumber, focusTab) {
+  function selectSession(sessionNumber, focusTab, pin = true) {
     if (sessionNumber < 1 || sessionNumber > SESSION_COUNT) return;
     selectedSessionNumber = sessionNumber;
-    selectionPinned = true;
+    selectionPinned = pin;
     renderSession();
     if (focusTab) {
       const target = tabs.find((tab) => integer(tab.dataset.artSession) === sessionNumber);
@@ -547,10 +587,6 @@ function initArtStaff() {
     event.preventDefault();
     selectSession(integer(tabs[targetIndex].dataset.artSession), true);
   }));
-  actions.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-art-action]");
-    if (button) advance(String(button.dataset.artAction || ""));
-  });
   refreshButton.addEventListener("click", () => refreshDashboard({ showLoading: true }));
   restartButton.addEventListener("click", restartRun);
   document.addEventListener("visibilitychange", () => {

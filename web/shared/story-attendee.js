@@ -116,8 +116,13 @@ const StoryAttendee = (() => {
 
   function effectivePresentation(value) {
     const snapshot = currentSession();
+    const isLocalPreview = typeof EventSchedule !== "undefined" && typeof EventSchedule.isPreviewing === "function"
+      ? EventSchedule.isPreviewing()
+      : ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+        && new URLSearchParams(window.location.search).has("preview");
     const updatedMs = value.updatedAt ? new Date(value.updatedAt).getTime() : NaN;
-    const stale = snapshot
+    const stale = !isLocalPreview
+      && snapshot
       && snapshot.phase === "active"
       && snapshot.session
       && Number.isFinite(updatedMs)
@@ -161,15 +166,22 @@ const StoryAttendee = (() => {
   }
 
   function announcement(value) {
-    return value.message
+    const leaderState = value.status === "paused"
+      ? `<p class="story-leader-state paused" role="status"><strong>Hold here</strong><span>Keep this screen open. Your booth leader will continue soon.</span></p>`
+      : value.status === "wrap"
+        ? `<p class="story-leader-state wrap" role="status"><strong>Finishing soon</strong><span>Stay on this screen while your booth leader wraps up.</span></p>`
+        : "";
+    const message = value.message
       ? `<p class="story-announcement" role="status">${escapeHtml(value.message)}</p>`
       : "";
+    return `${leaderState}${message}`;
   }
 
   function renderWelcome(value) {
     container.innerHTML = `
       <article class="story-card story-welcome">
         <h2>The Heaven Booth</h2>
+        ${announcement(value)}
       </article>
     `;
   }
@@ -238,7 +250,7 @@ const StoryAttendee = (() => {
         <div class="story-complete-mark" aria-hidden="true">✓</div>
         <h2>Thank you</h2>
         ${announcement(value)}
-        <button type="button" class="btn btn-primary story-done" id="btn-booth-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Done — return to my schedule →"}</button>
+        <button type="button" class="btn btn-primary story-done" id="btn-booth-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Finish booth →"}</button>
       </article>
     `;
   }

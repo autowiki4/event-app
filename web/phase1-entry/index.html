@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Phase 1 · Entry — The Perfect Summer Day</title>
+<title>Welcome & Registration — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
 <style>
   /* Phase 1 stays on the ink/navy phase color throughout. */
@@ -25,7 +25,7 @@
   </div>
 
   <section class="screen" id="s-welcome">
-    <p class="eyebrow" id="welcome-eyebrow">Lobby · Registration (Phase 1 of 3)</p>
+    <p class="eyebrow" id="welcome-eyebrow">Welcome · Registration</p>
     <h1 class="display" id="welcome-title">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
     <p class="lede" id="welcome-copy">Enter your name and mobile number to create your raffle pass and save your place in the live event schedule.</p>
     <div class="placeholder-note" id="event-reset-note" style="display:none; margin-bottom:16px;">
@@ -83,7 +83,7 @@
       <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
       <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
     </div>
-    <button class="btn btn-primary" id="btn-enter-gym" disabled>Complete Phase 1 &amp; continue →</button>
+    <button class="btn btn-primary" id="btn-enter-gym" disabled>Next →</button>
     <p class="top-note">Scan the attendee QR again or bookmark this page if you need to return. Use the same name and number to reopen your pass.</p>
     <p class="top-note">Barefoot Republic Community Center · 15354 Old Hickory Blvd, Nashville, TN</p>
   </section>
@@ -297,7 +297,7 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
     if (Identity.restartIfMissing(error, "index.html")) return;
     toast("Couldn't confirm — check the connection and try again.");
     button.disabled = false;
-    button.textContent = "Complete Phase 1 & continue →";
+    button.textContent = "Next →";
   }
 });
 

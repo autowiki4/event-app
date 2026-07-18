@@ -5,6 +5,7 @@
  * earlier participation stays visible instead of being mixed or erased.
  */
 function initHeavenStaff() {
+  document.body.classList.add("has-booth-leader-dock");
   const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete"]);
@@ -289,11 +290,11 @@ function initHeavenStaff() {
       },
       programs: {
         icon: "🌟", title: "The five-program preview is live.",
-        copy: "This is informational only. Guests cannot enter Phase 3 here; they confirm only that they have seen the preview.",
+        copy: "This is informational only. Guests see a preview here; nothing is selected or submitted from this booth.",
       },
       complete: {
         icon: "🌈", title: `Run ${session.state.runNumber} is finished.`,
-        copy: "Attendees may tap Done to save this booth visit and return to their timed route. Their next booth remains locked until its session.",
+        copy: "Attendees may tap Finish booth to save this visit and return to their timed route. Their next booth remains locked until its session.",
       },
     };
     const model = models[phase] || models.welcome;
@@ -319,19 +320,67 @@ function initHeavenStaff() {
     `;
   }
 
-  function actionButton(id, label, action, secondary = false) {
-    return `<button type="button" class="btn ${secondary ? "btn-ghost" : "btn-primary"}" id="${id}" data-heaven-action="${action}">${escapeHtml(label)}</button>`;
+  function nextActionButton(id, description, action) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Next on attendee phones</span>
+          <strong>${escapeHtml(description)}</strong>
+          <small>One tap updates everyone in this session.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" id="${id}" data-heaven-action="${action}" aria-label="Next: ${escapeHtml(description)}">Next →</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function liveSessionSwitchTarget() {
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    return activeSessionNumber >= 1
+      && activeSessionNumber <= SESSION_COUNT
+      && activeSessionNumber !== selectedSessionNumber
+      ? activeSessionNumber
+      : 0;
+  }
+
+  function liveSessionSwitchButton(sessionNumber) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Live rotation changed</span>
+          <strong>Session ${sessionNumber} is active now</strong>
+          <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" data-heaven-switch-session="${sessionNumber}" aria-label="Switch to live Session ${sessionNumber}">Switch to Session ${sessionNumber} →</button>
+        </div>
+      </div>
+    `;
   }
 
   function renderActions(session) {
+    const switchTarget = liveSessionSwitchTarget();
+    if (switchTarget) {
+      actions.innerHTML = liveSessionSwitchButton(switchTarget);
+      actions.querySelector("[data-heaven-switch-session]").addEventListener("click", (event) => {
+        const sessionNumber = integer(event.currentTarget.dataset.heavenSwitchSession);
+        selectSession(sessionNumber, false);
+        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+      });
+      return;
+    }
     const phase = session.state.phase;
-    if (phase === "welcome") actions.innerHTML = actionButton("btn-heaven-start", "Start drawing for everyone →", "start");
-    else if (phase === "drawing") actions.innerHTML = actionButton("btn-heaven-show-verse", "Reveal Revelation 21:10–11 ✨", "show_verse");
-    else if (phase === "verse") actions.innerHTML = actionButton("btn-heaven-show-comparison", "Show the New Jerusalem size →", "show_comparison");
-    else if (phase === "comparison") actions.innerHTML = actionButton("btn-heaven-show-impact", "Reveal what the size means 💥", "show_impact");
-    else if (phase === "reflection") actions.innerHTML = actionButton("btn-heaven-show-programs", "Show the five-program preview →", "show_programs");
-    else if (phase === "programs") actions.innerHTML = actionButton("btn-heaven-finish", "Finish this shared run →", "finish");
+    if (phase === "welcome") actions.innerHTML = nextActionButton("btn-heaven-start", "Start the drawing activity", "start");
+    else if (phase === "drawing") actions.innerHTML = nextActionButton("btn-heaven-show-verse", "Show Revelation 21:10–11", "show_verse");
+    else if (phase === "verse") actions.innerHTML = nextActionButton("btn-heaven-show-comparison", "Show the New Jerusalem size comparison", "show_comparison");
+    else if (phase === "comparison") actions.innerHTML = nextActionButton("btn-heaven-show-impact", "Show the reflection question", "show_impact");
+    else if (phase === "reflection") actions.innerHTML = nextActionButton("btn-heaven-show-programs", "Show the five-program preview", "show_programs");
+    else if (phase === "programs") actions.innerHTML = nextActionButton("btn-heaven-finish", "Show Finish booth button", "finish");
     else actions.innerHTML = `<p class="heaven-finished-note">This run is complete. Use “Save run & start another” only when you intentionally want a fresh welcome screen for this same session.</p>`;
+    actions.querySelectorAll("[data-heaven-action]").forEach((button) => {
+      button.addEventListener("click", () => advance(String(button.dataset.heavenAction || "")));
+    });
   }
 
   function confirmationCell(complete, label) {
@@ -490,7 +539,7 @@ function initHeavenStaff() {
     if (!value) return "Session controls loaded.";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Session controls loaded.";
-    return `Published ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+    return `Phones updated ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
   }
 
   async function startSharedDemoClock() {
@@ -560,7 +609,7 @@ function initHeavenStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
-      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = sessionByNumber();
@@ -575,9 +624,9 @@ function initHeavenStaff() {
     const pendingLabels = {
       start: "Opening the drawing prompt…",
       show_verse: "Revealing Revelation 21:10–11…",
-      show_comparison: "Publishing the New Jerusalem comparison…",
-      show_impact: "Publishing the meaning reveal…",
-      show_programs: "Publishing the five-program preview…",
+      show_comparison: "Updating phones with the New Jerusalem comparison…",
+      show_impact: "Updating phones with the reflection question…",
+      show_programs: "Updating phones with the five-program preview…",
       finish: "Finishing this shared run…",
     };
     setStatus(pendingLabels[action] || "Updating attendee screens…");
@@ -700,10 +749,6 @@ function initHeavenStaff() {
       tabs[nextIndex].focus();
       selectSession(tabs[nextIndex].dataset.heavenSession);
     });
-  });
-  actions.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-heaven-action]");
-    if (button) advance(button.dataset.heavenAction);
   });
   refreshButton.addEventListener("click", () => refresh());
   restartButton.addEventListener("click", restartSelectedRun);

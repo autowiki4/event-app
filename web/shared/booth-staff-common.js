@@ -10,11 +10,11 @@ function initBoothStaff(boothId) {
   }
 
   const statusOptions = [
-    { value: "waiting", label: "Waiting", help: "Ask the next group to wait for the leader." },
-    { value: "live", label: "Live", help: "Show the selected activity step." },
-    { value: "paused", label: "Paused", help: "Hold the group on the current step." },
-    { value: "wrap", label: "Wrap up", help: "Tell the group this booth is nearly finished." },
-    { value: "complete", label: "Closed", help: "Mark this booth session complete." },
+    { value: "waiting", label: "Get ready", icon: "⏳", help: "Shows the welcome screen while the group waits for you to begin." },
+    { value: "live", label: "Show activity", icon: "▶", help: "Shows the activity screen you selected below." },
+    { value: "paused", label: "Hold here", icon: "Ⅱ", help: "Keeps the current activity screen visible while you pause." },
+    { value: "wrap", label: "Finish soon", icon: "◷", help: "Keeps the current screen visible and tells attendees the booth is nearly finished." },
+    { value: "complete", label: "End booth", icon: "✓", help: "Shows the final thank-you screen and gives attendees their Finish booth button." },
   ];
   const statusValues = statusOptions.map((option) => option.value);
   const steps = (Array.isArray(booth.leaderSteps) && booth.leaderSteps.length
@@ -34,14 +34,16 @@ function initBoothStaff(boothId) {
   let published = normalizePresentation(null);
   let draft = { ...published };
   let demoClockSyncStarted = false;
+  let conflictRecoveryPending = false;
 
   document.title = `${booth.title} — Booth Leader`;
   document.getElementById("staff-booth-name").textContent = booth.title;
   document.getElementById("staff-booth-description").textContent = booth.blurb;
   document.getElementById("staff-booth-mode").textContent = "Booth leader portal";
+  document.body.classList.add("has-booth-leader-dock");
 
   const roomLaunch = document.getElementById("staff-room-launch");
-  roomLaunch.innerHTML = `<a class="btn btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee experience in a new tab →</a>`;
+  roomLaunch.innerHTML = `<a class="btn btn-primary" href="../phase2-booths/hub.html" target="_blank" rel="noopener">Open attendee schedule in a new tab →</a>`;
 
   const kioskLaunch = document.getElementById("staff-kiosk-launch");
   if (booth.kioskPage) {
@@ -79,15 +81,29 @@ function initBoothStaff(boothId) {
       </div>
 
       <div class="dash-card">
-        <div class="lbl">Attendee screen status</div>
-        <div id="staff-status-options" role="radiogroup" aria-label="Attendee screen status" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+        <div class="lbl">What attendee phones show</div>
+        <p style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:7px 0 0;">Tap one color to update every attendee phone right away.</p>
+        <div id="staff-status-options" class="staff-status-grid" role="radiogroup" aria-label="What attendee phones show">
           ${statusOptions.map((option) => `
-            <button type="button" class="btn btn-small btn-ghost" role="radio" aria-checked="false" data-status="${option.value}" title="${escapeHtml(option.help)}">${escapeHtml(option.label)}</button>
+            <button type="button" class="staff-status-choice" role="radio" aria-checked="false" data-status="${option.value}" title="${escapeHtml(option.help)}">
+              <span class="staff-status-icon" aria-hidden="true">${option.icon}</span><span>${escapeHtml(option.label)}</span>
+            </button>
           `).join("")}
         </div>
         <p id="staff-status-help" style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:10px 0 0;"></p>
 
-        <div class="section-title" style="margin-top:22px;">Step shown to attendees</div>
+        <div class="section-title" style="margin-top:22px;">Choose the attendee screen</div>
+        <div class="booth-leader-dock" role="group" aria-label="Move attendee phones backward or forward">
+          <div class="booth-leader-dock-copy">
+            <span>Attendee phones</span>
+            <strong id="staff-step-position">Screen 1 of ${steps.length}</strong>
+            <small>Back and Next update phones immediately.</small>
+          </div>
+          <div class="booth-leader-dock-actions">
+            <button type="button" class="btn btn-small btn-ghost" id="btn-staff-previous">← Back</button>
+            <button type="button" class="btn btn-small btn-primary" id="btn-staff-next">Next →</button>
+          </div>
+        </div>
         <div class="booth-list" id="staff-step-list" role="radiogroup" aria-label="Booth activity step" style="margin-top:10px;">
           ${steps.map((step, index) => `
             <button type="button" class="booth-card" role="radio" aria-checked="false" data-step-index="${index}" style="width:100%;text-align:left;cursor:pointer;font-family:inherit;">
@@ -96,13 +112,9 @@ function initBoothStaff(boothId) {
                 <span class="name" style="display:block;">${escapeHtml(step.title)}</span>
                 ${step.text ? `<span class="hint" style="display:block;">${escapeHtml(step.text)}</span>` : ""}
               </span>
-              <span class="stamp-btn disabled" data-step-marker>Choose</span>
+              <span class="stamp-btn disabled" data-step-marker>Show</span>
             </button>
           `).join("")}
-        </div>
-        <div style="display:flex;gap:10px;margin-bottom:20px;">
-          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-previous" style="flex:1;">← Publish previous</button>
-          <button type="button" class="btn btn-small btn-primary" id="btn-staff-next" style="flex:1;">Publish next →</button>
         </div>
 
         <div class="field">
@@ -112,8 +124,8 @@ function initBoothStaff(boothId) {
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-reset">Reset controls</button>
-          <button type="button" class="btn btn-small btn-primary" id="btn-staff-save" style="flex:1;min-width:160px;">Save to attendee screen</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-reset">Restart at welcome</button>
+          <button type="button" class="btn btn-small btn-primary" id="btn-staff-save" style="flex:1;min-width:160px;">Update announcement</button>
         </div>
         <p id="staff-publish-state" role="status" style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:11px 0 0;">Loading published controls…</p>
       </div>
@@ -121,16 +133,22 @@ function initBoothStaff(boothId) {
 
     controls.querySelectorAll("[data-status]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (saving || (!dirty && draft.status === button.dataset.status)) return;
         draft.status = button.dataset.status;
         markDirty();
         syncControlUi();
+        savePresentation();
       });
     });
     controls.querySelectorAll("[data-step-index]").forEach((button) => {
       button.addEventListener("click", () => {
-        draft.stepIndex = Number(button.dataset.stepIndex);
+        const nextIndex = Number(button.dataset.stepIndex);
+        if (saving || (draft.stepIndex === nextIndex && ["live", "complete"].includes(draft.status))) return;
+        draft.stepIndex = nextIndex;
+        draft.status = nextIndex >= steps.length - 1 ? "complete" : "live";
         markDirty();
         syncControlUi();
+        savePresentation();
       });
     });
     document.getElementById("btn-staff-previous").addEventListener("click", () => changeStep(-1, true));
@@ -147,6 +165,10 @@ function initBoothStaff(boothId) {
   }
 
   function changeStep(delta, publishNow) {
+    if (conflictRecoveryPending) {
+      if (publishNow && delta > 0) savePresentation();
+      return;
+    }
     const nextIndex = Math.max(0, Math.min(steps.length - 1, draft.stepIndex + delta));
     if (nextIndex === draft.stepIndex) return;
     draft.stepIndex = nextIndex;
@@ -161,23 +183,24 @@ function initBoothStaff(boothId) {
   }
 
   function resetDraft() {
+    if (saving || !window.confirm("Return attendee phones to the welcome screen and start this booth over?")) return;
     draft = normalizePresentation({ status: "waiting", stepIndex: 0, message: "", version: published.version });
     markDirty();
     syncControlUi(true);
-    toast("Controls reset. Choose Save to publish.");
+    savePresentation();
   }
 
   function markDirty() {
     dirty = true;
     const state = document.getElementById("staff-publish-state");
-    if (state) state.textContent = "Unsaved changes — choose Save to update attendee screens.";
+    if (state) state.textContent = "Change ready to send to attendee phones.";
   }
 
   function syncControlUi(syncMessage) {
     document.querySelectorAll("[data-status]").forEach((button) => {
       const selected = button.dataset.status === draft.status;
       button.setAttribute("aria-checked", String(selected));
-      button.className = selected ? "btn btn-small btn-primary" : "btn btn-small btn-ghost";
+      button.classList.toggle("is-selected", selected);
       button.disabled = saving;
       button.style.opacity = saving ? ".55" : "1";
     });
@@ -191,15 +214,17 @@ function initBoothStaff(boothId) {
       button.disabled = saving;
       button.style.opacity = saving ? ".55" : "1";
       const marker = button.querySelector("[data-step-marker]");
-      marker.textContent = selected ? "Selected" : "Choose";
+      marker.textContent = selected ? "Showing" : "Show";
       marker.className = selected ? "stamp-btn done" : "stamp-btn disabled";
     });
     const previousButton = document.getElementById("btn-staff-previous");
     const nextButton = document.getElementById("btn-staff-next");
-    previousButton.disabled = saving || draft.stepIndex <= 0;
-    nextButton.disabled = saving || draft.stepIndex >= steps.length - 1;
+    previousButton.disabled = saving || conflictRecoveryPending || draft.stepIndex <= 0;
+    nextButton.disabled = saving || (!conflictRecoveryPending && draft.stepIndex >= steps.length - 1);
+    nextButton.textContent = conflictRecoveryPending ? "Apply my change" : "Next →";
     previousButton.style.opacity = previousButton.disabled ? ".45" : "1";
     nextButton.style.opacity = nextButton.disabled ? ".45" : "1";
+    document.getElementById("staff-step-position").textContent = `Screen ${draft.stepIndex + 1} of ${steps.length}`;
 
     if (syncMessage) document.getElementById("staff-message").value = draft.message;
     document.getElementById("staff-message").disabled = saving;
@@ -211,10 +236,54 @@ function initBoothStaff(boothId) {
   }
 
   function formatPublishedAt(value) {
-    if (!value) return "Published controls loaded.";
+    if (!value) return "Attendee phones are ready.";
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "Published controls loaded.";
-    return `Published ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+    if (Number.isNaN(date.getTime())) return "Attendee phones are ready.";
+    return `Phones updated ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+  }
+
+  function samePublishedScreen(left, right) {
+    return left.status === right.status
+      && left.stepIndex === right.stepIndex
+      && left.message.trim() === right.message.trim();
+  }
+
+  async function recoverPresentationConflict(intended, authGeneration, organizerKey, state) {
+    try {
+      const data = await EventAPI.boothDashboardData(booth.id, organizerKey);
+      if (!OrganizerAuth.isCurrent(authGeneration)) return false;
+      const latest = normalizePresentation(data.presentation);
+      published = latest;
+
+      if (samePublishedScreen(latest, intended)) {
+        draft = { ...latest };
+        dirty = false;
+        conflictRecoveryPending = false;
+        syncControlUi(true);
+        state.textContent = "Another booth leader already showed this same screen. Attendee phones are current.";
+        toast("Attendee phones are already on this screen.");
+        return true;
+      }
+
+      draft = {
+        ...intended,
+        version: latest.version,
+        updatedAt: latest.updatedAt,
+      };
+      dirty = true;
+      conflictRecoveryPending = true;
+      syncControlUi(true);
+      state.textContent = "Another booth leader updated first. Your change is still selected—tap the fixed Apply my change button to send it now.";
+      toast("Latest update loaded. Your change is ready to apply.");
+      return true;
+    } catch (refreshError) {
+      console.error(refreshError);
+      if (OrganizerAuth.handleError(refreshError, authGeneration)) return false;
+      conflictRecoveryPending = true;
+      syncControlUi(true);
+      state.textContent = "Another booth leader updated first. Your change is still selected—tap Apply my change to try again.";
+      return false;
+    }
   }
 
   async function savePresentation() {
@@ -225,11 +294,12 @@ function initBoothStaff(boothId) {
 
     saving = true;
     presentationEpoch += 1;
+    const intended = { ...draft };
     syncControlUi();
     const saveButton = document.getElementById("btn-staff-save");
-    saveButton.textContent = "Saving…";
+    saveButton.textContent = "Updating…";
     const state = document.getElementById("staff-publish-state");
-    state.textContent = "Publishing changes…";
+    state.textContent = "Updating attendee phones…";
     try {
       const result = await EventAPI.updateBoothPresentation({
         boothId: booth.id,
@@ -243,20 +313,23 @@ function initBoothStaff(boothId) {
       published = normalizePresentation(result.presentation || result);
       draft = { ...published };
       dirty = false;
+      conflictRecoveryPending = false;
       syncControlUi(true);
-      state.textContent = `${formatPublishedAt(published.updatedAt)} Attendee screens will refresh automatically.`;
-      toast("Attendee screen updated.");
+      state.textContent = `${formatPublishedAt(published.updatedAt)} Changes appear automatically.`;
+      toast("Attendee phones updated.");
     } catch (error) {
       console.error(error);
       if (OrganizerAuth.handleError(error, authGeneration)) return;
-      state.textContent = error && error.code === "PRESENTATION_CONFLICT"
-        ? "Another booth leader updated this screen. Refresh before saving again."
-        : "Couldn't publish the controls. Your changes are still here; try again.";
-      toast("Couldn't update the attendee screen.");
+      if (error && error.code === "PRESENTATION_CONFLICT") {
+        await recoverPresentationConflict(intended, authGeneration, organizerKey, state);
+      } else {
+        state.textContent = "Couldn't publish the controls. Your changes are still here; try again.";
+        toast("Couldn't update the attendee screen.");
+      }
     } finally {
       if (OrganizerAuth.isCurrent(authGeneration)) {
         saving = false;
-        saveButton.textContent = "Save to attendee screen";
+        saveButton.textContent = conflictRecoveryPending ? "Apply my change" : "Update announcement";
         syncControlUi();
       }
     }
@@ -272,9 +345,10 @@ function initBoothStaff(boothId) {
     const songVoteBody = document.querySelector("#staff-song-vote-table tbody");
     if (songVoteBody) songVoteBody.innerHTML = "";
     dirty = false;
+    conflictRecoveryPending = false;
     published = normalizePresentation(null);
     draft = { ...published };
-    document.getElementById("btn-staff-save").textContent = "Save to attendee screen";
+    document.getElementById("btn-staff-save").textContent = "Update announcement";
     syncControlUi(true);
     document.getElementById("staff-publish-state").textContent = "Unlock this booth to load published controls.";
   }
@@ -412,11 +486,11 @@ function initBoothStaff(boothId) {
           });
           dirty = true;
           syncControlUi(true);
-          document.getElementById("staff-publish-state").textContent = "New session detected. Controls were reset locally—choose Save when this group is ready.";
+          document.getElementById("staff-publish-state").textContent = "A new session is ready. Tap Get ready to refresh the welcome screen, or tap Next to begin.";
         } else {
           draft = { ...published };
           syncControlUi(true);
-          document.getElementById("staff-publish-state").textContent = `${formatPublishedAt(published.updatedAt)} Attendee screens refresh automatically.`;
+          document.getElementById("staff-publish-state").textContent = `${formatPublishedAt(published.updatedAt)} Changes appear automatically.`;
         }
       }
       refreshSchedule();

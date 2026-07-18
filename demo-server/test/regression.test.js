@@ -4317,6 +4317,18 @@ async function runFrontendContractRegression() {
   const heavenAttendeeSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "heaven-attendee.js"), "utf8");
   const heavenStaffPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", "heaven.html"), "utf8");
   const heavenStaffSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "heaven-staff.js"), "utf8");
+  [
+    [triviaStaffSource, "trivia"],
+    [heavenStaffSource, "heaven"],
+    [artStaffSource, "art"],
+    [newSongStaffControllerSource, "newsong"],
+  ].forEach(([source, boothId]) => {
+    assert.match(source, /Live rotation changed/);
+    assert.match(source, /Switch sessions and review the next step before publishing anything to attendee phones\./);
+    assert.match(source, new RegExp(`data-${boothId}-switch-session`));
+    assert.match(source, /No attendee screen changed\./);
+    assert.match(source, /One tap updates everyone in this session\./);
+  });
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
   vm.createContext(boothsConfigContext);
@@ -4367,7 +4379,8 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /name="wristband-color"/);
   assert.match(phase1Source, /EventAPI\.confirmWristband\(identity\.attendeeId, selectedWristbandColor\)/);
   assert.match(phase1Source, /shared\/event-schedule\.js/);
-  assert.match(phase1Source, /Complete Phase 1 &amp; continue/);
+  assert.match(phase1Source, /id="btn-enter-gym" disabled>Next →<\/button>/);
+  assert.doesNotMatch(phase1Source, /Complete Phase 1|Phase 1 of 3/);
   assert.match(phase1Source, /window\.location\.href = EventSchedule\.linkWithPreview\("\.\.\/phase2-booths\/hub\.html"\)/);
   assert.match(phase1Source, /function resumeSavedAttendee\(\)/);
   assert.match(phase1Source, /AttendeePortal\.continueAs\("phase1"\)/);
@@ -4392,6 +4405,8 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /shared\/event-schedule\.js/);
   assert.match(phase2Source, /AttendeePortal\.signIn\(PORTAL/);
   assert.match(phase2Source, /AttendeePortal\.continueAs\(PORTAL\)/);
+  assert.match(phase2Source, /id="btn-phase2-login">Next →<\/button>/);
+  assert.doesNotMatch(phase2Source, /Open my schedule/);
   assert.match(phase2Source, /EventSchedule\.currentBooth/);
   assert.match(phase2Source, /EventAPI\.boothPresentation/);
   assert.match(phase2Source, /id="btn-open-booth-activity"/);
@@ -4415,6 +4430,9 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /id="phase2-phone"[^>]*autocomplete="tel-national"/);
   assert.match(phase2Source, /const completionLivesInActivity = \["trivia", "heaven", "story", "art", "newsong"\]\.includes\(currentBooth\.id\)/);
   assert.match(phase2Source, /Finish \$\{currentBooth\.title\} from its final screen/);
+  assert.match(phase2Source, /serverScreenTitle\s*\?\s*"Leader screen · Current activity"/);
+  assert.match(phase2Source, /tap Finish booth on its final screen/);
+  assert.doesNotMatch(phase2Source, /tap Done on its final screen/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -4663,6 +4681,8 @@ async function runFrontendContractRegression() {
   assert.match(artStaffSource, /not saved Done for this run/);
   assert.match(artStaffSource, /options\.queue/);
   assert.match(artStaffSource, /refreshQueued/);
+  assert.match(artStaffSource, /snapshot\.session \? integer\(snapshot\.session\.number\) : 0/);
+  assert.doesNotMatch(artStaffSource, /snapshot\.sessionNumber/);
   ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].forEach((key) => {
     assert.match(artStaffSource, new RegExp(`event\\.key === "${key}"`));
   });
@@ -5113,6 +5133,29 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
+  ["Get ready", "Show activity", "Hold here", "Finish soon", "End booth"].forEach((label) => {
+    assert.ok(boothStaffCommon.includes(`label: "${label}"`), label);
+  });
+  assert.match(boothStaffCommon, /class="staff-status-choice"/);
+  assert.match(boothStaffCommon, /class="booth-leader-dock"/);
+  assert.match(boothStaffCommon, /id="btn-staff-next">Next →<\/button>/);
+  assert.doesNotMatch(boothStaffCommon, /Publish previous|Publish next|Save to attendee screen|Reset controls/);
+  assert.match(boothStaffCommon, /draft\.status = button\.dataset\.status;[\s\S]*?savePresentation\(\);/);
+  assert.match(boothStaffCommon, /async function recoverPresentationConflict\(/);
+  assert.match(boothStaffCommon, /samePublishedScreen\(latest, intended\)/);
+  assert.match(boothStaffCommon, /Your change is still selected—tap the fixed Apply my change button/);
+  assert.match(boothStaffCommon, /if \(conflictRecoveryPending\) \{[\s\S]*?savePresentation\(\);[\s\S]*?return;/);
+  assert.match(boothStaffCommon, /nextButton\.textContent = conflictRecoveryPending \? "Apply my change" : "Next →"/);
+  assert.match(boothStaffCommon, /saveButton\.textContent = conflictRecoveryPending \? "Apply my change" : "Update announcement"/);
+  assert.match(boothStaffCommon, /conflictRecoveryPending = true;[\s\S]*?tap Apply my change to try again/);
+  [triviaStaffSource, heavenStaffSource, artStaffSource, newSongStaffControllerSource].forEach((source) => {
+    assert.match(source, /class="booth-leader-dock"/);
+    assert.ok(source.includes("Next →"));
+  });
+  [storyAttendeeSource, triviaAttendeeSource, heavenAttendeeSource, artAttendeeSource, newSongAttendeeSource].forEach((source) => {
+    assert.match(source, /Finish booth →/);
+    assert.doesNotMatch(source, /Done — return to my schedule/);
+  });
   ["story"].forEach((boothId) => {
     const source = fs.readFileSync(path.join(__dirname, "..", "..", "web", "phase2-staff", `${boothId}.html`), "utf8");
     assert.match(source, new RegExp(`initBoothStaff\\("${boothId}"\\)`));

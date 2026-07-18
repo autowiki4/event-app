@@ -4,6 +4,7 @@
  * also contain multiple archived runs, so restart never combines or erases
  * an earlier run's leaderboard. */
 function initTriviaStaff() {
+  document.body.classList.add("has-booth-leader-dock");
   const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const QUESTION_COUNT = 15;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
@@ -257,19 +258,68 @@ function initTriviaStaff() {
     return `<button type="button" class="${className}" id="${id}" data-trivia-action="${action}">${escapeHtml(label)}</button>`;
   }
 
+  function nextActionButton(id, description, action) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Next on attendee phones</span>
+          <strong>${escapeHtml(description)}</strong>
+          <small>One tap updates everyone in this session.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" id="${id}" data-trivia-action="${action}" aria-label="Next: ${escapeHtml(description)}">Next →</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function liveSessionSwitchTarget() {
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    return activeSessionNumber >= 1
+      && activeSessionNumber <= SESSION_COUNT
+      && activeSessionNumber !== selectedSessionNumber
+      ? activeSessionNumber
+      : 0;
+  }
+
+  function liveSessionSwitchButton(sessionNumber) {
+    return `
+      <div class="booth-leader-dock">
+        <div class="booth-leader-dock-copy">
+          <span>Live rotation changed</span>
+          <strong>Session ${sessionNumber} is active now</strong>
+          <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
+        </div>
+        <div class="booth-leader-dock-actions">
+          <button type="button" class="btn btn-primary" data-trivia-switch-session="${sessionNumber}" aria-label="Switch to live Session ${sessionNumber}">Switch to Session ${sessionNumber} →</button>
+        </div>
+      </div>
+    `;
+  }
+
   function renderActions(session) {
+    const switchTarget = liveSessionSwitchTarget();
+    if (switchTarget) {
+      actions.innerHTML = liveSessionSwitchButton(switchTarget);
+      actions.querySelector("[data-trivia-switch-session]").addEventListener("click", (event) => {
+        const sessionNumber = integer(event.currentTarget.dataset.triviaSwitchSession);
+        selectSession(sessionNumber, false);
+        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+      });
+      return;
+    }
     const phase = session.state.phase;
     if (phase === "welcome") {
-      actions.innerHTML = actionButton("btn-trivia-start", "Start Question 1 →", "start");
+      actions.innerHTML = nextActionButton("btn-trivia-start", "Show Question 1", "start");
     } else if (phase === "question") {
-      actions.innerHTML = actionButton("btn-trivia-reveal", "Next: reveal the correct answer →", "reveal");
+      actions.innerHTML = nextActionButton("btn-trivia-reveal", "Reveal the correct answer", "reveal");
     } else if (phase === "reveal") {
       const atLastQuestion = !session.question || session.question.number >= QUESTION_COUNT;
       actions.innerHTML = atLastQuestion
-        ? actionButton("btn-trivia-finish", "Show final results →", "finish")
+        ? nextActionButton("btn-trivia-finish", "Show the final results", "finish")
         : [
-            actionButton("btn-trivia-next", "Open the next question →", "next"),
-            actionButton("btn-trivia-finish", "End here and show results", "finish", "btn btn-ghost trivia-secondary"),
+            nextActionButton("btn-trivia-next", "Show the next question", "next"),
+            `<div class="booth-leader-secondary-action">${actionButton("btn-trivia-finish", "End game early and show results", "finish", "btn btn-ghost trivia-secondary")}</div>`,
           ].join("");
     } else {
       actions.innerHTML = "";
@@ -440,7 +490,7 @@ function initTriviaStaff() {
     if (!value) return "Session controls loaded.";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Session controls loaded.";
-    return `Published ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+    return `Phones updated ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
   }
 
   async function startSharedDemoClock() {
@@ -511,7 +561,7 @@ function initTriviaStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
-      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = sessionByNumber();
