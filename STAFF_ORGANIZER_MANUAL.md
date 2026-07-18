@@ -2,7 +2,7 @@
 
 ## The Perfect Summer Day: Experience Heaven
 
-This guide explains the current event app in practical terms: where staff begin, how the shared clock works, what each booth leader controls, and what attendees see. The current build is scheduled for **July 18, 2026, from 3:10–4:00 PM CDT**. If the event date or times change, update the app before deployment.
+This guide explains the current event app in practical terms: where staff begin, how the shared clock works, what each booth leader controls, and what attendees see. The current build is scheduled for **July 18, 2026, from 3:35–5:10 PM CDT**. If the event date or times change, update the app before deployment.
 
 Staff begin at:
 
@@ -18,10 +18,11 @@ All shared schedule, countdown, and route times use Nashville/Chicago time (CDT)
 
 | Time | What happens |
 |---|---|
-| 3:10–3:30 PM | Session 1 |
-| 3:30–3:50 PM | Session 2 |
-| 3:50–4:00 PM | Booths are closed; attendees finish their next-step selections and wait |
-| 4:00 PM | The main message begins on every attendee screen |
+| 3:35–3:55 PM | Session 1 |
+| 3:55–4:15 PM | Session 2 |
+| 4:15–4:50 PM | Every attendee screen shows: **The message is being delivered. I hope you get blessed today.** |
+| 4:50–5:10 PM | Attendees choose one unvisited booth or go directly to Connections |
+| 5:10 PM onward | Everyone is directed to Connections |
 
 | Wristband | Session 1 | Session 2 |
 |---|---|---|
@@ -33,12 +34,13 @@ All shared schedule, countdown, and route times use Nashville/Chicago time (CDT)
 
 ## 2. How the attendee experience works
 
-1. The attendee registers with their **name and mobile number**, receives a raffle number, and a Guardian Angel confirms their wristband color. The raffle number is displayed for reference; it is not used to log in.
+1. The attendee registers with their **name and mobile number**, chooses **In person** or **Online**, and receives a raffle number. In-person attendees are told to select the wristband color they were given; online attendees are told to select a color for their online room assignment. The raffle number is displayed for reference; it is not used to log in.
 2. Their wristband determines the two-booth route above. Only the booth scheduled for the current time can open.
 3. Refreshing the phone restores the attendee's login and saved position. On a new device, they open the attendee link or QR code and use the same name and phone number. **Log out** signs them out of that device; signing in again with the same details resumes their saved record.
 4. Inside a booth, attendees follow the leader's current screen. They cannot click ahead.
-5. On the final booth screen, the attendee must tap **Finish booth →**. The next booth remains locked until its scheduled session.
-6. After Session 2, attendees make their quick next-step selections and wait for the 4:00 PM message.
+5. On the final booth screen, the attendee must tap **Finish booth →**. The app saves the visit and returns to the schedule; a completed booth cannot be reopened. The next booth remains locked until its scheduled session.
+6. After both regular booth finishes are saved, attendees make their quick next-step selections before 4:15. From 4:15–4:50 every screen holds on the message notice.
+7. At 4:50, the app asks **Want to explore one more booth?** It lists only booths that attendee has not completed, plus Connections. The extra booth closes at 5:10. Finishing it, choosing Connections, or reaching 5:10 directs the attendee to Connections.
 
 **Late arrivals:** with at least five minutes remaining, an attendee enters the current assigned booth near the leader's current stage; Draw Heaven may first require its confirmation steps in order. With less than five minutes left in Session 1, the attendee waits for Session 2. With less than five minutes left in Session 2, the app directs them to an organizer for catch-up. A missed booth is never marked complete automatically.
 
@@ -48,9 +50,10 @@ All shared schedule, countdown, and route times use Nashville/Chicago time (CDT)
 
 Keep the Overall Organizer dashboard open during registration and the event. It refreshes automatically and shows:
 
-- registrations, confirmed wristbands, raffle entries, and the count for each wristband color;
+- registrations, confirmed colors, raffle entries, and the count for each color;
+- each attendee's **In person** or **Online** status, both in totals and under the selected color;
 - the booth where every wristband group should currently be;
-- expandable attendee rosters with raffle number, arrival status, and booth progress;
+- expandable attendee rosters with raffle number, attendance status, booth progress, and optional extra-booth or Connections choice;
 - check-in totals for each booth; and
 - next-step selections, with **Confirm** available after staff speak with an attendee.
 
@@ -58,7 +61,7 @@ Bible Bowl rankings appear only in the Bible Bowl portal. New Song vote results 
 
 ### Rehearsal clock
 
-The timeline can simulate any point from 3:10 to 4:00 PM. Drag the slider, enter an exact time, or use the 3:10, 3:30, 3:50, and 4:00 shortcuts. A selection does not affect anyone until you choose **Apply simulated time**.
+The timeline can simulate any point from 3:35 to 5:10 PM. Drag the slider, enter an exact time, or use the 3:35, 3:55, 4:15, 4:50, and 5:10 shortcuts. A selection does not affect anyone until you choose **Apply simulated time**.
 
 **Show waiting lobby** starts shortly before Session 1. Use simulation for rehearsals only; all connected attendee and staff screens follow the same simulated point.
 
@@ -66,7 +69,7 @@ The timeline can simulate any point from 3:10 to 4:00 PM. Drag the slider, enter
 
 Before guests enter, choose **Use live CDT clock**. Confirm the button is selected, the dashboard says **Live clock · CDT**, and the displayed time matches Nashville/Chicago time. During the live event, do not use simulated-time controls.
 
-At 3:30 the app changes every route to Session 2. At 3:50 booth access closes. At 4:00 every attendee page announces that the main message is beginning.
+At 3:55 the app changes every route to Session 2. At 4:15 regular booth access closes and every attendee page shows the message notice. At 4:50 the extra-booth/Connections chooser opens. At 5:10 extra booths close and every attendee is directed to Connections.
 
 ### Clearing rehearsal data
 
@@ -77,7 +80,7 @@ Use **Clear all attendee data** only when intentionally starting over. It perman
 - Open and unlock the booth portal before the group arrives. Confirm the active session, wristband color, and countdown.
 - In Draw Heaven, Bible Bowl, Art Therapy, and New Song, the fixed control at the bottom tells you what **Next →** will show. One tap updates eligible attendee phones, normally within 2–5 seconds.
 - When you need to pause, simply do not tap Next; attendee phones stay on the current screen.
-- In those four session-based booths, a wrong-session control says **Switch to Session 1/2**. Switch first, review the next action, and then tap Next.
+- In those four session-based booths, a wrong-session control says **Switch to Session**. Use Session 1 or 2 during the regular route and Session 3 from 4:50–5:10 for attendees who selected your booth. Switch first, review the next action, and then tap Next.
 - Watch the automatic 10-minute, 5-minute, and final-15-second warnings. Reach the final screen early enough for attendees to tap **Finish booth →**.
 - Avoid repeated taps while an update is saving. Use one primary operator per booth.
 
@@ -96,7 +99,7 @@ Use **Next →** for this sequence:
 5. Show the five-program information preview. This does not submit an attendee's next-step selections.
 6. Release **Finish booth →**.
 
-The leader portal shows each attendee's raffle number and confirmation progress for drawing, description, size, reflection, and program preview. **Archive/Save run & start another** preserves that run and opens a fresh welcome screen for the selected session.
+The leader portal shows each attendee's raffle number and confirmation progress for drawing, description, size, reflection, and program preview. **Archive/Save run & start another** preserves that run and opens a fresh welcome screen for the selected session. Use Session 3 for attendees who choose Draw Heaven at 4:50.
 
 ### Bible Bowl
 
@@ -108,7 +111,7 @@ The leader portal shows each attendee's raffle number and confirmation progress 
 4. Tap Next again to open the following question. Repeat the question/reveal rhythm; attendees cannot advance themselves.
 5. After Question 15—or, after a reveal, by choosing **End game early and show results**—show the final results. Attendees see their score and the session's top three, then tap **Finish booth →**.
 
-The booth-private leaderboard shows rank, attendee, raffle number, and score. Session 1, Session 2, and restarted runs remain separate. Restart only after the group has finished; the archived leaderboard remains available.
+The booth-private leaderboard shows rank, attendee, raffle number, and score. Session 1, Session 2, Session 3, and restarted runs remain separate. Restart only after the group has finished; the archived leaderboard remains available. Session 3 contains attendees who choose Bible Bowl at 4:50.
 
 ### Art Therapy
 
@@ -126,7 +129,7 @@ Tap **Next →** through the guided presentation:
 8. “I'm finished—now what?” and the closing reflection.
 9. Release **Finish booth →**.
 
-The app does not collect artwork, written reflections, ratings, or comments. The leader portal shows assigned attendees and saved completions. Archive/restart preserves the selected run and does not change the other session.
+The app does not collect artwork, written reflections, ratings, or comments. The leader portal shows assigned attendees and saved completions. Archive/restart preserves the selected run and does not change the other session. Use Session 3 for attendees who choose Art Therapy at 4:50.
 
 ### The Heaven Booth
 
@@ -143,7 +146,7 @@ The ordered flow is:
 5. Show the four NIV passage screens: Matthew 13:31–32, 13:33, 13:44, and 13:47–48.
 6. Show **Thank you**, which releases **Finish booth →**.
 
-Back and Next publish immediately. Tapping a screen in the list also publishes it immediately. This booth uses one shared presentation rather than separate session tabs or archived runs, and its check-in count is combined. Use **Restart at welcome** only when deliberately resetting the presentation.
+Back and Next publish immediately. Tapping a screen in the list also publishes it immediately. The portal automatically follows the clock-current Session 1, Session 2, or extra-booth run; each run keeps independent progress so a late click cannot change the next group. Its recent check-in list remains combined. Use **Restart at welcome** only when deliberately resetting the current run.
 
 ### New Song
 
@@ -155,7 +158,7 @@ Back and Next publish immediately. Tapping a screen in the list also publishes i
 4. Give the room time to discuss or guess. Tap Next only when ready to reveal Revelation 14:3 KJV and its artwork.
 5. Tap Next after the reflection to release **Finish booth →**.
 
-Votes, results, attendee progress, and archived runs remain separate for each session. Restart after the group clears the booth so the saved run remains available.
+Votes, results, attendee progress, and archived runs remain separate for each session. Restart after the group clears the booth so the saved run remains available. Session 3 contains only attendees who choose New Song at 4:50.
 
 ## 6. Google Sheets export
 
@@ -167,7 +170,7 @@ The app database is the source of truth; Google Sheets is a live mirror. A Sheet
 - **Sync now** or **Retry now** queues an immediate full-snapshot attempt; wait for **Up to date**. Failed attempts also retry automatically.
 - Each successful sync replaces the managed `Live_*` tabs with the latest app state; it does not append permanent history.
 - Phase 3 **Confirm** writes `TRUE`, `staff`, and the event time to `Live_SignUps` columns J–L.
-- Phone numbers are exported in readable formatting. Bible Bowl answers/rankings and New Song votes remain private to their booth portals.
+- Phone numbers are exported in readable formatting. Attendance mode and the optional extra-booth/Connections choice are included with the attendee record. Bible Bowl answers/rankings and New Song votes remain private to their booth portals.
 - Before clearing attendee data, download CSV files or copy the spreadsheet if a historical record is needed.
 
 Managed tabs are `Live_Attendees`, `Live_BoothResults`, `Live_SignUps`, `Live_TriviaAnswers`, `Live_HeavenConfirmations`, `Live_SongVotes`, and `Live_ExportMeta`. The private trivia and song tabs remain header-only.
@@ -197,10 +200,12 @@ Remove the retired Apps Script variables if present, choose **Save and deploy**,
 2. Open Overall Organizer and select **Use live CDT clock**.
 3. Confirm Google Sheets says **Up to date**, if export is enabled.
 4. Have each booth leader unlock their portal and confirm Session 1's wristband color.
-5. Leave attendees on the welcome/lobby screen until 3:10.
-6. At 3:30, confirm every portal has switched to Session 2.
-7. At 3:50, direct attendees to next-step selections and the waiting area.
-8. At 4:00, confirm the main-message notice appears.
+5. Leave attendees on the welcome/lobby screen until 3:35.
+6. At 3:55, confirm every portal has switched to Session 2.
+7. At 4:15, confirm every attendee screen shows **The message is being delivered. I hope you get blessed today.**
+8. Before 4:50, prepare Session 3 in the four tabbed booth portals. The Heaven Booth switches automatically to its separate extra-booth welcome at 4:50.
+9. At 4:50, confirm the optional unvisited-booth/Connections chooser appears and leaders can see their selected attendees.
+10. At 5:10, confirm booth access closes and attendee screens direct everyone to Connections.
 
 ### Quick troubleshooting
 
@@ -208,5 +213,6 @@ Remove the retired Apps Script variables if present, choose **Save and deploy**,
 - **An attendee cannot enter:** check their wristband, current time, and late-arrival status. Off-route rooms are intentionally locked.
 - **An attendee refreshed:** their position should restore. On a new device, they sign in with the same name and phone number.
 - **A staff refresh asks for the key again:** re-enter the organizer key; staff access is remembered only for the current page session.
-- **The session ended before Finish booth:** ask Overall Organizer about catch-up; never mark it complete automatically.
+- **The session ended before Finish booth:** the visit stays unmarked; never mark it complete automatically. At 4:50, that booth may appear as one of the attendee's optional unvisited choices.
+- **An extra-booth attendee is missing:** confirm it is 4:50–5:10, that they selected that booth rather than Connections, and that the booth leader is viewing Session 3.
 - **Sheets needs attention:** the event app still works. Retry, then verify the Sheet ID, Sheets API, service-account sharing, and Render JSON variable.

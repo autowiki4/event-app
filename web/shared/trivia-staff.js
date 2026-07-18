@@ -1,18 +1,20 @@
 /* Bible Bowl's booth-leader portal is intentionally separate from the
- * generic booth presentation controls. Its two versioned sessions keep the
+ * generic booth presentation controls. Its versioned sessions keep the
  * speaker in charge of question, reveal, and result timing. Each session can
  * also contain multiple archived runs, so restart never combines or erases
  * an earlier run's leaderboard. */
 function initTriviaStaff() {
   document.body.classList.add("has-booth-leader-dock");
-  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
+  const SESSION_COUNT = typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+    ? ALL_BOOTH_SESSIONS.length
+    : 3;
   const QUESTION_COUNT = 15;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "question", "reveal", "complete"]);
   const FALLBACK_BANDS = [
     { id: "red", label: "Red" },
     { id: "blue", label: "Blue" },
-    { id: "yellow", label: "Yellow" },
+    { id: "", label: "Selected attendees" },
   ];
 
   let dashboard = null;
@@ -73,17 +75,28 @@ function initTriviaStaff() {
   }
 
   function sessionSchedule(sessionNumber = selectedSessionNumber) {
-    return typeof BOOTH_SESSIONS !== "undefined" && Array.isArray(BOOTH_SESSIONS)
-      ? BOOTH_SESSIONS[sessionNumber - 1] || null
+    return typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+      ? ALL_BOOTH_SESSIONS[sessionNumber - 1] || null
       : null;
   }
 
   function fallbackBand(sessionNumber = selectedSessionNumber) {
+    if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
       const group = EventSchedule.groupForBooth("trivia", sessionNumber - 1);
       if (group) return group;
     }
-    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Assigned" };
+    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Selected attendees" };
+  }
+
+  function sessionTitle(sessionNumber) {
+    return sessionNumber === 3 ? "Extra booth" : `Session ${sessionNumber}`;
+  }
+
+  function audienceLabel(session) {
+    if (session.sessionNumber === 3) return "Selected attendees · Extra booth";
+    const label = session.assignedColor.label || "Assigned";
+    return `${label} wristbands · Session ${session.sessionNumber}`;
   }
 
   function normalizedArchivedRun(raw, fallbackRunNumber) {
@@ -194,7 +207,9 @@ function initTriviaStaff() {
       const label = session ? session.assignedColor.label : fallbackBand(sessionNumber).label;
       const phase = session ? phaseLabel(session.state.phase) : "Loading";
       const time = session ? session.sessionLabel : (sessionSchedule(sessionNumber) || {}).label || "";
-      tab.querySelector("b").textContent = `Session ${sessionNumber} · ${label}`;
+      tab.querySelector("b").textContent = sessionNumber === 3
+        ? "Extra booth · Selected attendees"
+        : `Session ${sessionNumber} · ${label}`;
       const run = session ? `Run ${session.state.runNumber}` : "";
       tab.querySelector("small").textContent = [time, run, phase].filter(Boolean).join(" · ");
     });
@@ -417,9 +432,8 @@ function initTriviaStaff() {
     const phasePill = document.getElementById("trivia-phase-pill");
     phasePill.textContent = phaseLabel(phase);
     phasePill.className = `trivia-phase-pill ${phase}`;
-    const bandLabel = session.assignedColor.label || "Assigned";
     const bandTarget = document.getElementById("trivia-assigned-band");
-    bandTarget.innerHTML = `<span class="trivia-band-dot" aria-hidden="true"></span>${escapeHtml(bandLabel)} wristbands · Session ${session.sessionNumber}`;
+    bandTarget.innerHTML = `<span class="trivia-band-dot" aria-hidden="true"></span>${escapeHtml(audienceLabel(session))}`;
     bandTarget.style.setProperty("--band-color", bandHex(session.assignedColor.id));
     document.getElementById("trivia-session-time").textContent = session.sessionLabel;
     document.getElementById("staff-total").textContent = String(session.responseCount);
@@ -448,29 +462,38 @@ function initTriviaStaff() {
     }
 
     const current = EventSchedule.current();
-    const selectedIndex = selectedSessionNumber - 1;
     let timerValue = session.sessionLabel;
     let timerLabel = "Scheduled time";
     let noteText = "";
-    if (current.phase === "active" && current.sessionIndex === selectedIndex) {
+    const boothSessionActive = current.phase === "active" || current.phase === "extra";
+    const currentSessionNumber = current.session ? integer(current.session.number) : 0;
+    if (boothSessionActive && currentSessionNumber === selectedSessionNumber) {
       timerValue = EventSchedule.formatCountdown(current.remainingMs);
       timerLabel = "Remaining now";
     } else if (current.phase === "before") {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Starts at";
       noteText = `The event is in the waiting lobby. Session ${selectedSessionNumber} controls are saved, but only its assigned group can enter during that timed rotation.`;
-    } else if (current.phase === "active" && selectedIndex < current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber < currentSessionNumber) {
       timerValue = "Closed";
       timerLabel = "Rotation passed";
       noteText = `You are reviewing an earlier session. Its current and archived run leaderboards remain separate and saved.`;
-    } else if (current.phase === "active" && selectedIndex > current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber > currentSessionNumber) {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
-      noteText = `Session ${current.session.number} is active now. You are preparing Session ${selectedSessionNumber}; attendees will not enter this room until their timed rotation.`;
-    } else if (current.phase === "waiting" || current.phase === "ended") {
+      noteText = `${sessionTitle(currentSessionNumber)} is active now. You are preparing ${sessionTitle(selectedSessionNumber)}; attendees will not enter this room until its timed window.`;
+    } else if (current.phase === "message") {
+      timerValue = selectedSessionNumber === 3
+        ? EventSchedule.formattedTime(schedule.startsAt)
+        : "Closed";
+      timerLabel = selectedSessionNumber === 3 ? "Upcoming" : "Rotation passed";
+      noteText = selectedSessionNumber === 3
+        ? "The main message is in progress. Attendees may enter this extra booth after selecting it at 4:50 PM."
+        : "The main message is in progress. This session's leaderboard remains saved for review.";
+    } else if (current.phase === "connections" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
-      noteText = "All booth rotations have ended. The session leaderboard remains available until an organizer resets event data.";
+      noteText = "All booth sessions have ended. The session leaderboard remains available until an organizer resets event data.";
     }
     timer.innerHTML = `${escapeHtml(timerValue)}<small>${escapeHtml(timerLabel)}</small>`;
     note.textContent = noteText;
@@ -517,7 +540,7 @@ function initTriviaStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!(options && options.silent)) setStatus("Refreshing both sessions…");
+    if (!(options && options.silent)) setStatus("Refreshing all booth sessions…");
     try {
       const data = await EventAPI.triviaDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -612,7 +635,7 @@ function initTriviaStaff() {
     const organizerKey = OrganizerAuth.key();
     if (!session || !organizerKey) return;
     const approved = window.confirm(
-      `Archive Bible Bowl Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nThe current answers and leaderboard will stay saved under the previous run. The other session will not change.${session.state.phase === "complete" ? "" : "\n\nThis run is not finished yet, so only continue if you intentionally want to close it early."}`
+      `Archive Bible Bowl ${sessionTitle(session.sessionNumber)}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nThe current answers and leaderboard will stay saved under the previous run. The other sessions will not change.${session.state.phase === "complete" ? "" : "\n\nThis run is not finished yet, so only continue if you intentionally want to close it early."}`
     );
     if (!approved) return;
     if (typeof EventAPI === "undefined" || typeof EventAPI.resetTriviaSession !== "function") {

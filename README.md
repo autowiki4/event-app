@@ -9,24 +9,33 @@ review.
 
 The attendee journey is now one continuous flow:
 
-1. **Phase 1 — entry:** enter a name and mobile number and immediately receive
-   a raffle number in the app. A Guardian Angel then confirms the physical
-   wristband color. Confirmation continues directly into Phase 2 with the same
-   attendee identity; no text message or phone code is sent.
+1. **Phase 1 — entry:** enter a name and mobile number, choose **In person** or
+   **Online**, and immediately receive a raffle number in the app. In-person
+   attendees select the wristband color they were given; online attendees
+   select a color for their online room assignment. Confirmation continues
+   directly into Phase 2 with the same attendee identity; no text message or
+   phone code is sent.
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
    the booth leader's live instructions. Its active button opens the correct
    timed booth activity without another sign-in. Each wristband visits two
    of the five booths. A visit counts as complete only after the attendee taps
-   to mark it; the current route row can be reopened until that session ends.
+   to finish it. Completion returns the attendee to the schedule instead of
+   reopening the finished room, so they can move promptly to the next room.
    The generic comment and star-rating footer has been removed from the active
    attendee booth rooms.
 3. **Phase 3 — tick and go:** select any next-step options and finish. There
    are no ratings, comments, or extra attendee questions. Phase 3 becomes
-   available after both completion taps are saved, or when booths close at
-   3:50 PM even if one or both visits remain unmarked. Save and **No thanks, finish** both persist
-   Phase 3 completion. Anyone who finishes early sees the original-style
-   **DON'T GO YET** countdown until the 4:00 PM main message.
+   available after both regular completion taps are saved while booth time is
+   still open. Save and **No thanks, finish** both persist Phase 3 completion.
+   At 4:15 PM the message takes over every attendee screen; missed booths stay
+   unmarked and may be offered as optional choices at 4:50.
+4. **Message and optional extra booth:** from 4:15–4:50 PM every attendee
+   screen says **The message is being delivered. I hope you get blessed
+   today.** At 4:50 PM, attendees can choose one booth they have not already
+   visited, or go directly to Connections. The optional booth runs until 5:10
+   PM; after finishing it, or when time expires, the app directs them to
+   Connections.
 
 The Art Therapy and New Song kiosk pages remain optional staff-assistance
 fallbacks; the attendee booth-room pages are linked from the timed hub.
@@ -47,15 +56,17 @@ The current mock schedule is:
 
 | Session | Time |
 |---|---|
-| 1 | 3:10–3:30 PM |
-| 2 | 3:30–3:50 PM |
-| Waiting / handoff | 3:50–4:00 PM |
-| Main message | 4:00 PM |
+| 1 | 3:35–3:55 PM |
+| 2 | 3:55–4:15 PM |
+| Main message | 4:15–4:50 PM |
+| Optional extra booth | 4:50–5:10 PM |
+| Connections | 5:10 PM onward |
 
 These timestamps currently assume **July 18, 2026 in Nashville** and use the
 event-day offset `-05:00` (CDT). That date is an editable mock assumption, not
 a production configuration service. Confirm it with the event team and edit
-`BOOTH_SESSIONS` in `web/shared/booths-config.js` before deployment.
+the session, message, extra-session, and event-end constants in
+`web/shared/booths-config.js` together before deployment.
 
 ## Quick start
 
@@ -77,14 +88,16 @@ Event app demo server running: http://localhost:3000
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Timer previews:       add ?preview=before, 1, 2, waiting, or ended to the attendee/staff URL
+  Timer previews:       add ?preview=before, 1, 2, message, extra, or connections to the attendee/staff URL
   Local organizer key:  demo
 ```
 
-Start at Phase 1. Enter a name and mobile number to create the attendee record
-and raffle number immediately; the app does not send a message. Confirming the
-wristband continues directly into the hub, and Phase 3 reuses that same saved
-attendee identity. On another device, the attendee opens `/attend` (or the
+Start at Phase 1. Enter a name and mobile number, select **In person** or
+**Online**, and create the attendee record and raffle number immediately; the
+app does not send a message. The in-person/online status and selected color
+are visible to Overall Organizer. Confirming the color continues directly
+into the hub, and later stages reuse that same saved attendee identity. On
+another device, the attendee opens `/attend` (or the
 return QR) and enters the same registration name and mobile number to recover
 the same route. The raffle number stays visible but is never used as a login
 credential. Refreshing or reopening the same phone restores the attendee,
@@ -98,12 +111,13 @@ Press `Ctrl+C` in the terminal to stop the server.
 
 Open the organizer portal, choose **Overall Organizer**, unlock it with the
 local key (`demo` by default), and use the **Demo only · Shared event time**
-panel. Its 50-minute timeline can start the shared simulated clock at any exact
-second from **3:10:00 through 4:00:00 PM America/Chicago**. Drag the timeline,
-enter a precise time, or use the 3:10, 3:30, 3:50, and 4:00 boundary shortcuts,
-then choose **Apply simulated time**. The chosen point is an anchor rather than
-a frozen preview: it continues ticking normally through both 20-minute booth
-rotations and the 3:50–4:00 waiting/handoff window. **Show waiting lobby**
+panel. Its 95-minute timeline can start the shared simulated clock at any exact
+second from **3:35:00 through 5:10:00 PM America/Chicago**. Drag the timeline,
+enter a precise time, or use the 3:35, 3:55, 4:15, 4:50, and 5:10 boundary
+shortcuts, then choose **Apply simulated time**. The chosen point is an anchor
+rather than a frozen preview: it continues ticking normally through both
+20-minute booth rotations, the 35-minute message, and the optional 20-minute
+extra booth. **Show waiting lobby**
 provides the pre-session rehearsal state, while **Use live CDT clock** restores
 actual Chicago time for the event day.
 
@@ -125,8 +139,8 @@ time.
 
 Before Session 1, every registered attendee sees a waiting lobby and their
 first booth, but no booth can be opened. The lobby changes automatically at
-3:10 PM; during a Node-backed rehearsal, the overall organizer can use
-**Show waiting lobby**, then the **3:10** boundary shortcut and **Apply
+3:35 PM; during a Node-backed rehearsal, the overall organizer can use
+**Show waiting lobby**, then the **3:35** boundary shortcut and **Apply
 simulated time**, to demonstrate that transition on every connected screen.
 
 ### Planning for around 150 attendees
@@ -136,7 +150,8 @@ near that number, the five wristband routes are roughly balanced at 30 people
 per color. The organizer dashboard recommends the least-used next color and
 shows the live spread without blocking or labelling guests above 150 as over
 capacity. Each color expands to its attendee roster, current scheduled booth,
-raffle numbers, and booth-progress status.
+raffle numbers, in-person/online status, extra-booth choice, and booth-progress
+status.
 
 For the event, use exactly one always-on Node process with `EVENT_APP_DB_PATH`
 on a persistent disk. Database writes use a flushed temporary file, atomic
@@ -157,8 +172,9 @@ for it again.
 
 The stable `/attend` route and the attendee return QR open the entry/resume
 screen. On another device, the attendee enters the same name and phone number
-to restore an unfinished wristband step or continue to the shared hub at the
-schedule's current waiting/session/ended state. No raffle-number login exists.
+to restore an unfinished color step or continue to the shared hub at the
+schedule's current lobby, regular-session, message, extra-booth, or Connections
+state. No raffle-number login exists.
 Render needs no phone-delivery credentials; only the two optional Sheet
 environment variables below are needed when the live export is enabled.
 
@@ -219,8 +235,9 @@ values to Phase 1, the attendee hub, or a booth-leader page:
 ?preview=before
 ?preview=1
 ?preview=2
-?preview=waiting
-?preview=ended
+?preview=message
+?preview=extra
+?preview=connections
 ```
 
 For example:
@@ -249,8 +266,9 @@ there is no separate status selector or free-text announcement control.
 The attendee hub polls for that booth's published state and refreshes the
 current screen automatically. Restart controls remain separate and less
 prominent so they are not confused with normal presentation flow. Leaders also
-see the wristband group scheduled
-for their booth, the shared timer, and that booth's recent check-ins.
+see the wristband group scheduled for their booth, the shared timer, and that
+booth's recent check-ins. During the optional 4:50–5:10 booth, the
+session-based portals use Session 3 and show attendees who selected that booth.
 
 ### Specialized Art Therapy controls
 
@@ -268,7 +286,8 @@ enlarged on an attendee phone. The activity collects no artwork, reflection
 text, rating, or comment. Only the final Done tap is persisted. Restarting a
 session archives its current run and immutable per-run completions before
 opening a clean welcome screen. This synchronized controller is Node/Render-
-only; the optional Art kiosk remains a separate fallback.
+only; the optional Art kiosk remains a separate fallback. Session 3 is
+reserved for attendees who choose Art Therapy as their optional extra booth.
 
 ### Specialized New Song controls
 
@@ -297,7 +316,8 @@ Tallies update live within the current session and run. An attendee's first
 vote is locked; restarting a session opens a clean run while retaining the
 prior run in protected staff history. The synchronized New Song experience is
 Node/Render-only. Apps Script retains its legacy vote path and does not support
-these leader-paced phases or run archives.
+these leader-paced phases or run archives. Session 3 isolates the optional
+4:50–5:10 vote from both regular rotations.
 
 All five staff portals currently share one organizer key. The backend scopes
 the data and controls by booth, but the shared key is **not per-booth access
@@ -310,11 +330,11 @@ rotatable credentials and preferably separate roles or booth-level grants.
 ```text
 event-app/
 ├── web/
-│   ├── phase1-entry/       registration + raffle + wristband assignment
+│   ├── phase1-entry/       registration + attendance mode + raffle + color
 │   ├── phase2-booths/      unified hub + optional legacy booth/kiosk pages
 │   ├── phase2-staff/       compatibility redirect and five scoped portals
 │   ├── phase3-signup/      checkbox-only next steps + saved completion
-│   ├── done/               early-finish countdown + 4:00 message state
+│   ├── done/               message, extra-booth, and Connections routing
 │   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            Node rehearsal backend using a JSON data file
@@ -347,8 +367,9 @@ npm test
 ```
 
 The zero-dependency regression suite exercises the API and static-page
-contracts, including attendee identity lookup, wristband-color persistence,
-Phase 2 eligibility, tap-backed booth completion, booth presentation reads and
+contracts, including attendee identity lookup, attendance-mode and color
+persistence, Phase 2 eligibility, tap-backed booth completion, optional-extra
+selection, booth presentation reads and
 protected updates, booth-scoped staff data, duplicate check-in protection,
 persisted Phase 3 completion and sign-ups, organizer authorization, reset
 behavior, and inline JavaScript syntax.

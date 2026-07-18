@@ -28,6 +28,7 @@ const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
 const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
+const ATTENDANCE_MODES = new Set(["in_person", "online"]);
 const BOOTH_NAMES = Object.freeze({
   heaven: "Can You Draw Heaven?",
   trivia: "Bible Bowl",
@@ -43,17 +44,27 @@ const WRISTBAND_ROUTES = Object.freeze({
   yellow: ["story", "newsong"],
 });
 const BOOTH_SESSIONS = Object.freeze([
-  { number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
-  { number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
+  { number: 1, startsAt: "2026-07-18T15:35:00-05:00", endsAt: "2026-07-18T15:55:00-05:00", label: "3:35–3:55 PM" },
+  { number: 2, startsAt: "2026-07-18T15:55:00-05:00", endsAt: "2026-07-18T16:15:00-05:00", label: "3:55–4:15 PM" },
 ]);
-const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:00:00-05:00";
+const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:15:00-05:00";
+const MAIN_MESSAGE_ENDS_AT = "2026-07-18T16:50:00-05:00";
+const EXTRA_BOOTH_SESSION = Object.freeze({
+  number: 3,
+  startsAt: "2026-07-18T16:50:00-05:00",
+  endsAt: "2026-07-18T17:10:00-05:00",
+  label: "4:50–5:10 PM",
+  optional: true,
+});
+const ALL_BOOTH_SESSIONS = Object.freeze([...BOOTH_SESSIONS, EXTRA_BOOTH_SESSION]);
+const EVENT_ENDS_AT = EXTRA_BOOTH_SESSION.endsAt;
 const BOOTH_PRESENTATION_STATUSES = new Set(["waiting", "live", "paused", "wrap", "complete"]);
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
 const STORY_FINAL_STEP_INDEX = 12;
-const TRIVIA_SESSION_NUMBERS = new Set([1, 2]);
+const TRIVIA_SESSION_NUMBERS = new Set([1, 2, 3]);
 const TRIVIA_PHASES = new Set(["welcome", "question", "reveal", "complete"]);
-const HEAVEN_SESSION_NUMBERS = new Set([1, 2]);
+const HEAVEN_SESSION_NUMBERS = new Set([1, 2, 3]);
 const HEAVEN_PHASES = new Set([
   "welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete",
 ]);
@@ -71,15 +82,14 @@ const HEAVEN_CONFIRMATION_RULES = Object.freeze({
   impact_yes: { minimumPhase: "comparison", requires: ["size_yes"] },
   programs_done: { minimumPhase: "programs", requires: ["impact_yes"] },
 });
-const ART_SESSION_NUMBERS = new Set([1, 2]);
+const ART_SESSION_NUMBERS = new Set([1, 2, 3]);
 const ART_PHASES = new Set([
   "welcome", "definition", "importance", "purpose_image", "heart_question",
   "proverbs", "philippians", "create", "finished", "complete",
 ]);
-const NEW_SONG_SESSION_NUMBERS = new Set([1, 2]);
-// Session 3 is no longer part of the live schedule, but older rehearsal data
-// must survive every read/normalize/write cycle. Live endpoint validation
-// continues to use the booth-specific Session 1–2 sets above.
+const NEW_SONG_SESSION_NUMBERS = new Set([1, 2, 3]);
+// All three booth runs survive every read/normalize/write cycle. Session 3 is
+// the attendee-selected optional extra booth from 4:50–5:10 PM.
 const STORED_ACTIVITY_SESSION_NUMBERS = new Set([1, 2, 3]);
 const NEW_SONG_PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
 const NEW_SONG_CHOICES = Object.freeze([
@@ -117,9 +127,13 @@ const DEMO_CLOCK_MODES = new Set([
   "session2-final15",
   "waiting",
   "ended",
+  "message",
+  "extra-booth",
+  "extra-final15",
+  "connections",
 ]);
 const EVENT_WINDOW_START_MS = Date.parse(BOOTH_SESSIONS[0].startsAt);
-const EVENT_WINDOW_END_MS = Date.parse(MAIN_MESSAGE_STARTS_AT);
+const EVENT_WINDOW_END_MS = Date.parse(EVENT_ENDS_AT);
 const LATE_JOIN_MINIMUM_MS = 5 * 60 * 1000;
 const FINAL_SIGNUP_OPTIONS = new Map([
   ["future", "Keep me posted on future events"],
@@ -163,10 +177,16 @@ function effectiveNowMs(realNowMs = Date.now()) {
 function namedDemoClockTargetMs(mode) {
   const firstStartMs = Date.parse(BOOTH_SESSIONS[0].startsAt);
   const boothsEndMs = Date.parse(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt);
+  const messageEndMs = Date.parse(MAIN_MESSAGE_ENDS_AT);
+  const extraEndMs = Date.parse(EXTRA_BOOTH_SESSION.endsAt);
   if (mode === "before") return firstStartMs - (5 * 60 * 1000);
   if (mode === "session1-start") return firstStartMs;
-  if (mode === "waiting") return boothsEndMs + Math.floor((EVENT_WINDOW_END_MS - boothsEndMs) / 2);
-  if (mode === "ended") return EVENT_WINDOW_END_MS;
+  if (mode === "waiting" || mode === "message") {
+    return boothsEndMs + Math.floor((messageEndMs - boothsEndMs) / 2);
+  }
+  if (mode === "extra-booth") return Date.parse(EXTRA_BOOTH_SESSION.startsAt) + (5 * 60 * 1000);
+  if (mode === "extra-final15") return extraEndMs - (15 * 1000);
+  if (mode === "ended" || mode === "connections") return extraEndMs;
   const sessionMatch = /^session([12])(-final15)?$/.exec(mode);
   if (!sessionMatch) return NaN;
   const session = BOOTH_SESSIONS[Number(sessionMatch[1]) - 1];
@@ -206,22 +226,50 @@ function eventSessionState(nowMs = effectiveNowMs()) {
       sessionLabel: null,
     };
   }
-  if (nowMs < EVENT_WINDOW_END_MS) {
+  if (nowMs < Date.parse(MAIN_MESSAGE_ENDS_AT)) {
     return {
-      phase: "waiting",
+      phase: "message",
       serverNow: new Date(nowMs).toISOString(),
       sessionIndex: null,
       sessionNumber: null,
       sessionLabel: null,
     };
   }
+  const extraStartMs = Date.parse(EXTRA_BOOTH_SESSION.startsAt);
+  const extraEndMs = Date.parse(EXTRA_BOOTH_SESSION.endsAt);
+  if (nowMs >= extraStartMs && nowMs < extraEndMs) {
+    return {
+      phase: "extra",
+      serverNow: new Date(nowMs).toISOString(),
+      sessionIndex: 2,
+      sessionNumber: EXTRA_BOOTH_SESSION.number,
+      sessionLabel: EXTRA_BOOTH_SESSION.label,
+    };
+  }
   return {
-    phase: "ended",
+    phase: "connections",
     serverNow: new Date(nowMs).toISOString(),
     sessionIndex: null,
     sessionNumber: null,
     sessionLabel: null,
   };
+}
+
+function boothSessionForNumber(sessionNumber) {
+  return ALL_BOOTH_SESSIONS.find((session) => session.number === Number(sessionNumber)) || null;
+}
+
+function isLiveBoothPhase(eventState) {
+  return Boolean(eventState && ["active", "extra"].includes(eventState.phase) && eventState.sessionNumber);
+}
+
+function attendeeAssignedBooth(attendee, eventState) {
+  if (!attendee || !eventState) return null;
+  if (eventState.phase === "extra") return BOOTH_IDS.has(attendee.extraChoice) ? attendee.extraChoice : null;
+  const colorId = normalizeWristbandColor(attendee.wristbandColor);
+  return eventState.phase === "active" && colorId && WRISTBAND_ROUTES[colorId]
+    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex] || null
+    : null;
 }
 
 function attendeeArrivalPlan(attendee) {
@@ -303,10 +351,10 @@ function lateArrivalAccessError(attendee, eventState) {
 
 function activeBoothControlError(sessionNumber, boothName) {
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return errorResult(
       409,
-      `${boothName} can publish attendee steps only while a booth session is active. Use the Overall Organizer clock to rehearse a session.`,
+      `${boothName} can publish attendee steps only while a scheduled or extra booth session is active. Use the Overall Organizer clock to rehearse a session.`,
       "BOOTH_SESSION_NOT_ACTIVE"
     );
   }
@@ -494,6 +542,14 @@ function normalizeDb(raw) {
     delete attendee.phoneVerifiedAt;
     delete attendee.phoneVerificationRequired;
     attendee.wristbandColor = normalizeWristbandColor(attendee.wristbandColor);
+    attendee.attendanceMode = attendanceModeOrDefault(attendee.attendanceMode);
+    attendee.extraChoice = normalizeExtraChoice(attendee.extraChoice);
+    attendee.extraChoiceSelectedAt = attendee.extraChoice
+      ? earliestTimestamp(attendee.extraChoiceSelectedAt)
+      : null;
+    attendee.extraCompletedAt = attendee.extraChoice && attendee.extraChoice !== "connections"
+      ? earliestTimestamp(attendee.extraCompletedAt)
+      : null;
     attendee.wristbandConfirmedAt = earliestTimestamp(attendee.wristbandConfirmedAt);
     attendee.phase3CompletedAt = earliestTimestamp(attendee.phase3CompletedAt);
   });
@@ -690,6 +746,20 @@ function normalizeWristbandColor(value) {
   return WRISTBAND_COLORS.has(normalized) ? normalized : null;
 }
 
+function normalizeAttendanceMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ATTENDANCE_MODES.has(normalized) ? normalized : null;
+}
+
+function attendanceModeOrDefault(value) {
+  return normalizeAttendanceMode(value) || "in_person";
+}
+
+function normalizeExtraChoice(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "connections" || BOOTH_IDS.has(normalized) ? normalized : null;
+}
+
 function requireWristbandColor(value) {
   const color = normalizeWristbandColor(value);
   return color
@@ -716,8 +786,10 @@ function defaultBoothPresentation(boothId) {
   };
 }
 
-function boothPresentationFromDb(db, boothId) {
-  const stored = db.boothPresentations[boothId];
+function normalizeBoothPresentationRecord(storedValue, boothId) {
+  const stored = storedValue && typeof storedValue === "object" && !Array.isArray(storedValue)
+    ? storedValue
+    : null;
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
     return defaultBoothPresentation(boothId);
   }
@@ -738,6 +810,57 @@ function boothPresentationFromDb(db, boothId) {
     createdAt: stored.createdAt || null,
     updatedAt: stored.updatedAt || null,
     version: Number.isSafeInteger(version) && version >= 0 ? version : 0,
+  };
+}
+
+function boothPresentationFromDb(db, boothId) {
+  return normalizeBoothPresentationRecord(db.boothPresentations[boothId], boothId);
+}
+
+function storyPresentationSessionNumber(value) {
+  const sessionNumber = Number(value);
+  return Number.isInteger(sessionNumber) && sessionNumber >= 1 && sessionNumber <= ALL_BOOTH_SESSIONS.length
+    ? sessionNumber
+    : null;
+}
+
+function storySessionNumberForEventState(eventState = eventSessionState()) {
+  if (isLiveBoothPhase(eventState)) return eventState.sessionNumber;
+  // During the message, show leaders the isolated extra-booth welcome state,
+  // but publishing remains server-blocked until 4:50 PM.
+  if (eventState && ["message", "connections"].includes(eventState.phase)) {
+    return EXTRA_BOOTH_SESSION.number;
+  }
+  return BOOTH_SESSIONS[0].number;
+}
+
+function storyPresentationFromDb(db, sessionNumberValue) {
+  const sessionNumber = storyPresentationSessionNumber(sessionNumberValue)
+    || BOOTH_SESSIONS[0].number;
+  const sessionStore = db.boothPresentations.storySessions
+    && typeof db.boothPresentations.storySessions === "object"
+    && !Array.isArray(db.boothPresentations.storySessions)
+    ? db.boothPresentations.storySessions
+    : {};
+  // A pre-session-scoping deployment stored one shared Story presentation.
+  // Adopt that legacy record only for Session 1; later sessions always start
+  // isolated so an old/late leader click cannot leak into another rotation.
+  const stored = sessionStore[String(sessionNumber)]
+    || (sessionNumber === BOOTH_SESSIONS[0].number ? db.boothPresentations.story : null);
+  return {
+    ...normalizeBoothPresentationRecord(stored, "story"),
+    sessionNumber,
+  };
+}
+
+function saveStoryPresentation(db, sessionNumber, presentation) {
+  const previousStore = db.boothPresentations.storySessions;
+  const sessionStore = previousStore && typeof previousStore === "object" && !Array.isArray(previousStore)
+    ? previousStore
+    : {};
+  db.boothPresentations.storySessions = {
+    ...sessionStore,
+    [String(sessionNumber)]: { ...presentation, sessionNumber },
   };
 }
 
@@ -1163,7 +1286,7 @@ function requireNewSongSessionNumber(value) {
   const sessionNumber = normalizeNewSongSessionNumber(value);
   return sessionNumber
     ? { sessionNumber }
-    : { error: errorResult(400, "Choose New Song Session 1 or 2.", "INVALID_NEW_SONG_SESSION") };
+    : { error: errorResult(400, "Choose New Song Session 1, 2, or the Extra Booth session.", "INVALID_NEW_SONG_SESSION") };
 }
 
 function newSongSessionFromDb(db, sessionNumber) {
@@ -1174,7 +1297,7 @@ function requireHeavenSessionNumber(value) {
   const sessionNumber = normalizeHeavenSessionNumber(value);
   return sessionNumber
     ? { sessionNumber }
-    : { error: errorResult(400, "Choose Draw Heaven Session 1 or 2.", "INVALID_HEAVEN_SESSION") };
+    : { error: errorResult(400, "Choose Draw Heaven Session 1, 2, or the Extra Booth session.", "INVALID_HEAVEN_SESSION") };
 }
 
 function heavenSessionFromDb(db, sessionNumber) {
@@ -1185,7 +1308,7 @@ function requireArtSessionNumber(value) {
   const sessionNumber = normalizeArtSessionNumber(value);
   return sessionNumber
     ? { sessionNumber }
-    : { error: errorResult(400, "Choose Art Therapy Session 1 or 2.", "INVALID_ART_SESSION") };
+    : { error: errorResult(400, "Choose Art Therapy Session 1, 2, or the Extra Booth session.", "INVALID_ART_SESSION") };
 }
 
 function artSessionFromDb(db, sessionNumber) {
@@ -1196,7 +1319,7 @@ function requireTriviaSessionNumber(value) {
   const sessionNumber = normalizeTriviaSessionNumber(value);
   return sessionNumber
     ? { sessionNumber }
-    : { error: errorResult(400, "Choose Bible Bowl Session 1 or 2.", "INVALID_TRIVIA_SESSION") };
+    : { error: errorResult(400, "Choose Bible Bowl Session 1, 2, or the Extra Booth session.", "INVALID_TRIVIA_SESSION") };
 }
 
 function triviaSessionFromDb(db, sessionNumber) {
@@ -1228,12 +1351,13 @@ function triviaAssignedColorId(sessionNumber) {
 }
 
 function triviaAssignedColor(sessionNumber) {
+  if (Number(sessionNumber) === EXTRA_BOOTH_SESSION.number) return { id: "extra", label: "Selected attendees" };
   const id = triviaAssignedColorId(sessionNumber);
   return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
 }
 
 function triviaSessionLabel(sessionNumber) {
-  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  const session = boothSessionForNumber(sessionNumber);
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
@@ -1245,12 +1369,13 @@ function heavenAssignedColorId(sessionNumber) {
 }
 
 function heavenAssignedColor(sessionNumber) {
+  if (Number(sessionNumber) === EXTRA_BOOTH_SESSION.number) return { id: "extra", label: "Selected attendees" };
   const id = heavenAssignedColorId(sessionNumber);
   return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
 }
 
 function heavenSessionLabel(sessionNumber) {
-  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  const session = boothSessionForNumber(sessionNumber);
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
@@ -1262,12 +1387,13 @@ function artAssignedColorId(sessionNumber) {
 }
 
 function artAssignedColor(sessionNumber) {
+  if (Number(sessionNumber) === EXTRA_BOOTH_SESSION.number) return { id: "extra", label: "Selected attendees" };
   const id = artAssignedColorId(sessionNumber);
   return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
 }
 
 function artSessionLabel(sessionNumber) {
-  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  const session = boothSessionForNumber(sessionNumber);
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
@@ -1279,12 +1405,13 @@ function newSongAssignedColorId(sessionNumber) {
 }
 
 function newSongAssignedColor(sessionNumber) {
+  if (Number(sessionNumber) === EXTRA_BOOTH_SESSION.number) return { id: "extra", label: "Selected attendees" };
   const id = newSongAssignedColorId(sessionNumber);
   return id ? { id, label: `${id.charAt(0).toUpperCase()}${id.slice(1)}` } : null;
 }
 
 function newSongSessionLabel(sessionNumber) {
-  const session = BOOTH_SESSIONS[sessionNumber - 1];
+  const session = boothSessionForNumber(sessionNumber);
   return session ? session.label : `Session ${sessionNumber}`;
 }
 
@@ -1319,13 +1446,10 @@ function attendeeTriviaContext(db, attendeeId) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return { error: errorResult(409, "Bible Bowl is not in an active booth session.", "TRIVIA_SESSION_CLOSED") };
   }
-  const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "trivia") {
     return { error: errorResult(403, "Bible Bowl is not your assigned booth in this session.", "TRIVIA_NOT_ASSIGNED") };
   }
@@ -1339,13 +1463,10 @@ function attendeeHeavenContext(db, attendeeId) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return { error: errorResult(409, "Draw Heaven is not in an active booth session.", "HEAVEN_SESSION_CLOSED") };
   }
-  const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "heaven") {
     return { error: errorResult(403, "Draw Heaven is not your assigned booth in this session.", "HEAVEN_NOT_ASSIGNED") };
   }
@@ -1359,13 +1480,10 @@ function attendeeArtContext(db, attendeeId) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return { error: errorResult(409, "Art Therapy is not in an active booth session.", "ART_SESSION_CLOSED") };
   }
-  const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "art") {
     return { error: errorResult(403, "Art Therapy is not your assigned booth in this session.", "ART_NOT_ASSIGNED") };
   }
@@ -1379,13 +1497,10 @@ function attendeeNewSongContext(db, attendeeId) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return { error: errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND") };
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return { error: errorResult(409, "New Song is not in an active booth session.", "NEW_SONG_SESSION_CLOSED") };
   }
-  const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "newsong") {
     return { error: errorResult(403, "New Song is not your assigned booth in this session.", "NEW_SONG_NOT_ASSIGNED") };
   }
@@ -1395,6 +1510,11 @@ function attendeeNewSongContext(db, attendeeId) {
 }
 
 function attendeesAssignedToBoothSession(db, boothId, sessionNumber) {
+  if (Number(sessionNumber) === EXTRA_BOOTH_SESSION.number) {
+    return db.attendees.filter((attendee) => (
+      attendee.wristbandConfirmedAt && attendee.extraChoice === boothId
+    ));
+  }
   const sessionIndex = sessionNumber - 1;
   return db.attendees.filter((attendee) => {
     const colorId = normalizeWristbandColor(attendee.wristbandColor);
@@ -1507,7 +1627,7 @@ function archiveNewSongRun(db, session, archiveReason, archivedAt) {
 }
 
 function triviaBoothPresentation(db, eventState = eventSessionState()) {
-  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+  const sessionNumber = isLiveBoothPhase(eventState)
     ? eventState.sessionNumber
     : 1;
   const session = triviaSessionFromDb(db, sessionNumber);
@@ -1544,7 +1664,7 @@ function triviaBoothPresentation(db, eventState = eventSessionState()) {
 }
 
 function heavenBoothPresentation(db, eventState = eventSessionState()) {
-  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+  const sessionNumber = isLiveBoothPhase(eventState)
     ? eventState.sessionNumber
     : 1;
   const session = heavenSessionFromDb(db, sessionNumber);
@@ -1572,7 +1692,7 @@ function heavenBoothPresentation(db, eventState = eventSessionState()) {
 }
 
 function artBoothPresentation(db, eventState = eventSessionState()) {
-  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+  const sessionNumber = isLiveBoothPhase(eventState)
     ? eventState.sessionNumber
     : 1;
   const session = artSessionFromDb(db, sessionNumber);
@@ -1603,7 +1723,7 @@ function artBoothPresentation(db, eventState = eventSessionState()) {
 }
 
 function newSongBoothPresentation(db, eventState = eventSessionState()) {
-  const sessionNumber = eventState.phase === "active" && eventState.sessionNumber
+  const sessionNumber = isLiveBoothPhase(eventState)
     ? eventState.sessionNumber
     : 1;
   const session = newSongSessionFromDb(db, sessionNumber);
@@ -1719,6 +1839,20 @@ function mergeAttendees(db, canonical, duplicate, phone) {
   canonical.wristbandColor = normalizeWristbandColor(canonical.wristbandColor)
     || normalizeWristbandColor(duplicate.wristbandColor)
     || null;
+  canonical.attendanceMode = normalizeAttendanceMode(canonical.attendanceMode)
+    || normalizeAttendanceMode(duplicate.attendanceMode)
+    || "in_person";
+  const canonicalExtraChoice = normalizeExtraChoice(canonical.extraChoice);
+  const duplicateExtraChoice = normalizeExtraChoice(duplicate.extraChoice);
+  canonical.extraChoice = canonicalExtraChoice || duplicateExtraChoice || null;
+  canonical.extraChoiceSelectedAt = earliestTimestamp(
+    canonical.extraChoiceSelectedAt,
+    canonical.extraChoice === duplicateExtraChoice ? duplicate.extraChoiceSelectedAt : null
+  );
+  canonical.extraCompletedAt = earliestTimestamp(
+    canonical.extraCompletedAt,
+    canonical.extraChoice === duplicateExtraChoice ? duplicate.extraCompletedAt : null
+  );
   if (!canonical.registeredAt || (duplicate.registeredAt && duplicate.registeredAt < canonical.registeredAt)) {
     canonical.registeredAt = duplicate.registeredAt;
   }
@@ -1762,11 +1896,20 @@ function registerAttendee(body) {
   const phoneWasSupplied = Boolean(body && String(body.phone || "").trim());
   const phone = digitsOnly(body && body.phone);
   const selfService = phoneWasSupplied && phone.length === 10;
+  const attendanceModeWasSupplied = Boolean(
+    body && Object.prototype.hasOwnProperty.call(body, "attendanceMode")
+  );
+  const attendanceMode = attendanceModeWasSupplied
+    ? normalizeAttendanceMode(body.attendanceMode)
+    : "in_person";
   if (!attendeeId || attendeeId.length > 128 || !name) {
     return errorResult(400, "Enter your name and a valid event-pass ID.", "REGISTRATION_FIELDS_REQUIRED");
   }
   if (phoneWasSupplied && !selfService) {
     return errorResult(400, "Enter a valid 10-digit mobile number.", "INVALID_PHONE");
+  }
+  if (attendanceModeWasSupplied && !attendanceMode) {
+    return errorResult(400, "Choose whether you are joining in person or online.", "INVALID_ATTENDANCE_MODE");
   }
   if (!selfService) {
     const authError = requireOrganizer(body);
@@ -1802,7 +1945,9 @@ function registerAttendee(body) {
       attendeeId, aliasIds: [], name, phone: selfService ? phone : null,
       raffleNumber: String(db.raffleCounter),
       wristbandConfirmedAt: null, registeredAt: eventNowIso(), wristbandColor: null,
+      attendanceMode,
       phase3CompletedAt: null,
+      extraChoice: null, extraChoiceSelectedAt: null, extraCompletedAt: null,
     };
     db.attendees.push(attendee);
   } else if (selfService) {
@@ -1846,6 +1991,7 @@ function confirmWristband(body) {
         ok: true,
         wristbandColor: existingColor,
         wristbandConfirmedAt: attendee.wristbandConfirmedAt,
+        attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
         boothArrivalPlan: attendeeArrivalPlan(attendee),
       },
     };
@@ -1861,7 +2007,70 @@ function confirmWristband(body) {
       ok: true,
       wristbandColor: attendee.wristbandColor,
       wristbandConfirmedAt: attendee.wristbandConfirmedAt,
+      attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
       boothArrivalPlan: attendeeArrivalPlan(attendee),
+    },
+  };
+}
+
+function chooseExtraDestination(body) {
+  const attendeeId = String((body && body.attendeeId) || "").trim();
+  const choice = normalizeExtraChoice(body && body.choice);
+  if (!attendeeId) return errorResult(400, "attendeeId required", "ATTENDEE_ID_REQUIRED");
+  if (!choice) return errorResult(400, "Choose an available booth or Connections.", "INVALID_EXTRA_CHOICE");
+  const eventState = eventSessionState();
+  if (eventState.phase !== "extra") {
+    return errorResult(409, "The optional extra-booth choice opens at 4:50 PM and closes at 5:10 PM Nashville time.", "EXTRA_CHOICE_CLOSED");
+  }
+  const db = readDb();
+  const attendee = findAttendeeById(db, attendeeId);
+  if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
+  if (!attendee.wristbandConfirmedAt) {
+    return errorResult(403, "Finish registration before choosing an extra destination.", "PHASE1_INCOMPLETE");
+  }
+  const savedChoice = normalizeExtraChoice(attendee.extraChoice);
+  if (savedChoice && savedChoice !== choice) {
+    return errorResult(409, "Your extra destination is already saved. Return to your schedule to continue.", "EXTRA_CHOICE_ALREADY_SAVED");
+  }
+  if (choice !== "connections") {
+    const attendeeIds = new Set([attendee.attendeeId, ...(attendee.aliasIds || [])].map(String));
+    const alreadyVisited = db.boothCheckins.some((checkin) => (
+      attendeeIds.has(String(checkin.attendeeId)) && checkin.boothId === choice
+    ));
+    if (alreadyVisited) {
+      return errorResult(409, "Choose a booth you have not already visited.", "EXTRA_BOOTH_ALREADY_VISITED");
+    }
+  }
+  if (!savedChoice) {
+    attendee.extraChoice = choice;
+    attendee.extraChoiceSelectedAt = eventNowIso();
+    attendee.extraCompletedAt = null;
+    if (choice === "story") {
+      const presentation = storyPresentationFromDb(db, EXTRA_BOOTH_SESSION.number);
+      const updatedAtMs = Date.parse(presentation.updatedAt || "");
+      if (presentation.status === "complete" && updatedAtMs < Date.parse(EXTRA_BOOTH_SESSION.startsAt)) {
+        saveStoryPresentation(db, EXTRA_BOOTH_SESSION.number, {
+          boothId: "story",
+          sessionNumber: EXTRA_BOOTH_SESSION.number,
+          stepIndex: 0,
+          status: "waiting",
+          message: "",
+          createdAt: presentation.createdAt || attendee.extraChoiceSelectedAt,
+          updatedAt: attendee.extraChoiceSelectedAt,
+          version: Math.min(Number.MAX_SAFE_INTEGER, presentation.version + 1),
+        });
+      }
+    }
+    writeDb(db);
+  }
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      extraChoice: attendee.extraChoice,
+      extraChoiceSelectedAt: attendee.extraChoiceSelectedAt,
+      extraCompletedAt: attendee.extraCompletedAt || null,
+      serverNow: eventNowIso(),
     },
   };
 }
@@ -1875,6 +2084,10 @@ function attendeePortalResult(attendee) {
     wristbandConfirmedAt: attendee.wristbandConfirmedAt || null,
     boothArrivalPlan: attendeeArrivalPlan(attendee),
     wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+    attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
+    extraChoice: normalizeExtraChoice(attendee.extraChoice),
+    extraChoiceSelectedAt: attendee.extraChoiceSelectedAt || null,
+    extraCompletedAt: attendee.extraCompletedAt || null,
     phoneLinked: !!attendee.phone,
     phase3CompletedAt: attendee.phase3CompletedAt || null,
     serverNow: eventNowIso(),
@@ -1970,6 +2183,7 @@ function findOrRegisterByPhone(body) {
         isNew: false,
         name: raffleAttendee.name,
         wristbandColor: normalizeWristbandColor(raffleAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(raffleAttendee.attendanceMode),
       },
     };
   }
@@ -1991,6 +2205,7 @@ function findOrRegisterByPhone(body) {
         isNew: false,
         name: resolvedAttendee.name,
         wristbandColor: normalizeWristbandColor(resolvedAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(resolvedAttendee.attendanceMode),
       },
     };
   }
@@ -2016,6 +2231,7 @@ function findOrRegisterByPhone(body) {
         isNew: false,
         name: phoneAttendee.name,
         wristbandColor: normalizeWristbandColor(phoneAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(phoneAttendee.attendanceMode),
       },
     };
   }
@@ -2035,6 +2251,7 @@ function findOrRegisterByPhone(body) {
     attendeeId: attendeeId || id(), aliasIds: [], name: name || "Guest", phone: dPhone,
     raffleNumber: String(db.raffleCounter), wristbandConfirmedAt: null, registeredAt: eventNowIso(),
     wristbandColor: null,
+    attendanceMode: "in_person",
   };
   db.attendees.push(attendee);
   writeDb(db);
@@ -2046,6 +2263,7 @@ function findOrRegisterByPhone(body) {
       isNew: true,
       name: attendee.name,
       wristbandColor: null,
+      attendanceMode: attendee.attendanceMode,
     },
   };
 }
@@ -2071,10 +2289,7 @@ function boothCheckin(body) {
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
   if (attendeeCompletion) {
     const eventState = eventSessionState();
-    const colorId = normalizeWristbandColor(attendee.wristbandColor);
-    const assignedBooth = eventState.phase === "active" && colorId && WRISTBAND_ROUTES[colorId]
-      ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-      : null;
+    const assignedBooth = attendeeAssignedBooth(attendee, eventState);
     if (assignedBooth !== boothId) {
       return errorResult(403, "This booth is not assigned to you in the current session.", "BOOTH_NOT_ASSIGNED");
     }
@@ -2097,6 +2312,11 @@ function boothCheckin(body) {
   const incomingRunId = row.extraData && typeof row.extraData === "object"
     ? String(row.extraData.runId || "").trim()
     : "";
+  const markExtraCompletion = () => {
+    const sessionNumber = Number(row.extraData && row.extraData.sessionNumber);
+    if (sessionNumber !== EXTRA_BOOTH_SESSION.number || attendee.extraChoice !== boothId) return;
+    attendee.extraCompletedAt = earliestTimestamp(attendee.extraCompletedAt, row.checkedInAt) || row.checkedInAt;
+  };
   const existing = db.boothCheckins.find((checkin) => {
     if (checkin.attendeeId !== attendee.attendeeId || checkin.boothId !== boothId) return false;
     const existingRunId = checkin.extraData && typeof checkin.extraData === "object"
@@ -2115,10 +2335,12 @@ function boothCheckin(body) {
       : null;
     const checkinId = existing.id;
     Object.assign(existing, row, { id: checkinId });
+    markExtraCompletion();
     writeDb(db);
     return { status: 200, body: { ok: true, checkinId, updated: true } };
   }
   db.boothCheckins.push(row);
+  markExtraCompletion();
   writeDb(db);
   return { status: 200, body: { ok: true, checkinId: row.id } };
 }
@@ -2139,7 +2361,7 @@ function newSongVoteCountsForRun(db, sessionNumber, runId) {
 
 function currentNewSongSessionNumber() {
   const eventState = eventSessionState();
-  return eventState.phase === "active" && eventState.sessionNumber
+  return isLiveBoothPhase(eventState)
     ? eventState.sessionNumber
     : 1;
 }
@@ -2324,10 +2546,7 @@ function saveSongVote(body) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
   const eventState = eventSessionState();
-  const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = eventState.phase === "active" && colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (canonicalTitle && assignedBooth === "newsong" && attendee.wristbandConfirmedAt) {
     const result = submitNewSongVote({ attendeeId, songTitle: canonicalTitle });
     if (result.status !== 200) return result;
@@ -2505,7 +2724,12 @@ function myCheckins(body) {
     .map((c) => c.boothId);
   return {
     status: 200,
-    body: { boothIds: Array.from(new Set(boothIds)) },
+    body: {
+      boothIds: Array.from(new Set(boothIds)),
+      extraChoice: normalizeExtraChoice(attendee.extraChoice),
+      extraChoiceSelectedAt: attendee.extraChoiceSelectedAt || null,
+      extraCompletedAt: attendee.extraCompletedAt || null,
+    },
   };
 }
 
@@ -2591,12 +2815,7 @@ function triviaSessionStaffSummary(db, sessionNumber) {
     )).length
     : 0;
   const assignedColor = triviaAssignedColor(sessionNumber);
-  const assignedCount = assignedColor
-    ? db.attendees.filter((attendee) => (
-      attendee.wristbandConfirmedAt
-        && normalizeWristbandColor(attendee.wristbandColor) === assignedColor.id
-    )).length
-    : 0;
+  const assignedCount = attendeesAssignedToBoothSession(db, "trivia", sessionNumber).length;
   return {
     sessionNumber,
     sessionLabel: triviaSessionLabel(sessionNumber),
@@ -3442,6 +3661,12 @@ function completeArt(body) {
     checkinId = id();
     db.boothCheckins.push({ id: checkinId, ...checkinData });
   }
+  if (context.sessionNumber === EXTRA_BOOTH_SESSION.number && context.attendee.extraChoice === "art") {
+    context.attendee.extraCompletedAt = earliestTimestamp(
+      context.attendee.extraCompletedAt,
+      completion.completedAt
+    ) || completion.completedAt;
+  }
   writeDb(db);
   return {
     status: 200,
@@ -3719,6 +3944,12 @@ function wristbandGroupsForDashboard(db, eventState) {
         return {
           name: attendee.name || "Guest",
           raffleNumber: attendee.raffleNumber || "",
+          attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
+          extraChoice: normalizeExtraChoice(attendee.extraChoice),
+          extraChoiceName: attendee.extraChoice === "connections"
+            ? "Connections"
+            : attendee.extraChoice ? BOOTH_NAMES[attendee.extraChoice] || attendee.extraChoice : null,
+          extraCompleted: !!attendee.extraCompletedAt,
           completedBoothIds,
           completedStops: completedBoothIds.length,
           totalStops: route.length,
@@ -3740,6 +3971,8 @@ function wristbandGroupsForDashboard(db, eventState) {
       currentBooth: currentBoothId
         ? { boothId: currentBoothId, boothName: BOOTH_NAMES[currentBoothId] || currentBoothId }
         : null,
+      inPersonCount: attendees.filter((attendee) => attendee.attendanceMode === "in_person").length,
+      onlineCount: attendees.filter((attendee) => attendee.attendanceMode === "online").length,
       attendees,
     };
   });
@@ -3803,20 +4036,18 @@ function completeStory(body) {
   const attendee = findAttendeeById(db, attendeeId);
   if (!attendee) return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
   const eventState = eventSessionState();
-  if (eventState.phase !== "active" || !eventState.sessionNumber) {
+  if (!isLiveBoothPhase(eventState)) {
     return errorResult(409, "The Heaven Booth is not in an active booth session.", "STORY_SESSION_CLOSED");
   }
   const colorId = normalizeWristbandColor(attendee.wristbandColor);
-  const assignedBooth = colorId && WRISTBAND_ROUTES[colorId]
-    ? WRISTBAND_ROUTES[colorId][eventState.sessionIndex]
-    : null;
+  const assignedBooth = attendeeAssignedBooth(attendee, eventState);
   if (!attendee.wristbandConfirmedAt || assignedBooth !== "story") {
     return errorResult(403, "The Heaven Booth is not your assigned booth in this session.", "STORY_NOT_ASSIGNED");
   }
   const arrivalError = lateArrivalAccessError(attendee, eventState);
   if (arrivalError) return arrivalError;
-  const presentation = boothPresentationFromDb(db, "story");
-  const activeSession = BOOTH_SESSIONS[eventState.sessionIndex];
+  const presentation = storyPresentationFromDb(db, eventState.sessionNumber);
+  const activeSession = boothSessionForNumber(eventState.sessionNumber);
   const presentationUpdatedAtMs = Date.parse(presentation.updatedAt || "");
   if (
     presentation.status !== "complete"
@@ -3856,15 +4087,18 @@ function boothPresentation(body) {
   const boothResult = requireBoothId(body && body.boothId);
   if (boothResult.error) return boothResult.error;
   const db = readDb();
+  const eventState = eventSessionState();
   const presentation = boothResult.boothId === "trivia"
-    ? triviaBoothPresentation(db)
+    ? triviaBoothPresentation(db, eventState)
     : boothResult.boothId === "heaven"
-      ? heavenBoothPresentation(db)
+      ? heavenBoothPresentation(db, eventState)
       : boothResult.boothId === "art"
-        ? artBoothPresentation(db)
+        ? artBoothPresentation(db, eventState)
         : boothResult.boothId === "newsong"
-          ? newSongBoothPresentation(db)
-          : boothPresentationFromDb(db, boothResult.boothId);
+          ? newSongBoothPresentation(db, eventState)
+          : boothResult.boothId === "story"
+            ? storyPresentationFromDb(db, storySessionNumberForEventState(eventState))
+            : boothPresentationFromDb(db, boothResult.boothId);
   return {
     status: 200,
     body: Object.assign(
@@ -3904,8 +4138,24 @@ function updateBoothPresentation(body) {
     );
   }
 
+  let storySessionNumber = null;
+  if (boothResult.boothId === "story") {
+    storySessionNumber = storyPresentationSessionNumber(body && body.sessionNumber);
+    if (!storySessionNumber) {
+      return errorResult(
+        400,
+        "Choose The Heaven Booth Session 1, 2, or the Extra Booth session.",
+        "INVALID_STORY_SESSION"
+      );
+    }
+    const activeSessionError = activeBoothControlError(storySessionNumber, "The Heaven Booth");
+    if (activeSessionError) return activeSessionError;
+  }
+
   const db = readDb();
-  const previous = boothPresentationFromDb(db, boothResult.boothId);
+  const previous = boothResult.boothId === "story"
+    ? storyPresentationFromDb(db, storySessionNumber)
+    : boothPresentationFromDb(db, boothResult.boothId);
   if (body && body.version !== undefined) {
     const expectedVersion = Number(body.version);
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== previous.version) {
@@ -3920,6 +4170,7 @@ function updateBoothPresentation(body) {
       : requestedStepIndex;
   const presentation = {
     boothId: boothResult.boothId,
+    ...(boothResult.boothId === "story" ? { sessionNumber: storySessionNumber } : {}),
     stepIndex,
     status,
     // The Heaven Booth no longer has free-text announcements. Keep the
@@ -3929,7 +4180,8 @@ function updateBoothPresentation(body) {
     updatedAt: now,
     version: Math.min(Number.MAX_SAFE_INTEGER, previous.version + 1),
   };
-  db.boothPresentations[boothResult.boothId] = presentation;
+  if (boothResult.boothId === "story") saveStoryPresentation(db, storySessionNumber, presentation);
+  else db.boothPresentations[boothResult.boothId] = presentation;
   writeDb(db);
   return { status: 200, body: Object.assign({}, presentation, { serverNow: now }) };
 }
@@ -3942,6 +4194,7 @@ function boothDashboardData(body) {
   const boothId = boothResult.boothId;
 
   const db = readDb();
+  const eventState = eventSessionState();
   const checkins = db.boothCheckins
     .filter((checkin) => checkin.boothId === boothId)
     .sort((a, b) => new Date(b.checkedInAt) - new Date(a.checkedInAt));
@@ -3950,14 +4203,17 @@ function boothDashboardData(body) {
     body: {
       boothId,
       presentation: boothId === "trivia"
-        ? triviaBoothPresentation(db)
+        ? triviaBoothPresentation(db, eventState)
         : boothId === "heaven"
-          ? heavenBoothPresentation(db)
+          ? heavenBoothPresentation(db, eventState)
           : boothId === "art"
-            ? artBoothPresentation(db)
+            ? artBoothPresentation(db, eventState)
             : boothId === "newsong"
-              ? newSongBoothPresentation(db)
-              : boothPresentationFromDb(db, boothId),
+              ? newSongBoothPresentation(db, eventState)
+              : boothId === "story"
+                ? storyPresentationFromDb(db, storySessionNumberForEventState(eventState))
+                : boothPresentationFromDb(db, boothId),
+      eventState,
       serverNow: eventNowIso(),
       totalCheckins: checkins.length,
       songVotes: boothId === "newsong" ? songVoteCounts(db) : [],
@@ -4015,7 +4271,7 @@ function setDemoClock(body) {
   ) {
     return errorResult(
       400,
-      "Custom demo time must be between the event start at 3:10 PM and the main message at 4:00 PM CDT.",
+      "Custom demo time must be between 3:35 PM and 5:10 PM Nashville CDT.",
       "INVALID_DEMO_CLOCK_TARGET_RANGE"
     );
   }
@@ -4099,7 +4355,7 @@ function health() {
 
 const POST_ACTIONS = {
   registerAttendee,
-  confirmWristband, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
+  confirmWristband, chooseExtraDestination, loginAttendee, attendeePortalSession, findOrRegisterByPhone,
   boothCheckin, saveSongVote, submitSignup, saveSignupSelections, confirmSignupInPerson, dashboardData,
   boothPresentation, updateBoothPresentation, boothDashboardData, resetDemo, verifyOrganizer,
   triviaState, submitTriviaAnswer, triviaDashboardData, advanceTriviaSession, resetTriviaSession,
@@ -4239,7 +4495,7 @@ function startServer(port = PORT) {
     console.log(`  Phase 3 attendee:     http://localhost:${actualPort}/phase3-signup/index.html`);
     console.log(`  Organizer portal:     http://localhost:${actualPort}/organizer/index.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
-    console.log("  Timer previews:       add ?preview=before, 1, 2, waiting, or ended to the attendee/staff URL");
+    console.log("  Timer previews:       add ?preview=before, 1, 2, message, extra, or connections to an attendee/staff URL");
     if (!process.env.EVENT_APP_ORGANIZER_KEY) {
       console.log("  Local organizer key:  demo");
     }

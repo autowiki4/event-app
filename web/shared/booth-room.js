@@ -98,8 +98,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     <div class="done-badge booth-visited-badge">✓</div>
     <p class="eyebrow" style="text-align:center;">Visit saved</p>
     <h1 class="display" style="text-align:center;">Thank you for visiting <em id="booth-complete-name"></em></h1>
-    <p class="lede" style="text-align:center;">This booth is marked visited. You may reopen it until your session ends.</p>
-    <button class="btn btn-ghost" id="btn-booth-reopen">Reopen this booth</button>
+    <p class="lede" style="text-align:center;">This visit is saved. Returning you to your event schedule so you can move to the next destination.</p>
     <a class="btn btn-primary" id="btn-booth-complete-route" href="hub.html" style="display:block; text-decoration:none; margin-top:10px;">Return to my schedule →</a>
   `;
   phone.appendChild(complete);
@@ -116,6 +115,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   let roomStarted = false;
   let roomCompleted = false;
   let visibleView = "";
+  let returningToSchedule = false;
 
   function renderAttendeeIdentity() {
     if (!currentIdentity) return;
@@ -135,12 +135,16 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   function boothAccess(identity, snapshot) {
     if (!identity || !identity.wristbandColor) return false;
+    if (snapshot.phase === "extra") {
+      return identity.extraChoice === boothId && !identity.extraCompletedAt;
+    }
     if (typeof EventSchedule.canOpenBooth === "function") {
       return Boolean(EventSchedule.canOpenBooth(
         identity.wristbandColor,
         boothId,
         snapshot,
-        identity.boothArrivalPlan || identity.wristbandConfirmedAt
+        identity.boothArrivalPlan || identity.wristbandConfirmedAt,
+        identity.extraChoice
       ));
     }
     const route = EventSchedule.route(identity.wristbandColor);
@@ -149,20 +153,44 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   function routeDetails(identity, snapshot) {
     const route = EventSchedule.route(identity.wristbandColor);
-    if (snapshot.phase === "ended") {
+    if (snapshot.phase === "connections") {
       return {
-        kicker: "Message time",
-        title: "It's time for the main message.",
-        copy: "Both booth rotations are complete. Please get seated and turn your attention to the message.",
-        time: "Starting now",
+        kicker: "Booth experiences complete",
+        title: "Head to Connections.",
+        copy: "All booth rooms closed at 5:10 PM. Return to your schedule for the Connections direction.",
+        time: "Connections are open",
       };
     }
-    if (snapshot.phase === "waiting") {
+    if (snapshot.phase === "message") {
       return {
-        kicker: "Booths finished",
-        title: "The main message starts at 4:00 PM.",
-        copy: "Return to your schedule, choose your quick next steps if needed, and stay nearby for the message.",
-        time: `${EventSchedule.formatCountdown(snapshot.remainingMs)} until the message`,
+        kicker: "Message in progress",
+        title: "The message is being delivered.",
+        copy: "I hope you get blessed today. Booth rooms are locked until the optional extra-booth choice appears at 4:50 PM.",
+        time: `${EventSchedule.formatCountdown(snapshot.remainingMs)} until the next choice`,
+      };
+    }
+    if (snapshot.phase === "extra") {
+      if (!identity.extraChoice) {
+        return {
+          kicker: "Choose one more destination",
+          title: "Select an extra booth from your schedule.",
+          copy: "This room opens only after you select it as your one optional extra booth.",
+          time: "Extra booths close at 5:10 PM",
+        };
+      }
+      if (identity.extraChoice === "connections") {
+        return {
+          kicker: "Connections selected",
+          title: "You chose Connections.",
+          copy: "Return to your schedule and head to the Connections area.",
+          time: "Connections are open",
+        };
+      }
+      return {
+        kicker: "Your extra booth is elsewhere",
+        title: `${roomName} is not your selected extra booth.`,
+        copy: "Return to your schedule to open the one extra booth you selected.",
+        time: "Extra booth · 4:50–5:10 PM",
       };
     }
     const routeIndex = route.indexOf(boothId);
@@ -252,8 +280,16 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     showOnly("complete");
   }
 
+  function returnToSchedule(delayMs = 0) {
+    if (returningToSchedule) return;
+    returningToSchedule = true;
+    const navigate = () => window.location.replace(EventSchedule.linkWithPreview("hub.html"));
+    if (delayMs > 0) window.setTimeout(navigate, delayMs);
+    else navigate();
+  }
+
   function updateEndingWarning(snapshot) {
-    const endingSoon = snapshot.phase === "active"
+    const endingSoon = ["active", "extra"].includes(snapshot.phase)
       && (typeof EventSchedule.isEndingSoon === "function"
         ? EventSchedule.isEndingSoon(snapshot, 15000)
         : snapshot.remainingMs > 0 && snapshot.remainingMs <= 15000);
@@ -263,12 +299,31 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   function refreshBoothRoomAccess() {
     if (!currentIdentity) return false;
     const snapshot = EventSchedule.current();
+    // Completion always wins over the clock gate. In particular, an extra
+    // visit becomes inaccessible as soon as extraCompletedAt is saved; if the
+    // access check ran first, a refresh or Back navigation would strand the
+    // attendee on a locked room instead of returning them to their schedule.
+    const completedExtraVisit = snapshot.phase === "extra"
+      && currentIdentity.extraChoice === boothId
+      && Boolean(currentIdentity.extraCompletedAt);
+    if (roomCompleted || completedExtraVisit) {
+      returnToSchedule();
+      return false;
+    }
+    // The schedule owns the 4:50 chooser and the Connections destination.
+    // Direct or stale booth URLs must return there before rendering a lock
+    // card, while the one selected unfinished extra booth remains open.
+    const extraChoiceBelongsElsewhere = snapshot.phase === "extra"
+      && currentIdentity.extraChoice !== boothId;
+    if (snapshot.phase === "connections" || extraChoiceBelongsElsewhere) {
+      returnToSchedule();
+      return false;
+    }
     if (!boothAccess(currentIdentity, snapshot)) {
       showLocked(snapshot);
       return false;
     }
-    if (roomCompleted) showComplete();
-    else showRoom(currentIdentity, snapshot);
+    showRoom(currentIdentity, snapshot);
     return true;
   }
 
@@ -282,6 +337,11 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       // stale response must never turn a restored completed visit back into
       // an unfinished room.
       roomCompleted = roomCompleted || (checkins.boothIds || []).includes(boothId);
+      const progressPatch = {};
+      ["extraChoice", "extraChoiceSelectedAt", "extraCompletedAt"].forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(checkins, key)) progressPatch[key] = checkins[key] || null;
+      });
+      if (Object.keys(progressPatch).length) currentIdentity = Identity.set(progressPatch);
     } catch (error) {
       // Access can still render from the signed-in identity. The booth gate
       // will retry its normal backend session restore before showing activity.
@@ -323,11 +383,6 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
     if (loginButton.disabled) return;
     loginButton.click();
   }));
-  document.getElementById("btn-booth-reopen").addEventListener("click", () => {
-    roomCompleted = false;
-    refreshBoothRoomAccess();
-  });
-
   const routeUrl = EventSchedule.linkWithPreview("hub.html");
   document.getElementById("btn-booth-route").href = routeUrl;
   document.getElementById("btn-booth-complete-route").href = routeUrl;
@@ -339,15 +394,23 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   window.refreshBoothRoomAccess = refreshBoothRoomAccess;
   window.completeBoothRoom = (completedBoothName) => {
     roomCompleted = true;
+    if (EventSchedule.current().phase === "extra") {
+      currentIdentity = Identity.set({ extraCompletedAt: new Date(EventSchedule.nowMs()).toISOString() });
+    }
     completeName.textContent = typeof completedBoothName === "string" && completedBoothName.trim()
       ? completedBoothName
       : boothName;
-    refreshBoothRoomAccess();
+    showComplete();
+    returnToSchedule(650);
   };
 
   setInterval(refreshBoothRoomAccess, 1000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshBoothRoomAccess();
+  });
+  window.addEventListener("pageshow", () => {
+    const saved = Identity.peek();
+    if (saved.attendeeId) restoreRoomState(saved);
   });
 
   demoClockReady.then(() => {

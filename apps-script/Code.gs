@@ -29,7 +29,8 @@ const NODE_EXPORT_SCHEMAS = {
   Attendees: {
     sheetName: "Live_Attendees",
     headers: [
-      "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor",
+      "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor", "attendanceMode",
+      "extraChoice", "extraChoiceSelectedAt", "extraCompletedAt",
       "registeredAt", "wristbandConfirmedAt", "phase3CompletedAt", "completedBoothIds",
       "completedBoothCount", "signupOptionIds",
     ],
@@ -87,6 +88,7 @@ const NODE_EXPORT_DATA_TAB_NAMES = [
 const NODE_EXPORT_TAB_NAMES = NODE_EXPORT_DATA_TAB_NAMES.concat(["ExportMeta"]);
 const BOOTH_IDS = ["heaven", "trivia", "story", "art", "newsong"];
 const WRISTBAND_COLORS = ["blue", "red", "orange", "green", "yellow"];
+const ATTENDANCE_MODES = ["in_person", "online"];
 const BOOTH_NAMES = {
   heaven: "Can You Draw Heaven?",
   trivia: "Bible Bowl",
@@ -102,10 +104,18 @@ const WRISTBAND_ROUTES = {
   yellow: ["story", "newsong"],
 };
 const BOOTH_SESSIONS = [
-  { number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
-  { number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
+  { number: 1, startsAt: "2026-07-18T15:35:00-05:00", endsAt: "2026-07-18T15:55:00-05:00", label: "3:35–3:55 PM" },
+  { number: 2, startsAt: "2026-07-18T15:55:00-05:00", endsAt: "2026-07-18T16:15:00-05:00", label: "3:55–4:15 PM" },
 ];
-const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:00:00-05:00";
+const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:15:00-05:00";
+const MAIN_MESSAGE_ENDS_AT = "2026-07-18T16:50:00-05:00";
+const EXTRA_BOOTH_SESSION = {
+  number: 3,
+  startsAt: "2026-07-18T16:50:00-05:00",
+  endsAt: "2026-07-18T17:10:00-05:00",
+  label: "4:50–5:10 PM",
+};
+const EVENT_ENDS_AT = EXTRA_BOOTH_SESSION.endsAt;
 const BOOTH_PRESENTATION_STATUSES = ["waiting", "live", "paused", "wrap", "complete"];
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
@@ -125,7 +135,7 @@ const NEW_SONG_CHOICES = [
 const HEADERS = {
   // New attendee fields are appended so an existing Attendees tab can be
   // upgraded in place without shifting any of its older columns.
-  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor", "phase3CompletedAt"],
+  [SHEET_NAMES.ATTENDEES]: ["attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandConfirmedAt", "registeredAt", "wristbandColor", "phase3CompletedAt", "attendanceMode", "extraChoice", "extraChoiceSelectedAt", "extraCompletedAt"],
   [SHEET_NAMES.BOOTH_CHECKINS]: ["id", "attendeeId", "phone", "name", "boothId", "boothName", "checkedInBy", "checkedInAt", "rating", "note", "extraData"],
   [SHEET_NAMES.SONG_VOTES]: ["id", "attendeeId", "name", "songTitle", "votedAt"],
   [SHEET_NAMES.SIGNUPS]: ["id", "attendeeId", "phone", "name", "optionId", "optionTitle", "email", "stars", "comment", "submittedAt", "confirmedInPerson", "confirmedBy", "confirmedAt"],
@@ -360,6 +370,21 @@ function normalizeWristbandColor(value) {
   return WRISTBAND_COLORS.indexOf(normalized) === -1 ? null : normalized;
 }
 
+function normalizeAttendanceMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ATTENDANCE_MODES.indexOf(normalized) === -1 ? null : normalized;
+}
+
+function attendanceModeOrDefault(value) {
+  return normalizeAttendanceMode(value) || "in_person";
+}
+
+function normalizeExtraChoice(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "connections") return normalized;
+  return BOOTH_IDS.indexOf(normalized) === -1 ? null : normalized;
+}
+
 function requireWristbandColor(value) {
   const color = normalizeWristbandColor(value);
   if (!color) throw apiError("Choose a valid wristband color.", "INVALID_WRISTBAND_COLOR");
@@ -443,17 +468,28 @@ function eventSessionState(nowMs) {
       sessionLabel: null,
     };
   }
-  if (currentMs < Date.parse(MAIN_MESSAGE_STARTS_AT)) {
+  if (currentMs < Date.parse(MAIN_MESSAGE_ENDS_AT)) {
     return {
-      phase: "waiting",
+      phase: "message",
       serverNow: new Date(currentMs).toISOString(),
       sessionIndex: null,
       sessionNumber: null,
       sessionLabel: null,
     };
   }
+  const extraStartMs = Date.parse(EXTRA_BOOTH_SESSION.startsAt);
+  const extraEndMs = Date.parse(EXTRA_BOOTH_SESSION.endsAt);
+  if (currentMs >= extraStartMs && currentMs < extraEndMs) {
+    return {
+      phase: "extra",
+      serverNow: new Date(currentMs).toISOString(),
+      sessionIndex: BOOTH_SESSIONS.length,
+      sessionNumber: EXTRA_BOOTH_SESSION.number,
+      sessionLabel: EXTRA_BOOTH_SESSION.label,
+    };
+  }
   return {
-    phase: "ended",
+    phase: "connections",
     serverNow: new Date(currentMs).toISOString(),
     sessionIndex: null,
     sessionNumber: null,
@@ -601,6 +637,17 @@ function mergeAttendees(canonical, duplicate, phone) {
     wristbandColor: normalizeWristbandColor(canonical.wristbandColor)
       || normalizeWristbandColor(duplicate.wristbandColor)
       || "",
+    attendanceMode: normalizeAttendanceMode(canonical.attendanceMode)
+      || normalizeAttendanceMode(duplicate.attendanceMode)
+      || "in_person",
+    extraChoice: normalizeExtraChoice(canonical.extraChoice)
+      || normalizeExtraChoice(duplicate.extraChoice)
+      || "",
+    extraChoiceSelectedAt: earliestTimestamp(
+      canonical.extraChoiceSelectedAt,
+      duplicate.extraChoiceSelectedAt
+    ),
+    extraCompletedAt: earliestTimestamp(canonical.extraCompletedAt, duplicate.extraCompletedAt),
   };
 
   updateRow(SHEET_NAMES.ATTENDEES, canonical._row, merged);
@@ -616,11 +663,20 @@ function actionRegisterAttendee(payload) {
   const name = String((payload && payload.name) || "").trim().replace(/\s+/g, " ");
   const phoneWasSupplied = !!(payload && String(payload.phone || "").trim());
   const phone = digitsOnly(payload && payload.phone);
+  const attendanceModeWasSupplied = !!(
+    payload && Object.prototype.hasOwnProperty.call(payload, "attendanceMode")
+  );
+  const attendanceMode = attendanceModeWasSupplied
+    ? normalizeAttendanceMode(payload.attendanceMode)
+    : "in_person";
   if (!attendeeId || attendeeId.length > 128 || !name || name.length > 80) {
     throw apiError("Enter your name and a valid event-pass ID.", "REGISTRATION_FIELDS_REQUIRED");
   }
   if (phoneWasSupplied && phone.length !== 10) {
     throw apiError("Enter a valid 10-digit mobile number.", "INVALID_PHONE");
+  }
+  if (attendanceModeWasSupplied && !attendanceMode) {
+    throw apiError("Choose whether you are joining in person or online.", "INVALID_ATTENDANCE_MODE");
   }
   return withScriptLock((lock) => {
     const attendees = readRows(SHEET_NAMES.ATTENDEES);
@@ -663,6 +719,10 @@ function actionRegisterAttendee(payload) {
         registeredAt: nowIso(),
         wristbandColor: "",
         phase3CompletedAt: "",
+        attendanceMode,
+        extraChoice: "",
+        extraChoiceSelectedAt: "",
+        extraCompletedAt: "",
       });
       attendee = {
         attendeeId,
@@ -670,6 +730,7 @@ function actionRegisterAttendee(payload) {
         name,
         phone: phoneWasSupplied ? phone : "",
         wristbandColor: "",
+        attendanceMode,
       };
     } else {
       const aliasIds = toJsonSafe(attendee.aliasIds, []);
@@ -688,6 +749,7 @@ function actionRegisterAttendee(payload) {
       raffleNumber: attendee.raffleNumber,
       attendeeId: attendee.attendeeId,
       wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+      attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
       phoneLinked: !!attendee.phone,
       isNew,
     };
@@ -711,13 +773,21 @@ function actionConfirmWristband(payload) {
       }
     }
     if (attendee.wristbandConfirmedAt && existingColor === color) {
-      return { ok: true, wristbandColor: existingColor };
+      return {
+        ok: true,
+        wristbandColor: existingColor,
+        attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
+      };
     }
     updateRow(SHEET_NAMES.ATTENDEES, attendee._row, {
       wristbandConfirmedAt: nowIso(),
       wristbandColor: color,
     });
-    return { ok: true, wristbandColor: color };
+    return {
+      ok: true,
+      wristbandColor: color,
+      attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
+    };
   });
 }
 
@@ -728,6 +798,10 @@ function attendeePortalResult(attendee) {
     raffleNumber: attendee.raffleNumber,
     wristbandConfirmed: !!attendee.wristbandConfirmedAt,
     wristbandColor: normalizeWristbandColor(attendee.wristbandColor),
+    attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
+    extraChoice: normalizeExtraChoice(attendee.extraChoice),
+    extraChoiceSelectedAt: attendee.extraChoiceSelectedAt || null,
+    extraCompletedAt: attendee.extraCompletedAt || null,
     phoneLinked: !!attendee.phone,
     phase3CompletedAt: attendee.phase3CompletedAt || null,
     serverNow: nowIso(),
@@ -811,6 +885,7 @@ function actionFindOrRegisterByPhone(payload) {
         isNew: false,
         name: raffleAttendee.name,
         wristbandColor: normalizeWristbandColor(raffleAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(raffleAttendee.attendanceMode),
       };
     }
 
@@ -835,6 +910,7 @@ function actionFindOrRegisterByPhone(payload) {
         isNew: false,
         name: phoneAttendee.name,
         wristbandColor: normalizeWristbandColor(phoneAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(phoneAttendee.attendanceMode),
       };
     }
 
@@ -849,6 +925,7 @@ function actionFindOrRegisterByPhone(payload) {
         isNew: false,
         name: idAttendee.name,
         wristbandColor: normalizeWristbandColor(idAttendee.wristbandColor),
+        attendanceMode: attendanceModeOrDefault(idAttendee.attendanceMode),
       };
     }
 
@@ -876,6 +953,7 @@ function actionFindOrRegisterByPhone(payload) {
       wristbandConfirmedAt: "",
       registeredAt: nowIso(),
       wristbandColor: "",
+      attendanceMode: "in_person",
     });
     return {
       attendeeId: newAttendeeId,
@@ -883,6 +961,7 @@ function actionFindOrRegisterByPhone(payload) {
       isNew: true,
       name: name || "Guest",
       wristbandColor: null,
+      attendanceMode: "in_person",
     };
   });
 }
@@ -1111,7 +1190,12 @@ function actionMyCheckins(params) {
     const boothIds = checkins
       .filter((c) => ids.indexOf(c.attendeeId) !== -1)
       .map((c) => c.boothId);
-    return { boothIds: Array.from(new Set(boothIds)) };
+    return {
+      boothIds: Array.from(new Set(boothIds)),
+      extraChoice: normalizeExtraChoice(attendee.extraChoice),
+      extraChoiceSelectedAt: attendee.extraChoiceSelectedAt || null,
+      extraCompletedAt: attendee.extraCompletedAt || null,
+    };
   });
 }
 
@@ -1154,6 +1238,7 @@ function wristbandGroupsForDashboard(attendees, checkins, eventState) {
         return {
           name: attendee.name || "Guest",
           raffleNumber: attendee.raffleNumber || "",
+          attendanceMode: attendanceModeOrDefault(attendee.attendanceMode),
           completedBoothIds,
           completedStops: completedBoothIds.length,
           totalStops: route.length,
@@ -1174,6 +1259,8 @@ function wristbandGroupsForDashboard(attendees, checkins, eventState) {
       currentBooth: currentBoothId
         ? { boothId: currentBoothId, boothName: BOOTH_NAMES[currentBoothId] || currentBoothId }
         : null,
+      inPersonCount: groupAttendees.filter((attendee) => attendee.attendanceMode === "in_person").length,
+      onlineCount: groupAttendees.filter((attendee) => attendee.attendanceMode === "online").length,
       attendees: groupAttendees,
     };
   });

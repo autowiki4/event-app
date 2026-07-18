@@ -46,12 +46,14 @@ const EventAPI = (function () {
   }
 
   return {
-    registerAttendee: (attendeeId, name, phone) => call("registerAttendee", {
+    registerAttendee: (attendeeId, name, phone, attendanceMode) => call("registerAttendee", {
       attendeeId,
       name,
       phone,
+      attendanceMode,
     }),
     confirmWristband: (attendeeId, wristbandColor) => call("confirmWristband", { attendeeId, wristbandColor }),
+    chooseExtraDestination: (attendeeId, choice) => call("chooseExtraDestination", { attendeeId, choice }),
     loginAttendee: (name, phone, portal) => call("loginAttendee", { name, phone, portal }),
     attendeePortalSession: (attendeeId, portal) => call("attendeePortalSession", { attendeeId, portal }),
     findOrRegisterByPhone: (attendeeId, phone, name, options) => call("findOrRegisterByPhone", {

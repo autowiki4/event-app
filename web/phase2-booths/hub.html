@@ -5,7 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>My Booth Schedule — The Perfect Summer Day</title>
 <link rel="stylesheet" href="../shared/styles.css">
-<style>:root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }</style>
+<style>
+:root{ --phase-color:var(--teal); --phase-color-deep:var(--teal-deep); }
+.extra-booth-card{position:relative;overflow:hidden;border:2px solid #8c63d9;border-radius:22px;padding:22px;background:linear-gradient(145deg,#f7f0ff 0%,#fff8de 55%,#eaf9ff 100%);box-shadow:0 18px 42px -28px rgba(80,42,145,.9)}
+.extra-booth-card::before,.extra-booth-card::after{content:"✦";position:absolute;color:#d99b19;font-size:42px;opacity:.3;animation:extra-twinkle 1.8s ease-in-out infinite alternate}
+.extra-booth-card::before{right:18px;top:8px}.extra-booth-card::after{left:16px;bottom:8px;animation-delay:.7s}
+.extra-booth-card h2{font-family:var(--font-display);font-size:clamp(28px,8vw,42px);line-height:1.02;margin:8px 0 10px;color:#4d2b82}
+.extra-booth-card p{position:relative;margin:0;color:var(--ink-soft)}
+.extra-choice-grid{display:grid;gap:10px;margin-top:16px}
+.extra-choice{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid #d8caee;border-radius:16px;padding:12px;background:rgba(255,255,255,.9);color:var(--ink);font:inherit;font-weight:700;cursor:pointer}
+.extra-choice:hover,.extra-choice:focus-visible{border-color:#7950bd;box-shadow:0 0 0 3px rgba(121,80,189,.14);outline:none}
+.extra-choice .booth-icon{width:42px;height:42px;font-size:22px}.extra-choice small{display:block;margin-top:3px;color:var(--ink-soft);font-weight:500}
+.extra-choice .choice-arrow{font-size:20px;color:#7046af}.extra-choice:disabled{opacity:.6;cursor:wait}
+.connections-card{border:2px solid #2f8a57;border-radius:22px;padding:24px;text-align:center;background:linear-gradient(145deg,#eaf8ef,#f8fff5);box-shadow:0 18px 42px -28px rgba(47,138,87,.9)}
+.connections-card .connections-icon{font-size:54px;line-height:1}.connections-card h2{font-family:var(--font-display);font-size:clamp(30px,8vw,44px);margin:10px 0;color:#216a43}.connections-card p{margin:0;color:var(--ink-soft)}
+@keyframes extra-twinkle{from{transform:scale(.8) rotate(-8deg);opacity:.18}to{transform:scale(1.15) rotate(8deg);opacity:.55}}
+@media (prefers-reduced-motion:reduce){.extra-booth-card::before,.extra-booth-card::after{animation:none}}
+</style>
 </head>
 <body>
 <div class="phone">
@@ -93,11 +109,30 @@
         <div class="placeholder-note" id="phase3-note"></div>
         <a class="btn btn-primary" id="btn-phase3" href="../phase3-signup/index.html" style="display:block; text-decoration:none;">Next →</a>
       </div>
+
+      <div id="extra-experience" style="display:none; margin-top:14px;">
+        <div class="extra-booth-card" role="region" aria-labelledby="extra-experience-title">
+          <p class="eyebrow">✨ One more adventure</p>
+          <h2 id="extra-experience-title">Want to explore one more booth?</h2>
+          <p>Choose one booth you have not visited, or head straight to Connections.</p>
+          <div class="extra-choice-grid" id="extra-choice-grid"></div>
+          <div class="err" id="extra-choice-error" role="alert"></div>
+        </div>
+      </div>
+
+      <div class="connections-card" id="connections-card" style="display:none; margin-top:14px;" role="status" aria-live="polite">
+        <div class="connections-icon" aria-hidden="true">🤝</div>
+        <p class="eyebrow">Your next destination</p>
+        <h2>Head to Connections</h2>
+        <p id="connections-copy">The booth experience is complete. Join the Connections area when you are ready.</p>
+      </div>
     </div>
 
-    <div class="section-title">Your two stops</div>
-    <div class="route-list" id="attendee-route"></div>
-    <p class="top-note">The shared timer changes everyone to the second stop at 3:30. Booths finish at 3:50, followed by a ten-minute handoff to the 4:00 PM main message. Late arrivals with fewer than five minutes left wait for the next rotation; a missed stop is saved for catch-up.</p>
+    <div id="scheduled-route-section">
+      <div class="section-title">Your two scheduled stops</div>
+      <div class="route-list" id="attendee-route"></div>
+      <p class="top-note">Session 1 runs 3:35–3:55 PM and Session 2 runs 3:55–4:15 PM Nashville time. The message follows from 4:15–4:50 PM. Late arrivals with fewer than five minutes left wait for the next rotation; a missed stop is saved for catch-up.</p>
+    </div>
   </section>
 </div>
 
@@ -120,6 +155,7 @@ let presentation = null;
 let presentationBusy = false;
 let progressRefreshBusy = false;
 let pendingRetryBusy = false;
+let extraChoiceBusy = false;
 let routeRenderSignature = "";
 const presentationPollMs = Math.round(5000 * (0.85 + Math.random() * 0.3));
 const demoBackend = String(window.EVENT_APP_CONFIG.API_BASE_URL || "").replace(/\/$/, "") === "/api";
@@ -176,6 +212,17 @@ function showPortal() {
   renderSchedule();
 }
 
+function mergeProgressFromCheckins(checkins) {
+  const source = checkins && typeof checkins === "object" ? checkins : {};
+  completedBooths = new Set([...completedBooths, ...(source.boothIds || [])]);
+  const progressPatch = {};
+  ["extraChoice", "extraChoiceSelectedAt", "extraCompletedAt"].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(source, key)) progressPatch[key] = source[key] || null;
+  });
+  if (Object.keys(progressPatch).length) identity = Identity.set(progressPatch);
+  return source;
+}
+
 async function refreshCompletedBooths() {
   if (!identity || !identity.attendeeId || progressRefreshBusy) return false;
   progressRefreshBusy = true;
@@ -184,10 +231,12 @@ async function refreshCompletedBooths() {
     // Booth visits are append-only in this experience. Merge instead of
     // replacing so a slower refresh can never erase a completion the attendee
     // just saved in this tab (or in a direct booth tab).
+    const previousCompleted = completedBooths;
     const nextCompleted = new Set([...completedBooths, ...(checkins.boothIds || [])]);
     const changed = nextCompleted.size !== completedBooths.size
       || Array.from(nextCompleted).some((boothId) => !completedBooths.has(boothId));
-    completedBooths = nextCompleted;
+    mergeProgressFromCheckins(checkins);
+    completedBooths = new Set([...previousCompleted, ...nextCompleted]);
     if (changed) {
       routeRenderSignature = "";
       renderSchedule();
@@ -242,7 +291,7 @@ function displayPresentation(booth) {
     : ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
       && new URLSearchParams(window.location.search).has("preview");
   const updatedMs = state.updatedAt ? new Date(state.updatedAt).getTime() : NaN;
-  if (!isLocalPreview && schedule.phase === "active" && Number.isFinite(updatedMs) && updatedMs < schedule.session.startMs) {
+  if (!isLocalPreview && ["active", "extra"].includes(schedule.phase) && Number.isFinite(updatedMs) && updatedMs < schedule.session.startMs) {
     state = { status: "waiting", stepIndex: 0, message: "", updatedAt: "" };
   }
   if (booth.id === "story" && ["paused", "wrap"].includes(state.status)) {
@@ -319,8 +368,9 @@ function renderRoute(snapshot) {
     const completed = completedBooths.has(boothId);
     const fallback = (() => {
       const current = snapshot.phase === "active" && snapshot.sessionIndex === index;
-      const past = snapshot.phase === "waiting" || snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
-      if (completed) return { kind: "visited", canOpen: current, faded: true, checked: true };
+      const past = ["message", "extra", "connections", "waiting", "ended"].includes(snapshot.phase)
+        || (snapshot.phase === "active" && index < snapshot.sessionIndex);
+      if (completed) return { kind: "visited", canOpen: false, faded: true, checked: true };
       if (arrival.missedSessionIndices.includes(index)) {
         return { kind: "catchup", canOpen: false, faded: true, checked: false };
       }
@@ -339,7 +389,7 @@ function renderRoute(snapshot) {
       .filter(Boolean)
       .join(" ");
     const stateLabel = kind === "visited"
-      ? (canOpen ? "Visited ✓ · Reopen" : "Visited ✓")
+      ? "Visited ✓"
       : kind === "active"
         ? "Active · Tap in"
         : kind === "expired"
@@ -355,7 +405,7 @@ function renderRoute(snapshot) {
   document.getElementById("attendee-route").innerHTML = stops.map((stop) => {
     const { boothId, index, booth, session, canOpen, checked, classes, stateLabel } = stop;
     const open = canOpen
-      ? `<button type="button" class="route-stop ${classes}" data-open-current="${index}" aria-label="${checked ? "Reopen" : "Open"} ${escapeHtml(booth ? booth.title : boothId)} for the current session">`
+      ? `<button type="button" class="route-stop ${classes}" data-open-current="${index}" aria-label="Open ${escapeHtml(booth ? booth.title : boothId)} for the current session">`
       : `<div class="route-stop ${classes}">`;
     const close = canOpen ? "</button>" : "</div>";
     return `
@@ -370,6 +420,63 @@ function renderRoute(snapshot) {
   }).join("");
 }
 
+function setLobby({ icon, status, title, copy }) {
+  const lobby = document.getElementById("waiting-lobby");
+  lobby.style.display = "flex";
+  lobby.querySelector(".waiting-lobby-icon").textContent = icon;
+  lobby.querySelector(".status-pill").textContent = status;
+  document.getElementById("waiting-lobby-title").textContent = title;
+  document.getElementById("waiting-lobby-copy").textContent = copy;
+}
+
+function showBoothCard(booth, snapshot, extraVisit = false) {
+  const card = document.getElementById("current-booth-card");
+  if (!booth || completedBooths.has(booth.id)) {
+    card.style.display = "none";
+    activeBoothId = "";
+    return;
+  }
+  card.style.display = "block";
+  document.getElementById("current-booth-icon").textContent = booth.icon;
+  document.getElementById("current-booth-name").textContent = booth.title;
+  const activityButton = document.getElementById("btn-open-booth-activity");
+  activityButton.href = EventSchedule.linkWithPreview(booth.page);
+  activityButton.textContent = `Open ${booth.title} activity →`;
+  const completeButton = document.getElementById("btn-complete-booth");
+  completeButton.hidden = true;
+  completeButton.disabled = true;
+  completeButton.textContent = `Finish ${booth.title} from its final screen`;
+  if (activeBoothId !== booth.id) {
+    activeBoothId = booth.id;
+    presentation = null;
+    displayPresentation(booth);
+    loadPresentation(booth.id);
+  } else {
+    displayPresentation(booth);
+  }
+  document.getElementById("current-kicker").textContent = extraVisit
+    ? "Your extra booth · Go now"
+    : `Stop ${snapshot.session.number} of ${EventSchedule.route(identity.wristbandColor).length} · Go now`;
+  document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(booth.title)}</em>`;
+}
+
+function renderExtraChoices() {
+  const unvisited = CONNECTOR_BOOTHS.filter((booth) => !completedBooths.has(booth.id));
+  document.getElementById("extra-choice-grid").innerHTML = [
+    ...unvisited.map((booth) => `
+      <button class="extra-choice" type="button" data-extra-choice="${escapeHtml(booth.id)}" ${extraChoiceBusy ? "disabled" : ""}>
+        <span class="booth-icon" aria-hidden="true">${escapeHtml(booth.icon)}</span>
+        <span>${escapeHtml(booth.title)}<small>One 20-minute extra visit</small></span>
+        <span class="choice-arrow" aria-hidden="true">→</span>
+      </button>`),
+    `<button class="extra-choice" type="button" data-extra-choice="connections" ${extraChoiceBusy ? "disabled" : ""}>
+      <span class="booth-icon" aria-hidden="true">🤝</span>
+      <span>Connections<small>Skip the extra booth and connect now</small></span>
+      <span class="choice-arrow" aria-hidden="true">→</span>
+    </button>`,
+  ].join("");
+}
+
 function renderSchedule() {
   if (!identity) return;
   const snapshot = EventSchedule.current();
@@ -378,147 +485,170 @@ function renderSchedule() {
   const phase3Ready = document.getElementById("phase3-ready");
   const phase3 = document.getElementById("btn-phase3");
   const phase3Note = document.getElementById("phase3-note");
+  const extraExperience = document.getElementById("extra-experience");
+  const connectionsCard = document.getElementById("connections-card");
+  const routeSection = document.getElementById("scheduled-route-section");
   const color = wristbandColorById(identity.wristbandColor);
   const arrival = attendeeArrivalPlan();
   const currentBooth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
   const route = EventSchedule.route(identity.wristbandColor);
+  const phase2Complete = routeIsComplete();
   const waitingForNextRotation = snapshot.phase === "active" && (
     arrival.firstEligibleSessionIndex === null
       || snapshot.sessionIndex < arrival.firstEligibleSessionIndex
   );
-  const completedCount = route.filter((boothId) => completedBooths.has(boothId)).length;
-  const catchUpCount = arrival.missedSessionIndices.filter((index) => (
-    route[index] && !completedBooths.has(route[index])
-  )).length;
-  const phase2Complete = routeIsComplete();
-  const endingSoon = snapshot.phase === "active"
+  const currentRegularCompleted = snapshot.phase === "active"
+    && Boolean(route[snapshot.sessionIndex])
+    && completedBooths.has(route[snapshot.sessionIndex]);
+  const extraBooth = identity.extraChoice && identity.extraChoice !== "connections"
+    ? boothById(identity.extraChoice)
+    : null;
+  const extraComplete = Boolean(identity.extraCompletedAt)
+    || Boolean(extraBooth && completedBooths.has(extraBooth.id));
+  const endingSoon = ["active", "extra"].includes(snapshot.phase)
     && !waitingForNextRotation
-    && !completedBooths.has(route[snapshot.sessionIndex])
+    && !(snapshot.phase === "active" ? currentRegularCompleted : extraComplete)
     && (typeof EventSchedule.isEndingSoon === "function"
       ? EventSchedule.isEndingSoon(snapshot, 15000)
       : snapshot.remainingMs > 0 && snapshot.remainingMs <= 15000);
-  document.getElementById("booth-ending-warning").style.display = endingSoon ? "flex" : "none";
 
-  document.getElementById("session-countdown").textContent = EventSchedule.formatCountdown(snapshot.remainingMs);
   renderProgress(phase2Complete);
   renderRoute(snapshot);
+  document.getElementById("booth-ending-warning").style.display = endingSoon ? "flex" : "none";
+  document.getElementById("session-countdown").textContent = EventSchedule.formatCountdown(snapshot.remainingMs);
   phase3.href = EventSchedule.linkWithPreview("../phase3-signup/index.html");
   phase3Ready.style.display = "none";
   waitingLobby.style.display = "none";
+  extraExperience.style.display = "none";
+  connectionsCard.style.display = "none";
+  card.style.display = "none";
+  routeSection.style.display = ["before", "active"].includes(snapshot.phase) ? "block" : "none";
 
   if (snapshot.phase === "before") {
-    document.getElementById("clock-kicker").textContent = "Booths begin at 3:10 PM";
+    document.getElementById("clock-kicker").textContent = "Booths begin at 3:35 PM";
     document.getElementById("clock-title").textContent = "Get ready for Session 1";
     document.getElementById("countdown-label").textContent = "Until your first session";
-    waitingLobby.style.display = "flex";
-    document.getElementById("waiting-lobby-title").textContent = "You're checked in and in the right place.";
-    document.getElementById("waiting-lobby-copy").textContent = `Keep this page open. ${currentBooth ? currentBooth.title : "Your first booth"} will unlock automatically when the organizer starts the experience or at 3:10 PM.`;
+    setLobby({
+      icon: "☀️",
+      status: "Waiting lobby",
+      title: "You're checked in and in the right place.",
+      copy: `Keep this page open. ${currentBooth ? currentBooth.title : "Your first booth"} unlocks automatically at 3:35 PM Nashville time.`,
+    });
     document.getElementById("current-kicker").textContent = "Your first experience";
     document.getElementById("current-heading").innerHTML = `You will start at <em>${escapeHtml(currentBooth ? currentBooth.title : "your first booth")}</em>`;
-    document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} wristband · Session 1 · ${BOOTH_SESSIONS[0].label}. You do not need to refresh this page.`;
-    card.style.display = "none";
+    document.getElementById("current-copy").textContent = `${color ? color.label : "Your"} group · Session 1 · ${BOOTH_SESSIONS[0].label}. You do not need to refresh this page.`;
     activeBoothId = "";
-  } else if (snapshot.phase === "active") {
+    return;
+  }
+
+  if (snapshot.phase === "active") {
+    document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of ${BOOTH_SESSIONS.length} · ${snapshot.session.label}`;
+    document.getElementById("clock-title").textContent = "Shared 20-minute session";
+    document.getElementById("countdown-label").textContent = "Time remaining";
     if (waitingForNextRotation) {
       const nextIndex = arrival.firstEligibleSessionIndex;
       const nextSession = nextIndex === null ? null : BOOTH_SESSIONS[nextIndex];
       const nextBooth = nextIndex === null ? null : boothById(route[nextIndex]);
-      document.getElementById("clock-kicker").textContent = `Late arrival · Session ${snapshot.session.number} is ending`;
-      document.getElementById("clock-title").textContent = nextSession
-        ? "Next session starts soon"
-        : "Booth rotations are ending";
-      document.getElementById("countdown-label").textContent = nextSession
-        ? `Until Session ${nextSession.number}`
-        : "Until booths close";
-      waitingLobby.style.display = "flex";
-      document.getElementById("waiting-lobby-title").textContent = nextSession
-        ? "Please wait for the next rotation."
-        : "Please see an organizer for catch-up.";
-      document.getElementById("waiting-lobby-copy").textContent = nextSession
-        ? `${nextBooth ? nextBooth.title : "Your next booth"} opens for you at ${EventSchedule.formattedTime(nextSession.startsAt)}. The booth you missed is marked for catch-up, not completed.`
-        : "There are fewer than five minutes left in the final session. Your missed stops are marked for catch-up, not completed.";
-      document.getElementById("current-kicker").textContent = nextSession
-        ? `Your next experience · Session ${nextSession.number}`
-        : "Catch-up assistance";
+      setLobby({
+        icon: "⏳",
+        status: "Next session soon",
+        title: nextSession ? "Please wait for the next rotation." : "Please see an organizer for catch-up.",
+        copy: nextSession
+          ? `${nextBooth ? nextBooth.title : "Your next booth"} opens at ${EventSchedule.formattedTime(nextSession.startsAt)}. The missed stop is saved for catch-up, not completed.`
+          : "There are fewer than five minutes left in the final scheduled session. Your missed stops remain unmarked.",
+      });
+      document.getElementById("current-kicker").textContent = "Late arrival plan";
       document.getElementById("current-heading").innerHTML = nextSession
-        ? `You will join <em>${escapeHtml(nextBooth ? nextBooth.title : "your next booth")}</em>`
-        : "Ask the organizer about your <em>catch-up stops.</em>";
-      document.getElementById("current-copy").textContent = nextSession
-        ? `Keep this page open. The shared countdown will unlock Session ${nextSession.number} automatically.`
-        : "Your progress remains saved, and no missed booth has been marked complete.";
-      card.style.display = "none";
+        ? `Your next room is <em>${escapeHtml(nextBooth ? nextBooth.title : "being prepared")}</em>`
+        : "Ask an organizer about your <em>catch-up stops.</em>";
+      document.getElementById("current-copy").textContent = "Keep this page open; the schedule changes automatically.";
       activeBoothId = "";
       return;
     }
-    document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of ${BOOTH_SESSIONS.length} · ${snapshot.session.label}`;
-    document.getElementById("clock-title").textContent = "Shared 20-minute session";
-    document.getElementById("countdown-label").textContent = "Time remaining";
-    document.getElementById("current-kicker").textContent = `Stop ${snapshot.session.number} of ${route.length} · Go now`;
-    document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
+    if (currentRegularCompleted) {
+      const nextSession = BOOTH_SESSIONS[snapshot.sessionIndex + 1] || null;
+      const nextBooth = nextSession ? boothById(route[snapshot.sessionIndex + 1]) : null;
+      setLobby({
+        icon: "✅",
+        status: "Visit saved",
+        title: "You're finished in this room.",
+        copy: nextSession
+          ? `Please leave this booth and get ready for ${nextBooth ? nextBooth.title : "your next room"} at ${EventSchedule.formattedTime(nextSession.startsAt)}.`
+          : "Please leave this booth and get ready for the message at 4:15 PM.",
+      });
+      document.getElementById("current-kicker").textContent = nextSession ? "Move to your next room" : "Both scheduled visits saved";
+      document.getElementById("current-heading").innerHTML = nextSession
+        ? `Next: <em>${escapeHtml(nextBooth ? nextBooth.title : "your second booth")}</em>`
+        : "Your scheduled booths are <em>complete.</em>";
+      document.getElementById("current-copy").textContent = "Completed booths stay closed so you can move on without losing time.";
+      activeBoothId = "";
+      if (phase2Complete) {
+        phase3Note.textContent = "Both scheduled visits are saved. Tick any next steps before the message if you have time.";
+        phase3Ready.style.display = "block";
+      }
+      return;
+    }
     document.getElementById("current-copy").textContent = arrival.joinedInProgress
       && arrival.firstEligibleSessionIndex === snapshot.sessionIndex
-      ? "You're joining this session in progress. Open the activity to see the booth leader's current step; you do not need to start from the beginning."
+      ? "You're joining in progress. Open the activity to see the booth leader's current step."
       : "This screen follows your booth leader. Keep it open while the group moves through the activity.";
-    card.style.display = "block";
-    if (currentBooth) {
-      document.getElementById("current-booth-icon").textContent = currentBooth.icon;
-      document.getElementById("current-booth-name").textContent = currentBooth.title;
-      const completeButton = document.getElementById("btn-complete-booth");
-      const activityButton = document.getElementById("btn-open-booth-activity");
-      activityButton.href = EventSchedule.linkWithPreview(currentBooth.page);
-      activityButton.textContent = completedBooths.has(currentBooth.id)
-        ? `Reopen ${currentBooth.title} activity →`
-        : `Open ${currentBooth.title} activity →`;
-      const alreadyComplete = completedBooths.has(currentBooth.id);
-      const completionLivesInActivity = ["trivia", "heaven", "story", "art", "newsong"].includes(currentBooth.id);
-      completeButton.hidden = completionLivesInActivity;
-      completeButton.disabled = completionLivesInActivity || alreadyComplete;
-      completeButton.textContent = completionLivesInActivity
-        ? `Finish ${currentBooth.title} from its final screen`
-        : alreadyComplete
-          ? "Completed ✓ · Open until session ends"
-          : "Done with this booth ✓";
-      if (activeBoothId !== currentBooth.id) {
-        activeBoothId = currentBooth.id;
-        presentation = null;
-        displayPresentation(currentBooth);
-        loadPresentation(currentBooth.id);
-      } else {
-        displayPresentation(currentBooth);
-      }
-    }
-    if (phase2Complete) {
-      phase3Note.textContent = `Both visits are marked complete. Continue now, or reopen ${currentBooth ? currentBooth.title : "this booth"} until ${EventSchedule.formattedTime(snapshot.session.endsAt)}.`;
-      phase3Ready.style.display = "block";
-    }
-  } else {
-    const waitingForMessage = snapshot.phase === "waiting";
-    document.getElementById("clock-kicker").textContent = phase2Complete ? "Both visits marked complete" : "Booth time has ended";
-    document.getElementById("clock-title").textContent = waitingForMessage ? "Main message starts at 4:00 PM" : "The main message is starting";
-    document.getElementById("session-countdown").textContent = waitingForMessage
-      ? EventSchedule.formatCountdown(snapshot.remainingMs)
-      : "NOW";
-    document.getElementById("countdown-label").textContent = waitingForMessage ? "Until the main message" : "Message time";
-    document.getElementById("current-kicker").textContent = phase2Complete ? "Booth visits complete" : "Booth time ended";
-    document.getElementById("current-heading").innerHTML = phase2Complete
-      ? "Tick your <em>next steps</em> and go."
-      : "Continue with your <em>saved progress.</em>";
-    document.getElementById("current-copy").textContent = phase2Complete
-      ? waitingForMessage
-        ? "Your two completion taps are saved. Choose your next steps, then stay nearby for the 4:00 PM main message."
-        : "The main message is starting now. Choose your next steps quickly if needed, then please get seated."
-      : catchUpCount
-        ? `You marked ${completedCount} of ${route.length} visits complete. ${catchUpCount} ${catchUpCount === 1 ? "stop is" : "stops are"} marked for possible catch-up, and you can still continue.`
-        : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;
-    card.style.display = "none";
-    phase3Note.textContent = phase2Complete
-      ? "Both booth visits were marked complete."
-      : catchUpCount
-        ? `Booth time is over. ${completedCount} of ${route.length} visits were marked complete; ask an organizer about ${catchUpCount === 1 ? "the catch-up stop" : "the catch-up stops"}.`
-        : `Booth time is over. ${completedCount} of ${route.length} visits were marked complete.`;
-    phase3Ready.style.display = "block";
-    activeBoothId = "";
+    showBoothCard(currentBooth, snapshot, false);
+    return;
   }
+
+  activeBoothId = "";
+  if (snapshot.phase === "message") {
+    document.getElementById("clock-kicker").textContent = "Main message · 4:15–4:50 PM";
+    document.getElementById("clock-title").textContent = "The message is being delivered";
+    document.getElementById("countdown-label").textContent = "Until the extra-booth choice";
+    setLobby({
+      icon: "📣",
+      status: "Message in progress",
+      title: "The message is being delivered.",
+      copy: "I hope you get blessed today. Keep this screen nearby; your optional extra-booth choice appears automatically at 4:50 PM.",
+    });
+    document.getElementById("current-kicker").textContent = "Please give the message your attention";
+    document.getElementById("current-heading").innerHTML = "I hope you get <em>blessed today.</em>";
+    document.getElementById("current-copy").textContent = "All booth activities are locked during the message.";
+    return;
+  }
+
+  if (snapshot.phase === "extra") {
+    document.getElementById("clock-kicker").textContent = "Optional extra booth · 4:50–5:10 PM";
+    document.getElementById("clock-title").textContent = identity.extraChoice ? "Your destination is saved" : "Choose one more experience";
+    document.getElementById("countdown-label").textContent = "Time remaining";
+    if (!identity.extraChoice) {
+      document.getElementById("current-kicker").textContent = "The message has ended";
+      document.getElementById("current-heading").innerHTML = "Choose your <em>next destination.</em>";
+      document.getElementById("current-copy").textContent = "You can visit one booth you have not completed, or go directly to Connections.";
+      renderExtraChoices();
+      extraExperience.style.display = "block";
+      return;
+    }
+    if (identity.extraChoice === "connections" || extraComplete) {
+      connectionsCard.style.display = "block";
+      document.getElementById("connections-copy").textContent = extraComplete
+        ? "Your extra booth is saved. You can now head to Connections."
+        : "You chose Connections. Head there now and enjoy the rest of the event.";
+      document.getElementById("current-kicker").textContent = "Choice saved";
+      document.getElementById("current-heading").innerHTML = "It's time to <em>connect.</em>";
+      document.getElementById("current-copy").textContent = "Your place is saved on this phone if you refresh or reopen the link.";
+      return;
+    }
+    document.getElementById("current-copy").textContent = "This is your one selected extra booth. Follow its leader and finish before 5:10 PM.";
+    showBoothCard(extraBooth, snapshot, true);
+    return;
+  }
+
+  document.getElementById("clock-kicker").textContent = "Booth experiences complete";
+  document.getElementById("clock-title").textContent = "Connections are open";
+  document.getElementById("session-countdown").textContent = "OPEN";
+  document.getElementById("countdown-label").textContent = "Starting at 5:10 PM";
+  document.getElementById("current-kicker").textContent = "Your next destination";
+  document.getElementById("current-heading").innerHTML = "Head to <em>Connections.</em>";
+  document.getElementById("current-copy").textContent = "All booth rooms are now closed, and your saved event progress remains on this phone.";
+  connectionsCard.style.display = "block";
+  document.getElementById("connections-copy").textContent = "The booth experience has ended. Please join the Connections area now.";
 }
 
 document.getElementById("attendee-route").addEventListener("click", (event) => {
@@ -581,6 +711,39 @@ document.getElementById("btn-complete-booth").addEventListener("click", async ()
   }
 });
 
+document.getElementById("extra-choice-grid").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-extra-choice]");
+  if (!button || extraChoiceBusy || !identity) return;
+  const snapshot = EventSchedule.current();
+  if (snapshot.phase !== "extra") {
+    renderSchedule();
+    return;
+  }
+  const choice = String(button.dataset.extraChoice || "");
+  extraChoiceBusy = true;
+  document.getElementById("extra-choice-error").textContent = "";
+  renderExtraChoices();
+  try {
+    const result = await EventAPI.chooseExtraDestination(identity.attendeeId, choice);
+    identity = Identity.set({
+      extraChoice: result.extraChoice || choice,
+      extraChoiceSelectedAt: result.extraChoiceSelectedAt || new Date(EventSchedule.nowMs()).toISOString(),
+      extraCompletedAt: result.extraCompletedAt || null,
+    });
+    toast(choice === "connections" ? "Connections selected." : "Your extra booth is saved.");
+    renderSchedule();
+    if (choice !== "connections") {
+      document.getElementById("current-booth-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  } catch (error) {
+    console.error(error);
+    document.getElementById("extra-choice-error").textContent = error.message || "Couldn't save that choice. Please try again.";
+  } finally {
+    extraChoiceBusy = false;
+    if (!identity.extraChoice) renderExtraChoices();
+  }
+});
+
 document.getElementById("btn-phase2-login").addEventListener("click", async () => {
   const name = document.getElementById("phase2-name").value.trim();
   const phone = Phone.digits(phase2PhoneInput);
@@ -598,7 +761,8 @@ document.getElementById("btn-phase2-login").addEventListener("click", async () =
       return;
     }
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
-    completedBooths = new Set(checkins.boothIds || []);
+    completedBooths = new Set();
+    mergeProgressFromCheckins(checkins);
     showPortal();
     retryPendingCompletions();
   } catch (error) {
@@ -638,7 +802,8 @@ async function initPortal() {
       return;
     }
     const checkins = await EventAPI.myCheckins(identity.attendeeId);
-    completedBooths = new Set(checkins.boothIds || []);
+    completedBooths = new Set();
+    mergeProgressFromCheckins(checkins);
     showPortal();
     retryPendingCompletions();
   } catch (error) {
@@ -670,6 +835,10 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("focus", () => {
   refreshCompletedBooths();
   retryPendingCompletions();
+});
+window.addEventListener("pageshow", () => {
+  refreshCompletedBooths();
+  renderSchedule();
 });
 
 initPortal();

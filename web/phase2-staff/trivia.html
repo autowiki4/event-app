@@ -41,7 +41,7 @@
 
     .trivia-session-tabs {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 9px;
       margin: 10px 0 16px;
     }
@@ -375,10 +375,13 @@
         <div class="section-title">Choose a session</div>
         <div class="trivia-session-tabs" id="trivia-session-tabs" role="tablist" aria-label="Bible Bowl sessions">
           <button type="button" class="trivia-session-tab" id="trivia-tab-1" role="tab" aria-controls="trivia-session-panel" aria-selected="true" data-session-number="1">
-            <b>Session 1</b><small>3:10–3:30 PM</small>
+            <b>Session 1</b><small>3:35–3:55 PM</small>
           </button>
           <button type="button" class="trivia-session-tab" id="trivia-tab-2" role="tab" aria-controls="trivia-session-panel" aria-selected="false" data-session-number="2">
-            <b>Session 2</b><small>3:30–3:50 PM</small>
+            <b>Session 2</b><small>3:55–4:15 PM</small>
+          </button>
+          <button type="button" class="trivia-session-tab" id="trivia-tab-3" role="tab" aria-controls="trivia-session-panel" aria-selected="false" data-session-number="3">
+            <b>Extra booth · Selected attendees</b><small>4:50–5:10 PM</small>
           </button>
         </div>
 
@@ -395,7 +398,7 @@
             <div class="trivia-schedule-card">
               <div>
                 <strong id="trivia-assigned-band">Red wristbands · Session 1</strong>
-                <span id="trivia-session-time">3:10–3:30 PM</span>
+                <span id="trivia-session-time">3:35–3:55 PM</span>
               </div>
               <div class="trivia-session-timer" id="trivia-session-timer">--:--<small>Checking event clock</small></div>
             </div>

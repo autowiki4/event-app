@@ -43,22 +43,24 @@
     <div class="waiting-lobby-card" id="phase3-event-notice" role="status" aria-live="polite" style="display:none;">
       <div class="waiting-lobby-icon" id="phase3-event-notice-icon" aria-hidden="true">⏳</div>
       <div>
-        <span class="status-pill waiting" id="phase3-event-notice-status">Booths finished</span>
-        <h2 id="phase3-event-notice-title">The main message starts at 4:00 PM.</h2>
-        <p id="phase3-event-notice-copy">Complete this quick selection, then stay nearby for the message.</p>
+        <span class="status-pill waiting" id="phase3-event-notice-status">Message in progress</span>
+        <h2 id="phase3-event-notice-title">The message is being delivered.</h2>
+        <p id="phase3-event-notice-copy">I hope you get blessed today.</p>
       </div>
     </div>
 
-    <p class="eyebrow">Quick sign-ups · Tick and go</p>
-    <h1 class="display">What's <em>next</em> for you?</h1>
-    <p class="lede">Tick anything that fits, then finish. Your choices are already connected to the name and raffle number above.</p>
-    <p class="top-note" id="phase3-sync-note" role="status" style="display:none;"></p>
+    <div id="phase3-form">
+      <p class="eyebrow">Quick sign-ups · Tick and go</p>
+      <h1 class="display">What's <em>next</em> for you?</h1>
+      <p class="lede">Tick anything that fits, then finish. Your choices are already connected to the name and raffle number above.</p>
+      <p class="top-note" id="phase3-sync-note" role="status" style="display:none;"></p>
 
-    <div class="opt-grid" id="opt-grid"></div>
-    <button class="btn btn-primary" id="btn-submit" style="margin-top:16px;">Save &amp; finish →</button>
-    <button class="btn btn-ghost" id="btn-skip" style="margin-top:10px;">No thanks, finish</button>
-    <a class="btn btn-ghost" id="btn-return-phase2" href="../phase2-booths/hub.html" style="display:none; margin-top:10px; text-decoration:none;">Return to my booth before 3:50 →</a>
-    <p class="top-note">You can select more than one.</p>
+      <div class="opt-grid" id="opt-grid"></div>
+      <button class="btn btn-primary" id="btn-submit" style="margin-top:16px;">Save &amp; finish →</button>
+      <button class="btn btn-ghost" id="btn-skip" style="margin-top:10px;">No thanks, finish</button>
+      <a class="btn btn-ghost" id="btn-return-phase2" href="../phase2-booths/hub.html" style="display:none; margin-top:10px; text-decoration:none;">Return to my booth schedule →</a>
+      <p class="top-note">You can select more than one.</p>
+    </div>
   </section>
 </div>
 
@@ -106,29 +108,32 @@ const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync ==
 
 function renderPhase3EventNotice() {
   const notice = document.getElementById("phase3-event-notice");
+  const form = document.getElementById("phase3-form");
   const schedule = EventSchedule.current();
-  if (!["waiting", "ended"].includes(schedule.phase)) {
+  if (schedule.phase !== "message") {
     notice.style.display = "none";
+    form.style.display = "block";
     return;
   }
-  const messageLive = schedule.phase === "ended";
   const status = document.getElementById("phase3-event-notice-status");
   notice.style.display = "flex";
-  document.getElementById("phase3-event-notice-icon").textContent = messageLive ? "📣" : "⏳";
-  status.className = `status-pill ${messageLive ? "live" : "waiting"}`;
-  status.textContent = messageLive ? "Message time" : "Booths finished";
-  document.getElementById("phase3-event-notice-title").textContent = messageLive
-    ? "It's time for the main message."
-    : "The main message starts at 4:00 PM.";
-  document.getElementById("phase3-event-notice-copy").textContent = messageLive
-    ? "Make your quick selection, save it, and then please get seated for the message."
-    : `${EventSchedule.formatCountdown(schedule.remainingMs)} remaining. Complete this quick selection, then stay nearby.`;
+  form.style.display = "none";
+  document.getElementById("phase3-event-notice-icon").textContent = "📣";
+  status.className = "status-pill live";
+  status.textContent = "Message in progress";
+  document.getElementById("phase3-event-notice-title").textContent = "The message is being delivered.";
+  document.getElementById("phase3-event-notice-copy").textContent = `I hope you get blessed today. Your extra-booth choice appears in ${EventSchedule.formatCountdown(schedule.remainingMs)}.`;
 }
 
 function reevaluateScheduleAccess() {
   if (!identity || !portalReady || scheduleRedirecting) return;
   const schedule = EventSchedule.current();
-  if (progressAuthoritative && !phase2RouteComplete && !["waiting", "ended"].includes(schedule.phase)) {
+  if (["extra", "connections"].includes(schedule.phase)) {
+    scheduleRedirecting = true;
+    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    return;
+  }
+  if (progressAuthoritative && !phase2RouteComplete && ["before", "active"].includes(schedule.phase)) {
     scheduleRedirecting = true;
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
@@ -203,7 +208,11 @@ async function showPortal(attendeeIdentity) {
     && route.every((boothId) => completedBooths.has(boothId));
   phase2RouteComplete = phase2Complete;
   const schedule = EventSchedule.current();
-  if (!identity.wristbandColor || (progressAuthoritative && !phase2Complete && !["waiting", "ended"].includes(schedule.phase))) {
+  if (["extra", "connections"].includes(schedule.phase)) {
+    window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
+    return;
+  }
+  if (!identity.wristbandColor || (progressAuthoritative && !phase2Complete && ["before", "active"].includes(schedule.phase))) {
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
   }

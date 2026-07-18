@@ -6,7 +6,9 @@
  */
 function initArtStaff() {
   document.body.classList.add("has-booth-leader-dock");
-  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
+  const SESSION_COUNT = typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+    ? ALL_BOOTH_SESSIONS.length
+    : 3;
   const POLL_INTERVAL_MS = Math.round(2100 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set([
     "welcome", "definition", "importance", "purpose_image", "heart_question",
@@ -15,7 +17,7 @@ function initArtStaff() {
   const FALLBACK_BANDS = [
     { id: "orange", label: "Orange" },
     { id: "green", label: "Green" },
-    { id: "red", label: "Red" },
+    { id: "", label: "Selected attendees" },
   ];
   const PHASE_MODELS = {
     welcome: {
@@ -141,17 +143,27 @@ function initArtStaff() {
   }
 
   function sessionSchedule(sessionNumber = selectedSessionNumber) {
-    return typeof BOOTH_SESSIONS !== "undefined" && Array.isArray(BOOTH_SESSIONS)
-      ? BOOTH_SESSIONS[sessionNumber - 1] || null
+    return typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+      ? ALL_BOOTH_SESSIONS[sessionNumber - 1] || null
       : null;
   }
 
   function fallbackBand(sessionNumber = selectedSessionNumber) {
+    if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
       const group = EventSchedule.groupForBooth("art", sessionNumber - 1);
       if (group) return group;
     }
-    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Assigned" };
+    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Selected attendees" };
+  }
+
+  function sessionTitle(sessionNumber) {
+    return sessionNumber === 3 ? "Extra booth" : `Session ${sessionNumber}`;
+  }
+
+  function audienceLabel(session) {
+    if (session.sessionNumber === 3) return "Selected attendees · Extra booth";
+    return `${session.assignedColor.label || "Assigned"} wristbands · Session ${session.sessionNumber}`;
   }
 
   function normalizeSession(value, sessionNumber) {
@@ -282,18 +294,18 @@ function initArtStaff() {
         <div class="booth-leader-dock">
           <div class="booth-leader-dock-copy">
             <span>Live rotation changed</span>
-            <strong>Session ${activeSessionNumber} is active now</strong>
+            <strong>${escapeHtml(sessionTitle(activeSessionNumber))} is active now</strong>
             <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
           </div>
           <div class="booth-leader-dock-actions">
-            <button type="button" class="btn btn-primary" data-art-switch-session="${activeSessionNumber}" aria-label="Switch to live Session ${activeSessionNumber}">Switch to Session ${activeSessionNumber} →</button>
+            <button type="button" class="btn btn-primary" data-art-switch-session="${activeSessionNumber}" aria-label="Switch to live ${escapeHtml(sessionTitle(activeSessionNumber))}">Switch to ${escapeHtml(sessionTitle(activeSessionNumber))} →</button>
           </div>
         </div>
       `;
       actions.querySelector("[data-art-switch-session]").addEventListener("click", (event) => {
         const sessionNumber = integer(event.currentTarget.dataset.artSwitchSession);
         selectSession(sessionNumber, true, false);
-        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+        toast(`Now showing live ${sessionTitle(sessionNumber)}. Review the next step, then tap Next to publish it.`);
       });
       return;
     }
@@ -368,12 +380,12 @@ function initArtStaff() {
     if (!session) return;
     renderTabs();
     const model = phaseModel(session.state.phase);
-    document.getElementById("art-control-title").textContent = `Session ${session.sessionNumber} · Run ${session.state.runNumber}`;
+    document.getElementById("art-control-title").textContent = `${sessionTitle(session.sessionNumber)} · Run ${session.state.runNumber}`;
     const pill = document.getElementById("art-phase-pill");
     pill.className = `art-phase-pill ${session.state.phase}`;
     pill.textContent = model.label;
     const dot = `<span class="art-band-dot ${escapeHtml(session.assignedColor.id)}" aria-hidden="true"></span>`;
-    document.getElementById("art-assigned-band").innerHTML = `${dot}${escapeHtml(session.assignedColor.label)} wristbands · Session ${session.sessionNumber}`;
+    document.getElementById("art-assigned-band").innerHTML = `${dot}${escapeHtml(audienceLabel(session))}`;
     document.getElementById("art-session-time").textContent = session.sessionLabel;
     document.getElementById("art-assigned-count").textContent = session.assignedCount;
     document.getElementById("art-completed-count").textContent = session.completedCount;
@@ -455,7 +467,7 @@ function initArtStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSession();
-      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
+      toast(`No attendee screen changed. ${sessionTitle(activeSessionNumber)} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = currentSession();
@@ -500,7 +512,7 @@ function initArtStaff() {
       ? `\n\nWARNING: ${waitingCount} assigned ${waitingCount === 1 ? "attendee has" : "attendees have"} not saved Done for this run. Restarting will move any open attendee screens to the new welcome and they will no longer be able to save this archived run.`
       : "";
     const confirmed = window.confirm(
-      `Archive Session ${session.sessionNumber} · Run ${session.state.runNumber} and start a fresh Art Therapy welcome screen?\n\nSaved completions will remain in read-only history. The other session will not change.${unfinishedRunWarning}${unsavedWarning}`
+      `Archive ${sessionTitle(session.sessionNumber)} · Run ${session.state.runNumber} and start a fresh Art Therapy welcome screen?\n\nSaved completions will remain in read-only history. The other sessions will not change.${unfinishedRunWarning}${unsavedWarning}`
     );
     if (!confirmed) return;
     controlBusy = true;

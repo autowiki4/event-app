@@ -27,7 +27,7 @@
     .newsong-leader-intro strong,.newsong-leader-intro span{ display:block; }.newsong-leader-intro strong{ margin-bottom:3px; font-size:14px; }
     .newsong-leader-intro span{ color:#55758d; font-size:11.5px; line-height:1.45; }
     .newsong-sync-note{ margin-bottom:13px; padding:11px 13px; border-radius:12px; background:#fff0e9; color:#8b321f; font-size:11px; line-height:1.45; }
-    .newsong-session-tabs{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin:10px 0 17px; }
+    .newsong-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:10px 0 17px; }
     .newsong-session-tab{
       appearance:none; min-height:65px; padding:11px 13px; border:1.5px solid rgba(44,127,184,.18); border-radius:15px;
       background:rgba(255,255,255,.84); color:var(--song-navy); cursor:pointer; text-align:left; box-shadow:0 12px 26px -26px rgba(22,59,97,.9);
@@ -121,8 +121,9 @@
 
         <div class="section-title">Choose a session</div>
         <div class="newsong-session-tabs" id="newsong-session-tabs" role="tablist" aria-label="New Song sessions">
-          <button type="button" class="newsong-session-tab" id="newsong-tab-1" role="tab" aria-controls="newsong-session-panel" aria-selected="true" data-newsong-session="1"><b>Session 1 · Green</b><small>3:10–3:30 PM</small></button>
-          <button type="button" class="newsong-session-tab" id="newsong-tab-2" role="tab" aria-controls="newsong-session-panel" aria-selected="false" data-newsong-session="2"><b>Session 2 · Yellow</b><small>3:30–3:50 PM</small></button>
+          <button type="button" class="newsong-session-tab" id="newsong-tab-1" role="tab" aria-controls="newsong-session-panel" aria-selected="true" data-newsong-session="1"><b>Session 1 · Green</b><small>3:35–3:55 PM</small></button>
+          <button type="button" class="newsong-session-tab" id="newsong-tab-2" role="tab" aria-controls="newsong-session-panel" aria-selected="false" data-newsong-session="2"><b>Session 2 · Yellow</b><small>3:55–4:15 PM</small></button>
+          <button type="button" class="newsong-session-tab" id="newsong-tab-3" role="tab" aria-controls="newsong-session-panel" aria-selected="false" data-newsong-session="3"><b>Extra booth · Selected attendees</b><small>4:50–5:10 PM</small></button>
         </div>
 
         <div class="newsong-layout" id="newsong-session-panel" role="tabpanel" aria-labelledby="newsong-tab-1">
@@ -132,7 +133,7 @@
               <span class="newsong-phase-pill welcome" id="newsong-phase-pill">Welcome</span>
             </div>
             <div class="newsong-schedule-card">
-              <div><strong id="newsong-assigned-band"><span class="newsong-band-dot" aria-hidden="true"></span>Green wristbands · Session 1</strong><span id="newsong-session-time">3:10–3:30 PM</span></div>
+              <div><strong id="newsong-assigned-band"><span class="newsong-band-dot" aria-hidden="true"></span>Green wristbands · Session 1</strong><span id="newsong-session-time">3:35–3:55 PM</span></div>
               <div class="newsong-session-timer" id="newsong-session-timer">--:--<small>Checking event clock</small></div>
             </div>
             <div class="newsong-session-note" id="newsong-session-note" style="display:none;"></div>

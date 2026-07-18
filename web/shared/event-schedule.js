@@ -14,6 +14,14 @@ const EventSchedule = (() => {
     "session2",
     "session1-final15",
     "session2-final15",
+    "message",
+    "extra",
+    "extra-booth",
+    "session3",
+    "extra-final15",
+    "session3-final15",
+    "connections",
+    // Compatibility aliases retained for existing organizer bookmarks/tests.
     "waiting",
     "ended",
   ]);
@@ -54,16 +62,27 @@ const EventSchedule = (() => {
     if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) return null;
     const preview = new URLSearchParams(window.location.search).get("preview");
     const firstStart = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
-    const boothEnd = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
     const messageStart = messageStartsAtMs();
+    const messageEnd = messageEndsAtMs();
+    const extraStart = extraBoothStartsAtMs();
+    const eventEnd = eventEndsAtMs();
     const values = {
       before: firstStart - (5 * 60 * 1000),
       "1": firstStart + (5 * 60 * 1000),
       "2": new Date(BOOTH_SESSIONS[1].startsAt).getTime() + (5 * 60 * 1000),
-      waiting: boothEnd + (5 * 60 * 1000),
-      ended: messageStart,
+      message: messageStart + (5 * 60 * 1000),
+      waiting: messageStart + (5 * 60 * 1000),
+      "3": extraStart + (5 * 60 * 1000),
+      extra: extraStart + (5 * 60 * 1000),
+      "extra-booth": extraStart + (5 * 60 * 1000),
+      connections: eventEnd,
+      ended: eventEnd,
     };
-    return Object.prototype.hasOwnProperty.call(values, preview) ? values[preview] : null;
+    if (!Object.prototype.hasOwnProperty.call(values, preview)) return null;
+    const previewMs = values[preview];
+    return preview === "message" || preview === "waiting"
+      ? Math.min(previewMs, messageEnd - 1000)
+      : previewMs;
   }
 
   function nowMs() {
@@ -87,23 +106,33 @@ const EventSchedule = (() => {
     }
 
     const firstStartMs = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
-    const boothEndMs = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
     const messageStartMs = messageStartsAtMs();
+    const messageEndMs = messageEndsAtMs();
+    const extraStartMs = extraBoothStartsAtMs();
+    const eventEndMs = eventEndsAtMs();
     if (mode === "custom") {
       const customMs = customValue instanceof Date
         ? customValue.getTime()
         : typeof customValue === "number"
           ? customValue
           : Date.parse(customValue);
-      return Number.isFinite(customMs) && customMs >= firstStartMs && customMs <= messageStartMs
+      return Number.isFinite(customMs) && customMs >= firstStartMs && customMs <= eventEndMs
         ? new Date(customMs).toISOString()
         : null;
     }
     let targetMs = NaN;
     if (mode === "before") targetMs = firstStartMs - (5 * 60 * 1000);
     if (mode === "session1-start") targetMs = firstStartMs;
-    if (mode === "waiting") targetMs = boothEndMs + Math.floor((messageStartMs - boothEndMs) / 2);
-    if (mode === "ended") targetMs = messageStartMs;
+    if (mode === "message" || mode === "waiting") {
+      targetMs = Math.min(messageStartMs + (5 * 60 * 1000), messageEndMs - 1000);
+    }
+    if (mode === "extra" || mode === "extra-booth" || mode === "session3") {
+      targetMs = extraStartMs + (5 * 60 * 1000);
+    }
+    if (mode === "extra-final15" || mode === "session3-final15") {
+      targetMs = eventEndMs - (15 * 1000);
+    }
+    if (mode === "connections" || mode === "ended") targetMs = eventEndMs;
 
     const sessionMatch = /^session([12])(-final15)?$/.exec(mode);
     if (sessionMatch) {
@@ -241,8 +270,9 @@ const EventSchedule = (() => {
       endMs: new Date(session.endsAt).getTime(),
     }));
     const first = sessions[0];
-    const last = sessions[sessions.length - 1];
-    const messageStartMs = messageStartsAtMs();
+    const messageEndMs = messageEndsAtMs();
+    const extraStartMs = extraBoothStartsAtMs();
+    const extraEndMs = extraBoothEndsAtMs();
 
     if (currentMs < first.startMs) {
       return {
@@ -269,24 +299,42 @@ const EventSchedule = (() => {
       };
     }
 
-    if (currentMs < messageStartMs) {
+    if (currentMs < messageEndMs) {
       return {
-        phase: "waiting",
+        phase: "message",
         nowMs: currentMs,
         session: null,
         sessionIndex: null,
-        targetMs: messageStartMs,
-        remainingMs: messageStartMs - currentMs,
+        targetMs: messageEndMs,
+        remainingMs: messageEndMs - currentMs,
+        nextSession: null,
+      };
+    }
+
+    if (currentMs >= extraStartMs && currentMs < extraEndMs) {
+      const extraSession = {
+        ...EXTRA_BOOTH_SESSION,
+        index: BOOTH_SESSIONS.length,
+        startMs: extraStartMs,
+        endMs: extraEndMs,
+      };
+      return {
+        phase: "extra",
+        nowMs: currentMs,
+        session: extraSession,
+        sessionIndex: extraSession.index,
+        targetMs: extraEndMs,
+        remainingMs: extraEndMs - currentMs,
         nextSession: null,
       };
     }
 
     return {
-      phase: "ended",
+      phase: "connections",
       nowMs: currentMs,
       session: null,
       sessionIndex: null,
-      targetMs: messageStartMs,
+      targetMs: eventEndsAtMs(),
       remainingMs: 0,
       nextSession: null,
     };
@@ -396,7 +444,7 @@ const EventSchedule = (() => {
     const index = Number(sessionIndex);
     const isCurrent = snapshot.phase === "active" && snapshot.sessionIndex === index;
     if (visited) {
-      return { kind: "visited", canOpen: isCurrent, faded: true, checked: true };
+      return { kind: "visited", canOpen: false, faded: true, checked: true };
     }
     const missedForCatchUp = attendeePlan
       && Array.isArray(attendeePlan.missedSessionIndices)
@@ -407,7 +455,7 @@ const EventSchedule = (() => {
     if (isCurrent) {
       return { kind: "active", canOpen: true, faded: false, checked: false };
     }
-    const isPast = snapshot.phase === "waiting" || snapshot.phase === "ended"
+    const isPast = ["message", "extra", "connections", "waiting", "ended"].includes(snapshot.phase)
       || (snapshot.phase === "active" && index < snapshot.sessionIndex);
     if (isPast) {
       return { kind: "expired", canOpen: false, faded: true, checked: false };
@@ -415,9 +463,11 @@ const EventSchedule = (() => {
     return { kind: "locked", canOpen: false, faded: true, checked: false };
   }
 
-  function canOpenBooth(colorId, boothId, state, wristbandConfirmedAt) {
+  function canOpenBooth(colorId, boothId, state, wristbandConfirmedAt, extraChoice) {
     const snapshot = state || current();
-    if (!snapshot || snapshot.phase !== "active") return false;
+    if (!snapshot) return false;
+    if (snapshot.phase === "extra") return String(extraChoice || "") === String(boothId || "");
+    if (snapshot.phase !== "active") return false;
     return route(colorId)[snapshot.sessionIndex] === boothId
       && canJoinSession(wristbandConfirmedAt, snapshot.sessionIndex);
   }
@@ -427,7 +477,7 @@ const EventSchedule = (() => {
     const threshold = Number(thresholdMs);
     return Boolean(
       snapshot
-      && snapshot.phase === "active"
+      && (snapshot.phase === "active" || snapshot.phase === "extra")
       && Number.isFinite(snapshot.remainingMs)
       && snapshot.remainingMs > 0
       && Number.isFinite(threshold)
@@ -438,15 +488,18 @@ const EventSchedule = (() => {
 
   function sessionTimeNotice(state) {
     const snapshot = state || current();
-    if (!snapshot || snapshot.phase !== "active" || !snapshot.session) return null;
+    if (!snapshot || !["active", "extra"].includes(snapshot.phase) || !snapshot.session) return null;
     const remainingMs = Math.max(0, Number(snapshot.remainingMs) || 0);
     const countdown = formatCountdown(remainingMs);
+    const sessionName = snapshot.phase === "extra"
+      ? "the extra booth session"
+      : `Session ${snapshot.session.number}`;
     if (remainingMs <= 15000) {
       return {
         level: "urgent",
         milestoneMinutes: 0,
         title: "Final 15 seconds",
-        message: `${countdown} left in Session ${snapshot.session.number}. Finish the current step and prepare the group to move.`,
+        message: `${countdown} left in ${sessionName}. Finish the current step and prepare the group to move.`,
       };
     }
     if (remainingMs <= 5 * 60 * 1000) {
@@ -454,7 +507,7 @@ const EventSchedule = (() => {
         level: "urgent",
         milestoneMinutes: 5,
         title: "5-minute warning",
-        message: `${countdown} left in Session ${snapshot.session.number}. Begin wrapping the activity and leave time for attendees to finish.`,
+        message: `${countdown} left in ${sessionName}. Begin wrapping the activity and leave time for attendees to finish.`,
       };
     }
     if (remainingMs <= 10 * 60 * 1000) {
@@ -462,14 +515,14 @@ const EventSchedule = (() => {
         level: "warning",
         milestoneMinutes: 10,
         title: "10-minute warning",
-        message: `${countdown} left in Session ${snapshot.session.number}. Check the room's pace and plan the final steps.`,
+        message: `${countdown} left in ${sessionName}. Check the room's pace and plan the final steps.`,
       };
     }
     return {
       level: "steady",
       milestoneMinutes: 20,
-      title: "20-minute rotation underway",
-      message: `${countdown} left in Session ${snapshot.session.number}. Booth leaders and Guardian Angels are following the same shared clock.`,
+      title: snapshot.phase === "extra" ? "20-minute extra booth underway" : "20-minute rotation underway",
+      message: `${countdown} left in ${sessionName}. Booth leaders and Guardian Angels are following the same shared clock.`,
     };
   }
 
@@ -507,8 +560,40 @@ const EventSchedule = (() => {
     return Number.isFinite(configured) ? configured : boothsEndAtMs();
   }
 
+  function messageEndsAtMs() {
+    const configured = typeof MAIN_MESSAGE_ENDS_AT !== "undefined"
+      ? new Date(MAIN_MESSAGE_ENDS_AT).getTime()
+      : NaN;
+    if (Number.isFinite(configured)) return configured;
+    const extraStart = typeof EXTRA_BOOTH_SESSION !== "undefined" && EXTRA_BOOTH_SESSION
+      ? new Date(EXTRA_BOOTH_SESSION.startsAt).getTime()
+      : NaN;
+    return Number.isFinite(extraStart) ? extraStart : messageStartsAtMs();
+  }
+
+  function extraBoothStartsAtMs() {
+    const configured = typeof EXTRA_BOOTH_SESSION !== "undefined" && EXTRA_BOOTH_SESSION
+      ? new Date(EXTRA_BOOTH_SESSION.startsAt).getTime()
+      : NaN;
+    return Number.isFinite(configured) ? configured : messageEndsAtMs();
+  }
+
+  function extraBoothEndsAtMs() {
+    const configured = typeof EXTRA_BOOTH_SESSION !== "undefined" && EXTRA_BOOTH_SESSION
+      ? new Date(EXTRA_BOOTH_SESSION.endsAt).getTime()
+      : NaN;
+    if (Number.isFinite(configured)) return configured;
+    const eventEnd = typeof EVENT_ENDS_AT !== "undefined"
+      ? new Date(EVENT_ENDS_AT).getTime()
+      : NaN;
+    return Number.isFinite(eventEnd) ? eventEnd : extraBoothStartsAtMs();
+  }
+
   function eventEndsAtMs() {
-    return messageStartsAtMs();
+    const configured = typeof EVENT_ENDS_AT !== "undefined"
+      ? new Date(EVENT_ENDS_AT).getTime()
+      : NaN;
+    return Number.isFinite(configured) ? configured : extraBoothEndsAtMs();
   }
 
   function eventStartsAtMs() {
@@ -557,6 +642,9 @@ const EventSchedule = (() => {
     eventStartsAtMs,
     boothsEndAtMs,
     messageStartsAtMs,
+    messageEndsAtMs,
+    extraBoothStartsAtMs,
+    extraBoothEndsAtMs,
     eventEndsAtMs,
     remainingUntilEventEnd,
     linkWithPreview,

@@ -62,6 +62,9 @@ function initBoothStaff(boothId) {
     else if (stepIndex >= steps.length - 1) stepIndex = Math.max(0, steps.length - 2);
     return {
       boothId: booth.id,
+      sessionNumber: Number.isInteger(Number(raw.sessionNumber))
+        ? Number(raw.sessionNumber)
+        : 1,
       status,
       stepIndex,
       updatedAt: raw.updatedAt || "",
@@ -151,6 +154,7 @@ function initBoothStaff(boothId) {
   function resetDraft() {
     if (saving || !window.confirm("Return attendee phones to the welcome screen and start this booth over?")) return;
     draft = normalizePresentation({ status: "waiting", stepIndex: 0, version: published.version });
+    draft.sessionNumber = published.sessionNumber;
     markDirty();
     syncControlUi();
     savePresentation();
@@ -162,29 +166,44 @@ function initBoothStaff(boothId) {
     if (state) state.textContent = "Change ready to send to attendee phones.";
   }
 
+  function publishWindowOpen() {
+    if (booth.id !== "story") return true;
+    if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") return false;
+    const snapshot = EventSchedule.current();
+    return Boolean(
+      snapshot
+        && ["active", "extra"].includes(snapshot.phase)
+        && snapshot.session
+        && Number(snapshot.session.number) === Number(draft.sessionNumber)
+    );
+  }
+
   function syncControlUi() {
+    const canPublish = publishWindowOpen();
     document.querySelectorAll("[data-step-index]").forEach((button) => {
       const selected = Number(button.dataset.stepIndex) === draft.stepIndex;
       button.setAttribute("aria-checked", String(selected));
       button.classList.toggle("visited", selected);
-      button.disabled = saving;
-      button.style.opacity = saving ? ".55" : "1";
+      button.disabled = saving || !canPublish;
+      button.style.opacity = button.disabled ? ".55" : "1";
       const marker = button.querySelector("[data-step-marker]");
       marker.textContent = selected ? "Showing" : "Show";
       marker.className = selected ? "stamp-btn done" : "stamp-btn disabled";
     });
     const previousButton = document.getElementById("btn-staff-previous");
     const nextButton = document.getElementById("btn-staff-next");
-    previousButton.disabled = saving || conflictRecoveryPending || draft.stepIndex <= 0;
-    nextButton.disabled = saving || (!conflictRecoveryPending && draft.stepIndex >= steps.length - 1);
-    nextButton.textContent = conflictRecoveryPending ? "Apply my change" : "Next →";
+    previousButton.disabled = saving || !canPublish || conflictRecoveryPending || draft.stepIndex <= 0;
+    nextButton.disabled = saving || !canPublish || (!conflictRecoveryPending && draft.stepIndex >= steps.length - 1);
+    nextButton.textContent = !canPublish
+      ? "Wait for booth time"
+      : conflictRecoveryPending ? "Apply my change" : "Next →";
     previousButton.style.opacity = previousButton.disabled ? ".45" : "1";
     nextButton.style.opacity = nextButton.disabled ? ".45" : "1";
     document.getElementById("staff-step-position").textContent = `Screen ${draft.stepIndex + 1} of ${steps.length}`;
 
     const resetButton = document.getElementById("btn-staff-reset");
-    resetButton.disabled = saving;
-    resetButton.style.opacity = saving ? ".55" : "1";
+    resetButton.disabled = saving || !canPublish;
+    resetButton.style.opacity = resetButton.disabled ? ".55" : "1";
   }
 
   function formatPublishedAt(value) {
@@ -195,7 +214,8 @@ function initBoothStaff(boothId) {
   }
 
   function samePublishedScreen(left, right) {
-    return left.status === right.status
+    return left.sessionNumber === right.sessionNumber
+      && left.status === right.status
       && left.stepIndex === right.stepIndex;
   }
 
@@ -238,7 +258,7 @@ function initBoothStaff(boothId) {
   }
 
   async function savePresentation() {
-    if (saving || !dirty) return;
+    if (saving || !dirty || !publishWindowOpen()) return;
     const authGeneration = OrganizerAuth.generation();
     const organizerKey = OrganizerAuth.key();
     if (!organizerKey) return;
@@ -249,9 +269,11 @@ function initBoothStaff(boothId) {
     syncControlUi();
     const state = document.getElementById("staff-publish-state");
     state.textContent = "Updating attendee phones…";
+    let refreshAfterRotationChange = false;
     try {
       const result = await EventAPI.updateBoothPresentation({
         boothId: booth.id,
+        ...(booth.id === "story" ? { sessionNumber: draft.sessionNumber } : {}),
         organizerKey,
         status: draft.status,
         stepIndex: draft.stepIndex,
@@ -270,6 +292,12 @@ function initBoothStaff(boothId) {
       if (OrganizerAuth.handleError(error, authGeneration)) return;
       if (error && error.code === "PRESENTATION_CONFLICT") {
         await recoverPresentationConflict(intended, authGeneration, organizerKey, state);
+      } else if (error && error.code === "BOOTH_SESSION_NOT_ACTIVE") {
+        dirty = false;
+        conflictRecoveryPending = false;
+        refreshAfterRotationChange = true;
+        state.textContent = "The rotation changed before that update was sent. Loading the current session; no attendee screen changed.";
+        toast("The rotation changed. Current controls are loading.");
       } else {
         state.textContent = "Couldn't publish the controls. Your changes are still here; try again.";
         toast("Couldn't update the attendee screen.");
@@ -278,6 +306,7 @@ function initBoothStaff(boothId) {
       if (OrganizerAuth.isCurrent(authGeneration)) {
         saving = false;
         syncControlUi();
+        if (refreshAfterRotationChange) window.setTimeout(() => refresh({ silent: true }), 0);
       }
     }
   }
@@ -319,7 +348,7 @@ function initBoothStaff(boothId) {
     const timer = document.getElementById("staff-session-timer");
     if (!label || !group || !timer) return;
     if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") {
-      label.textContent = "Booth sessions: 3:10–3:50 PM";
+      label.textContent = "Scheduled booths: 3:35–4:15 PM · Extra booth: 4:50–5:10 PM";
       group.textContent = "The shared event timer is unavailable on this device.";
       timer.textContent = "";
       return;
@@ -336,6 +365,13 @@ function initBoothStaff(boothId) {
       return;
     }
 
+    if (current.phase === "extra" && current.session) {
+      label.textContent = `Extra booth · ${current.session.label}`;
+      group.textContent = "Attendees who selected this booth are scheduled here.";
+      timer.textContent = `${EventSchedule.formatCountdown(current.remainingMs)} remaining`;
+      return;
+    }
+
     if (current.phase === "before") {
       const firstGroup = typeof EventSchedule.groupForBooth === "function"
         ? EventSchedule.groupForBooth(booth.id, 0)
@@ -346,11 +382,16 @@ function initBoothStaff(boothId) {
       return;
     }
 
-    label.textContent = current.phase === "waiting" ? "Booth rotations finished" : "Main message time";
-    group.textContent = current.phase === "waiting"
-      ? "Both 20-minute sessions are complete. The main message starts at 4:00 PM."
-      : "The main message is starting now.";
-    timer.textContent = "Closed";
+    if (current.phase === "message") {
+      label.textContent = "Main message";
+      group.textContent = "The message is being delivered. Booth controls stay saved for the 4:50 PM extra-booth option.";
+      timer.textContent = `${EventSchedule.formatCountdown(current.remainingMs)} until extra booths`;
+      return;
+    }
+
+    label.textContent = "Connections time";
+    group.textContent = "The extra booth window has ended. Direct attendees to Connections.";
+    timer.textContent = "Booths closed";
   }
 
   async function startSharedDemoClock() {
@@ -420,7 +461,7 @@ function initBoothStaff(boothId) {
         const publishedMs = published.updatedAt ? new Date(published.updatedAt).getTime() : NaN;
         const belongsToPriorSession = !isLocalPreview
           && schedule
-          && schedule.phase === "active"
+          && (schedule.phase === "active" || schedule.phase === "extra")
           && Number.isFinite(publishedMs)
           && publishedMs < schedule.session.startMs;
         if (belongsToPriorSession) {
@@ -428,6 +469,7 @@ function initBoothStaff(boothId) {
             status: "waiting",
             stepIndex: 0,
             version: published.version,
+            sessionNumber: published.sessionNumber,
           });
           dirty = true;
           syncControlUi();
@@ -458,7 +500,10 @@ function initBoothStaff(boothId) {
       await refresh();
       if (OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => refresh({ silent: true }), 5000);
-        if (!scheduleTimer) scheduleTimer = setInterval(refreshSchedule, 1000);
+        if (!scheduleTimer) scheduleTimer = setInterval(() => {
+          refreshSchedule();
+          syncControlUi();
+        }, 1000);
       }
     },
     onLocked: () => {

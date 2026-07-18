@@ -27,14 +27,15 @@ Event app demo server running: http://localhost:3000
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Timer previews:       add ?preview=before, 1, 2, waiting, or ended to the attendee/staff URL
+  Timer previews:       add ?preview=before, 1, 2, message, extra, or connections to the attendee/staff URL
   Local organizer key:  demo
 ```
 
-Start with Phase 1. Enter a name and mobile number to create the attendee and
-raffle number immediately. No message or phone code is sent. Assign a
-wristband color and complete the handoff; the same attendee identity continues
-directly into the single Phase 2 hub. The old
+Start with Phase 1. Enter a name and mobile number, choose **In person** or
+**Online**, and create the attendee and raffle number immediately. No message
+or phone code is sent. In-person attendees select the wristband color they
+were given; online attendees select a color for room assignment. Completing
+the handoff continues the same identity directly into the single Phase 2 hub. The old
 direct booth-room and kiosk URLs are still served, but they are optional
 fallbacks rather than the primary attendee route.
 
@@ -68,15 +69,15 @@ reuse the local default or this shared-key model for production.
 
 Open the organizer portal, choose **Overall Organizer**, unlock the dashboard
 with the organizer key, and use its **Demo only · Shared event time** panel.
-The continuous timeline accepts any exact second from **3:10:00 through
-4:00:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
-3:10, 3:30, 3:50, and 4:00 boundary shortcuts, then choose **Apply simulated
+The continuous timeline accepts any exact second from **3:35:00 through
+5:10:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
+3:35, 3:55, 4:15, 4:50, and 5:10 boundary shortcuts, then choose **Apply simulated
 time**. **Show waiting lobby** provides the pre-session state, and **Use live
 CDT clock** restores actual Chicago time.
 
 The selected mode and anchor are held in memory by this Node process. Simulated
-time ticks normally from that anchor, preserving both 20-minute booth windows,
-the 3:50–4:00 waiting/handoff, and the 4:00 message transition. Attendee,
+time ticks normally from that anchor, preserving both 20-minute regular booth
+windows, the 4:15–4:50 message, and the 4:50–5:10 optional booth. Attendee,
 overall-organizer, and booth-leader pages sample it about
 every five seconds with per-browser jitter, while their visible countdown
 advances locally every second. Hidden tabs stop polling and resynchronize when
@@ -100,8 +101,9 @@ to rehearse a fixed state:
 ?preview=before
 ?preview=1
 ?preview=2
-?preview=waiting
-?preview=ended
+?preview=message
+?preview=extra
+?preview=connections
 ```
 
 Examples:
@@ -118,12 +120,14 @@ preview; otherwise the app uses query preview or the real synchronized clock.
 
 ## Phone registration and recovery login
 
-Phase 1 collects the attendee's name and mobile number and immediately creates
-the attendee record and raffle number. The app sends no message. The same
+Phase 1 collects the attendee's name, mobile number, and In person/Online mode,
+then immediately creates the attendee record and raffle number. The app sends
+no message. The same
 device keeps that identity in local storage; `/attend` and the attendee return
 QR open the entry/resume screen on another device, where the same name and
-phone recover the pass. The shared server clock then decides which waiting,
-booth, or final state to show. Raffle numbers are display-only and are never
+phone recover the pass. The shared server clock then decides whether to show
+the lobby, a regular booth, the message, the optional-booth chooser, or
+Connections. Raffle numbers are display-only and are never
 accepted as login credentials. Booth pages never ask for the phone again.
 
 No phone-delivery environment variables are required on Render. The only
@@ -134,14 +138,15 @@ export variables documented below.
 
 The server creates `db.json` on first write. It contains:
 
-- attendees, including the collected phone, raffle number, assigned wristband
-  color, and persisted Phase 3 completion time;
+- attendees, including the collected phone, In person/Online mode, raffle
+  number, assigned color, persisted Phase 3 completion time, optional
+  extra-booth/Connections choice, and extra completion time;
 - booth check-ins, including scheduled visits created by attendee completion
   taps;
-- run-scoped New Song votes, Session 1–2 controllers, and archived runs;
+- run-scoped New Song votes, Session 1–3 controllers, and archived runs;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
 - one current presentation state per booth;
-- versioned Session 1–2 controllers, attendee responses, and archived prior
+- versioned Session 1–3 controllers, attendee responses, and archived prior
   runs for Bible Bowl, Draw Heaven, and New Song;
 - the raffle counter; and
 - a durable `dataResetAt` marker used to invalidate attendee browser identity
@@ -171,7 +176,8 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 The organizer dashboard exposes the same protected action as **Clear all
-attendee data & start fresh**. It deletes attendees and wristbands, booth
+attendee data & start fresh**. It deletes attendees, attendance/color
+assignments, optional-extra choices, booth
 check-ins and scores, New Song sessions, votes, and run history, Phase 3
 sign-ups, all booth presentation and control
 state, and the raffle counter. It
@@ -218,8 +224,9 @@ booth portals and are not exported. The `Live_TriviaAnswers` and
 successful full snapshot clears any older rows while keeping the Sheet schema
 stable.
 
-Every registered attendee reaches this mirror, including the phone collected
-in Phase 1. The Sheet therefore contains attendee contact information and must
+Every registered attendee reaches this mirror, including the phone,
+In person/Online mode, selected color, and optional extra destination. The
+Sheet therefore contains attendee contact information and must
 use appropriately restricted access and retention rules.
 
 `Live_BoothResults.extraData` mirrors only allowlisted operational metadata;
@@ -248,13 +255,15 @@ npm test
 
 The suite starts an isolated temporary server and checks the main API/static
 contracts: organizer authorization, attendee registration and lookup,
-wristband-color validation and persistence, Phase 2 eligibility, tap-backed
+attendance-mode/color validation and persistence, Phase 2 eligibility,
+optional-extra selection, tap-backed
 booth check-ins and deduplication, public booth presentation reads, protected
 leader updates, booth-scoped staff results, Phase 3 selections and persisted
 completion (including **No thanks**), preview propagation, reset behavior,
 error payloads, reset/backup recovery, the two-minute completion retry,
 inline page-script syntax, and a concurrent 150-attendee representative load
-check with balanced wristbands, 90 live song votes, and 450 booth completions.
+check with balanced colors and attendance modes, live song votes, regular
+booth completions, and concurrent optional-extra choices.
 Around 150 is a planning estimate, not an application cap. The protected
 overall dashboard also verifies each color's current scheduled booth and
 expandable attendee progress roster. It does not replace a
@@ -264,7 +273,7 @@ real-device, venue-network, accessibility, or multi-staff rehearsal.
 
 The current primary attendee actions are:
 
-- `registerAttendee` (one-step name and phone registration)
+- `registerAttendee` (name, phone, and In person/Online registration)
 - `confirmWristband`
 - `loginAttendee` (name plus phone; raffle is never accepted as login)
 - `attendeePortalSession`
@@ -274,6 +283,8 @@ The current primary attendee actions are:
 - `saveSongVote` (persists a New Song choice immediately for the live tally)
 - `saveSignupSelections` (reconciles selections and persists Phase 3 completion)
 - `mySignupSelections` (returns selections plus the saved completion time)
+- `chooseExtraDestination` (persists one unvisited booth or Connections choice
+  during 4:50–5:10)
 - `submitSignup` (legacy single-option compatibility)
 
 The main protected staff actions are:
@@ -293,7 +304,7 @@ Bible Bowl adds a Node-service-only, leader-paced API:
 - `triviaState` returns the current attendee-safe question state
 - `submitTriviaAnswer` locks one answer and scores it on the server
 - `completeTrivia` records the server-verified final result
-- `triviaDashboardData` returns protected Session 1–2 leaderboards
+- `triviaDashboardData` returns protected Session 1–3 leaderboards
 - `advanceTriviaSession` starts, reveals, advances, or finishes one session
 - `resetTriviaSession` archives the selected run and opens a fresh run without
   mixing its answers or leaderboard with the previous run
@@ -304,7 +315,7 @@ Draw Heaven uses the same Node-only, leader-paced run model:
   confirmations
 - `confirmHeavenStep` idempotently saves the attendee response that is open in
   the current leader phase
-- `heavenDashboardData` returns protected progress for both rotations and
+- `heavenDashboardData` returns protected progress for all three sessions and
   their archived runs
 - `advanceHeavenSession` moves one rotation through welcome, drawing, verse,
   comparison, reflection, programs, and completion using optimistic versions
@@ -318,8 +329,8 @@ attendee and staff URLs:
 - `completeArt` records an immutable completion for the current run and the
   ordinary route-level booth check-in, but accepts no artwork or reflection
   text
-- `artDashboardData` returns protected progress for the Orange and Green
-  rotations plus their archived runs
+- `artDashboardData` returns protected progress for the two routed rotations
+  and selected Session 3 attendees, plus their archived runs
 - `advanceArtSession` publishes the definition, importance, supplied image,
   heart question, two verses, creative activity, closing reflection, and Done
   release using optimistic versions
@@ -327,8 +338,9 @@ attendee and staff URLs:
 
 New Song also uses a Node/Render-only leader-paced run model without changing
 its attendee (`/phase2-booths/booth-newsong.html`) or staff
-(`/phase2-staff/newsong.html`) URLs. Green and Yellow wristbands use Sessions
-1 and 2 respectively. `newSongState`, `submitNewSongVote`, and
+(`/phase2-staff/newsong.html`) URLs. Green and Yellow use Sessions 1 and 2;
+attendees who choose New Song at 4:50 use Session 3. `newSongState`,
+`submitNewSongVote`, and
 `completeNewSong` serve attendees; protected `newSongDashboardData`,
 `advanceNewSongSession`, and `resetNewSongSession` serve staff. The leader
 advances `welcome → voting → winner → verse → complete`, choosing when to show

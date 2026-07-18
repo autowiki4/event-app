@@ -18,8 +18,8 @@
   <div class="waiting-lobby-card" id="phase1-event-notice" role="status" aria-live="polite" style="display:none; margin:0 22px 16px;">
     <div class="waiting-lobby-icon" id="phase1-event-notice-icon" aria-hidden="true">⏳</div>
     <div>
-      <span class="status-pill waiting" id="phase1-event-notice-status">Booths finished</span>
-      <h2 id="phase1-event-notice-title">The main message starts at 4:00 PM.</h2>
+      <span class="status-pill waiting" id="phase1-event-notice-status">Event update</span>
+      <h2 id="phase1-event-notice-title">The event schedule is live.</h2>
       <p id="phase1-event-notice-copy">If you still need help with your event pass, please see an organizer.</p>
     </div>
   </div>
@@ -42,6 +42,24 @@
       <input id="in-phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(555) 555-5555">
       <div class="err" id="err-registration">Enter your name and a valid 10-digit mobile number.</div>
     </div>
+
+    <fieldset class="attendance-mode-fieldset" id="attendance-mode-fieldset">
+      <legend>How are you joining today?</legend>
+      <div class="attendance-mode-picker">
+        <label class="attendance-mode-choice">
+          <input type="radio" name="attendance-mode" value="in_person">
+          <span class="attendance-mode-icon" aria-hidden="true">📍</span>
+          <span><strong>In person</strong><small>At the Nashville event</small></span>
+        </label>
+        <label class="attendance-mode-choice">
+          <input type="radio" name="attendance-mode" value="online">
+          <span class="attendance-mode-icon" aria-hidden="true">💻</span>
+          <span><strong>Online</strong><small>Joining virtually</small></span>
+        </label>
+      </div>
+      <p class="attendance-mode-hint">This helps organizers place you in the right room.</p>
+      <div class="err" id="err-attendance-mode">Choose whether you are joining in person or online.</div>
+    </fieldset>
 
     <button class="btn btn-primary" id="btn-welcome-next">Create my event pass →</button>
     <p class="top-note" id="welcome-note">Your number is saved with the event record so you can restore this pass later. We will not send you a message, and booths will not ask for your number again.</p>
@@ -73,15 +91,15 @@
       </div>
     </div>
     <div class="perf"></div>
-    <p class="lede" style="margin-top:0;">Show your ticket to your Guardian Angel. They will choose the color of the physical wristband they hand you.</p>
+    <p class="lede" id="wristband-instructions" style="margin-top:0;">Select the wristband color you were given.</p>
     <fieldset class="wristband-fieldset">
-      <legend>Guardian Angel: wristband color</legend>
+      <legend id="wristband-legend">Select the wristband color you were given</legend>
       <div class="wristband-picker" id="wristband-picker"></div>
-      <div class="err" id="err-wristband">Choose the color printed on this guest's wristband.</div>
+      <div class="err" id="err-wristband">Choose the color on your wristband.</div>
     </fieldset>
-    <div class="field" style="display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px;">
+    <div class="field" id="wristband-confirmation-row" style="display:flex; align-items:flex-start; gap:10px; margin:4px 0 16px;">
       <input type="checkbox" id="in-wristband" style="width:18px; height:18px; margin-top:2px; accent-color:var(--coral); flex-shrink:0;">
-      <label for="in-wristband" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">Guardian Angel: I've handed over the wristband for this guest</label>
+      <label for="in-wristband" id="wristband-confirmation-label" style="font-size:13.5px; color:var(--ink-soft); font-weight:600; cursor:pointer;">I selected the color on my wristband</label>
     </div>
     <button class="btn btn-primary" id="btn-enter-gym" disabled>Next →</button>
     <p class="top-note">Scan the attendee QR again or bookmark this page if you need to return. Use the same name and number to reopen your pass.</p>
@@ -109,22 +127,31 @@ const phase1DemoClockReady = phase1DemoBackend && typeof EventSchedule.startDemo
 function renderPhase1EventNotice() {
   const notice = document.getElementById("phase1-event-notice");
   const schedule = EventSchedule.current();
-  if (!["waiting", "ended"].includes(schedule.phase)) {
+  if (!["message", "extra", "connections"].includes(schedule.phase)) {
     notice.style.display = "none";
     return;
   }
-  const messageLive = schedule.phase === "ended";
   const status = document.getElementById("phase1-event-notice-status");
   notice.style.display = "flex";
-  document.getElementById("phase1-event-notice-icon").textContent = messageLive ? "📣" : "⏳";
-  status.className = `status-pill ${messageLive ? "live" : "waiting"}`;
-  status.textContent = messageLive ? "Message time" : "Booths finished";
-  document.getElementById("phase1-event-notice-title").textContent = messageLive
-    ? "It's time for the main message."
-    : "The main message starts at 4:00 PM.";
-  document.getElementById("phase1-event-notice-copy").textContent = messageLive
-    ? "Please get seated for the message. If you still need help with your event pass, see an organizer."
-    : `${EventSchedule.formatCountdown(schedule.remainingMs)} remaining. If you need help with your event pass, see an organizer.`;
+  if (schedule.phase === "message") {
+    document.getElementById("phase1-event-notice-icon").textContent = "📣";
+    status.className = "status-pill live";
+    status.textContent = "Message in progress";
+    document.getElementById("phase1-event-notice-title").textContent = "The message is being delivered.";
+    document.getElementById("phase1-event-notice-copy").textContent = `I hope you get blessed today. The optional extra-booth choice appears in ${EventSchedule.formatCountdown(schedule.remainingMs)}.`;
+  } else if (schedule.phase === "extra") {
+    document.getElementById("phase1-event-notice-icon").textContent = "✨";
+    status.className = "status-pill live";
+    status.textContent = "Extra booth open";
+    document.getElementById("phase1-event-notice-title").textContent = "Want to explore one more booth?";
+    document.getElementById("phase1-event-notice-copy").textContent = "Open your saved event pass to choose one unvisited booth or Connections before 5:10 PM.";
+  } else {
+    document.getElementById("phase1-event-notice-icon").textContent = "🤝";
+    status.className = "status-pill live";
+    status.textContent = "Connections open";
+    document.getElementById("phase1-event-notice-title").textContent = "Head to Connections.";
+    document.getElementById("phase1-event-notice-copy").textContent = "All booth rooms are closed. If you need help with your event pass, see an organizer.";
+  }
 }
 
 phase1DemoClockReady.then(renderPhase1EventNotice);
@@ -134,6 +161,7 @@ if (phase1Params.has("eventReset")) {
   document.getElementById("event-reset-note").style.display = "block";
 }
 if (returnLinkMode) {
+  document.getElementById("attendance-mode-fieldset").style.display = "none";
   document.getElementById("welcome-eyebrow").textContent = "Attendee return link";
   document.getElementById("welcome-title").innerHTML = "Welcome <em>back.</em>";
   document.getElementById("welcome-copy").textContent = "Enter the same name and mobile number you used at registration. We’ll reopen your raffle pass and take you to the right point in the event.";
@@ -156,6 +184,8 @@ function renderProgress(phaseIndex) {
 }
 renderProgress(0);
 
+let selectedAttendanceMode = "";
+let activeAttendanceMode = "in_person";
 let selectedWristbandColor = "";
 const registrationPhoneInput = document.getElementById("in-phone");
 Phone.bind(registrationPhoneInput);
@@ -173,8 +203,27 @@ wristbandPicker.innerHTML = WRISTBAND_COLORS.map((color) => `
 `).join("");
 
 function updateWristbandConfirmation() {
-  const handedOver = document.getElementById("in-wristband").checked;
-  document.getElementById("btn-enter-gym").disabled = !(handedOver && selectedWristbandColor);
+  const colorConfirmed = activeAttendanceMode === "online"
+    || document.getElementById("in-wristband").checked;
+  document.getElementById("btn-enter-gym").disabled = !(colorConfirmed && selectedWristbandColor);
+}
+
+function configureWristbandStep(attendanceMode) {
+  activeAttendanceMode = attendanceMode === "online" ? "online" : "in_person";
+  const online = activeAttendanceMode === "online";
+  document.getElementById("wristband-instructions").textContent = online
+    ? "Select a color. We’ll use it to assign your online room."
+    : "Select the wristband color you were given.";
+  document.getElementById("wristband-legend").textContent = online
+    ? "Select a color"
+    : "Select the wristband color you were given";
+  document.getElementById("err-wristband").textContent = online
+    ? "Choose a color for your online room."
+    : "Choose the color on your wristband.";
+  const confirmationRow = document.getElementById("wristband-confirmation-row");
+  confirmationRow.style.display = online ? "none" : "flex";
+  document.getElementById("in-wristband").checked = false;
+  updateWristbandConfirmation();
 }
 
 function showRegistration(attendeeIdentity) {
@@ -188,6 +237,7 @@ function showRegistration(attendeeIdentity) {
   document.getElementById("ticket-number").textContent = "#" + saved.raffleNumber;
   document.getElementById("phase1-attendee-name").textContent = saved.name;
   document.getElementById("phase1-attendee-raffle").textContent = `Raffle #${saved.raffleNumber}`;
+  configureWristbandStep(saved.attendanceMode);
   document.getElementById("s-welcome").style.display = "none";
   document.getElementById("s-pass").style.display = "block";
   AttendeeMenu.mount("phase1-attendee-menu", {
@@ -206,14 +256,25 @@ function saveAttendeeIdentity(result, submitted) {
     name: result.name || submitted.name,
     raffleNumber: String(result.raffleNumber),
     wristbandColor: result.wristbandColor || "",
+    attendanceMode: result.attendanceMode || submitted.attendanceMode || "in_person",
     wristbandConfirmedAt: result.wristbandConfirmedAt || null,
     boothArrivalPlan: result.boothArrivalPlan || null,
     phase3CompletedAt: result.phase3CompletedAt || null,
+    extraChoice: result.extraChoice || null,
+    extraChoiceSelectedAt: result.extraChoiceSelectedAt || null,
+    extraCompletedAt: result.extraCompletedAt || null,
     phone: submitted.phone,
     phoneLinked: true,
     email: "",
   });
 }
+
+document.querySelectorAll('input[name="attendance-mode"]').forEach((input) => {
+  input.addEventListener("change", (event) => {
+    selectedAttendanceMode = event.target.value;
+    document.getElementById("err-attendance-mode").style.display = "none";
+  });
+});
 
 wristbandPicker.querySelectorAll('input[name="wristband-color"]').forEach((input) => {
   input.addEventListener("change", (event) => {
@@ -227,12 +288,18 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
   const name = document.getElementById("in-name").value.trim();
   const phone = Phone.digits(registrationPhoneInput);
   const error = document.getElementById("err-registration");
+  const attendanceError = document.getElementById("err-attendance-mode");
   if (!name || !Phone.isValid(registrationPhoneInput)) {
     error.textContent = "Enter your name and a valid 10-digit mobile number.";
     error.style.display = "block";
     return;
   }
   error.style.display = "none";
+  if (!returnLinkMode && !selectedAttendanceMode) {
+    attendanceError.style.display = "block";
+    return;
+  }
+  attendanceError.style.display = "none";
 
   const button = document.getElementById("btn-welcome-next");
   button.disabled = true;
@@ -241,12 +308,13 @@ document.getElementById("btn-welcome-next").addEventListener("click", async () =
     const identity = Identity.get();
     const result = returnLinkMode
       ? await EventAPI.loginAttendee(name, phone, "phase1")
-      : await EventAPI.registerAttendee(identity.attendeeId, name, phone);
+      : await EventAPI.registerAttendee(identity.attendeeId, name, phone, selectedAttendanceMode);
     AttendeePortal.acceptDataReset(result.dataResetAt);
     const savedIdentity = saveAttendeeIdentity(result, {
       attendeeId: result.attendeeId || identity.attendeeId,
       name,
       phone,
+      attendanceMode: selectedAttendanceMode,
     });
     if (savedIdentity.wristbandColor) {
       window.location.href = EventSchedule.linkWithPreview(await resumeDestination(savedIdentity));
@@ -288,6 +356,7 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
     const confirmation = await EventAPI.confirmWristband(identity.attendeeId, selectedWristbandColor);
     Identity.set({
       wristbandColor: confirmation.wristbandColor || selectedWristbandColor,
+      attendanceMode: confirmation.attendanceMode || activeAttendanceMode,
       wristbandConfirmedAt: confirmation.wristbandConfirmedAt || new Date(EventSchedule.nowMs()).toISOString(),
       boothArrivalPlan: confirmation.boothArrivalPlan || null,
     });
@@ -302,15 +371,17 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
 });
 
 async function resumeDestination(saved) {
-  if (saved.phase3CompletedAt) return "../done/index.html";
   if (!saved.wristbandColor) return "index.html";
+  const schedule = EventSchedule.current();
+  if (["extra", "connections"].includes(schedule.phase)) return "../phase2-booths/hub.html";
+  if (saved.phase3CompletedAt) return "../done/index.html";
   try {
     const checkins = await EventAPI.myCheckins(saved.attendeeId);
     const completed = new Set(checkins.boothIds || []);
     const route = EventSchedule.route(saved.wristbandColor);
     const routeComplete = route.length === BOOTH_SESSIONS.length
       && route.every((boothId) => completed.has(boothId));
-    if (routeComplete || ["waiting", "ended"].includes(EventSchedule.current().phase)) return "../phase3-signup/index.html";
+    if (routeComplete || schedule.phase === "message") return "../phase3-signup/index.html";
   } catch (error) {
     console.warn("Couldn't resolve the last completed stage; reopening the saved booth route.", error);
   }

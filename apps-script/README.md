@@ -9,9 +9,11 @@ API_BASE_URL: "/api",
 ```
 
 The Node JSON database remains the source of truth. The Sheet is a live,
-best-effort mirror containing attendee names, phone numbers, raffle numbers,
-booth visits, Draw Heaven confirmations, and Phase 3 selections. Restrict its
-access and decide retention/deletion ownership before using real attendee data.
+best-effort mirror containing attendee names, phone numbers, In person/Online
+status, raffle numbers, selected colors, booth visits, optional extra-booth or
+Connections choices, Draw Heaven confirmations, and Phase 3 selections.
+Restrict its access and decide retention/deletion ownership before using real
+attendee data.
 
 ## Access required
 
@@ -121,8 +123,10 @@ should change from **Not connected** to **Ready** or **Up to date**. Choose
 - `Live_SongVotes`
 - `Live_ExportMeta`
 
-Register one throwaway attendee, assign a wristband, and select one Phase 3
-option. After the short debounce, confirm the corresponding rows update. Keep
+Register one throwaway attendee, choose In person or Online, assign a color,
+and select one Phase 3 option. To verify the extended flow, use simulated time
+at 4:50 and choose an unvisited extra booth or Connections. After the short
+debounce, confirm the corresponding rows update. Keep
 manual notes on separate tabs: each successful sync fully replaces values in
 the seven `Live_*` tabs.
 

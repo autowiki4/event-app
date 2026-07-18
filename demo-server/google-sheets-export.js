@@ -12,7 +12,8 @@ const MAX_RETRY_MS = 60000;
 
 const TAB_HEADERS = Object.freeze({
   Attendees: Object.freeze([
-    "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor",
+    "attendeeId", "aliasIds", "name", "phone", "raffleNumber", "wristbandColor", "attendanceMode",
+    "extraChoice", "extraChoiceSelectedAt", "extraCompletedAt",
     "registeredAt", "wristbandConfirmedAt", "phase3CompletedAt", "completedBoothIds",
     "completedBoothCount", "signupOptionIds",
   ]),
@@ -186,6 +187,10 @@ function buildExportSnapshot(rawDb, options = {}) {
       formattedExportPhone(attendee.phone),
       attendee.raffleNumber,
       attendee.wristbandColor,
+      attendee.attendanceMode === "online" ? "online" : "in_person",
+      attendee.extraChoice,
+      attendee.extraChoiceSelectedAt,
+      attendee.extraCompletedAt,
       attendee.registeredAt,
       attendee.wristbandConfirmedAt,
       attendee.phase3CompletedAt,
@@ -273,7 +278,7 @@ function buildExportSnapshot(rawDb, options = {}) {
     SongVotes: songRows.length,
   };
   const exportMetaRows = [
-    ["schemaVersion", 1],
+    ["schemaVersion", 3],
     ["generatedAt", generatedAt],
     ["dataResetAt", db.dataResetAt || "initial"],
     ...Object.entries(rowCounts).map(([name, count]) => [`${name}.rowCount`, count]),

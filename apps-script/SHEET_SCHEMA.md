@@ -6,8 +6,8 @@ current service-account setup, see `README.md` in this folder. You do not need
 to create any `Live_*` tab by hand.
 
 ## Attendees
-| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor | phase3CompletedAt |
-|---|---|---|---|---|---|---|---|---|
+| attendeeId | aliasIds | name | phone | raffleNumber | wristbandConfirmedAt | registeredAt | wristbandColor | phase3CompletedAt | attendanceMode | extraChoice | extraChoiceSelectedAt | extraCompletedAt |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 - `attendeeId`: UUID generated in the browser at Phase 1 (or by a kiosk if someone skips Phase 1).
 - `aliasIds`: JSON array of older device/attendee IDs retained when staff
@@ -22,6 +22,12 @@ to create any `Live_*` tab by hand.
   It is written at the same time staff confirm the wristband and determines
   the attendee's two-booth route. Older rows are left intact and receive an
   empty value until staff reconfirm a color.
+- `attendanceMode`: `in_person` or `online`. New registrations save the
+  attendee's choice. Older rows with an empty value are treated as
+  `in_person` for backward compatibility.
+- `extraChoice`: the attendee's one-time 4:50 PM choice: an unvisited booth ID
+  or `connections`. The two timestamp fields record when that choice was made
+  and, for a booth choice, when the optional 20-minute visit was completed.
 - `phase3CompletedAt`: the first time the attendee clicks either Phase 3 finish
   action. It is recorded even when they choose no options and is not changed by
   later edits to their selections.
@@ -116,17 +122,22 @@ cannot collide with the tabs used when Apps Script itself is the app backend:
 
 ### Live_Attendees
 
-| attendeeId | aliasIds | name | phone | raffleNumber | wristbandColor | registeredAt | wristbandConfirmedAt | phase3CompletedAt | completedBoothIds | completedBoothCount | signupOptionIds |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+| attendeeId | aliasIds | name | phone | raffleNumber | wristbandColor | attendanceMode | extraChoice | extraChoiceSelectedAt | extraCompletedAt | registeredAt | wristbandConfirmedAt | phase3CompletedAt | completedBoothIds | completedBoothCount | signupOptionIds |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 
 The Node server creates an attendee immediately from the Phase 1 name and
-phone form. The collected phone is included in `Live_Attendees` and joined
+phone form. `attendanceMode` records `in_person` or `online`; legacy records
+without the field export as `in_person`. The collected phone is included in `Live_Attendees` and joined
 into the attendee's operational result and sign-up rows. The backend database
 and attendee login continue to use digits-only phone values. For staff
 readability, the service-account export displays ten-digit US numbers as
 `(615) 555-0101` and legacy eleven-digit values beginning with `1` as
 `+1 (615) 555-0101`. This display formatting is limited to the phone columns
 in `Live_Attendees`, `Live_BoothResults`, and `Live_SignUps`.
+
+The `extraChoice*` columns make the 4:50 PM decision visible in the live
+mirror. Choosing Connections leaves `extraCompletedAt` blank; an optional
+booth visit fills it when the attendee finishes that booth.
 
 ### Live_BoothResults
 

@@ -6,14 +6,16 @@
  */
 function initHeavenStaff() {
   document.body.classList.add("has-booth-leader-dock");
-  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
+  const SESSION_COUNT = typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+    ? ALL_BOOTH_SESSIONS.length
+    : 3;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete"]);
   const CONFIRMATIONS = ["drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done"];
   const FALLBACK_BANDS = [
     { id: "blue", label: "Blue" },
     { id: "red", label: "Red" },
-    { id: "green", label: "Green" },
+    { id: "", label: "Selected attendees" },
   ];
 
   let dashboard = null;
@@ -100,17 +102,27 @@ function initHeavenStaff() {
   }
 
   function sessionSchedule(sessionNumber = selectedSessionNumber) {
-    return typeof BOOTH_SESSIONS !== "undefined" && Array.isArray(BOOTH_SESSIONS)
-      ? BOOTH_SESSIONS[sessionNumber - 1] || null
+    return typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+      ? ALL_BOOTH_SESSIONS[sessionNumber - 1] || null
       : null;
   }
 
   function fallbackBand(sessionNumber = selectedSessionNumber) {
+    if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
       const group = EventSchedule.groupForBooth("heaven", sessionNumber - 1);
       if (group) return group;
     }
-    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Assigned" };
+    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Selected attendees" };
+  }
+
+  function sessionTitle(sessionNumber) {
+    return sessionNumber === 3 ? "Extra booth" : `Session ${sessionNumber}`;
+  }
+
+  function audienceLabel(session) {
+    if (session.sessionNumber === 3) return "Selected attendees · Extra booth";
+    return `${session.assignedColor.label || "Assigned"} wristbands · Session ${session.sessionNumber}`;
   }
 
   function normalizeRun(value, fallbackRunNumber = 1) {
@@ -245,7 +257,9 @@ function initHeavenStaff() {
       const time = session ? session.sessionLabel : (sessionSchedule(sessionNumber) || {}).label || "";
       const run = session ? `Run ${session.state.runNumber}` : "Loading";
       const phase = session ? phaseLabel(session.state.phase) : "";
-      tab.querySelector("b").textContent = `Session ${sessionNumber} · ${band}`;
+      tab.querySelector("b").textContent = sessionNumber === 3
+        ? "Extra booth · Selected attendees"
+        : `Session ${sessionNumber} · ${band}`;
       tab.querySelector("small").textContent = [time, run, phase].filter(Boolean).join(" · ");
     });
     document.getElementById("heaven-session-panel").setAttribute("aria-labelledby", `heaven-tab-${selectedSessionNumber}`);
@@ -467,29 +481,38 @@ function initHeavenStaff() {
       return;
     }
     const current = EventSchedule.current();
-    const selectedIndex = selectedSessionNumber - 1;
     let timerValue = session.sessionLabel;
     let timerLabel = "Scheduled time";
     let noteText = "";
-    if (current.phase === "active" && current.sessionIndex === selectedIndex) {
+    const boothSessionActive = current.phase === "active" || current.phase === "extra";
+    const currentSessionNumber = current.session ? integer(current.session.number) : 0;
+    if (boothSessionActive && currentSessionNumber === selectedSessionNumber) {
       timerValue = EventSchedule.formatCountdown(current.remainingMs);
       timerLabel = "Remaining now";
     } else if (current.phase === "before") {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Starts at";
       noteText = "The attendee experience is still in the waiting lobby. You may prepare this run, but only this session's assigned group can enter during its timed rotation.";
-    } else if (current.phase === "active" && selectedIndex < current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber < currentSessionNumber) {
       timerValue = "Closed";
       timerLabel = "Rotation passed";
       noteText = "You are reviewing an earlier session. Its active and archived run records remain saved and separate.";
-    } else if (current.phase === "active" && selectedIndex > current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber > currentSessionNumber) {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
-      noteText = `Session ${current.session.number} is active now. Session ${selectedSessionNumber} attendees cannot enter until their rotation.`;
-    } else if (current.phase === "waiting" || current.phase === "ended") {
+      noteText = `${sessionTitle(currentSessionNumber)} is active now. ${sessionTitle(selectedSessionNumber)} attendees cannot enter until its timed window.`;
+    } else if (current.phase === "message") {
+      timerValue = selectedSessionNumber === 3
+        ? EventSchedule.formattedTime(schedule.startsAt)
+        : "Closed";
+      timerLabel = selectedSessionNumber === 3 ? "Upcoming" : "Rotation passed";
+      noteText = selectedSessionNumber === 3
+        ? "The main message is in progress. Attendees may enter this extra booth after selecting it at 4:50 PM."
+        : "The main message is in progress. This run and its history remain saved for review.";
+    } else if (current.phase === "connections" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
-      noteText = "All booth rotations have ended. Draw Heaven run history remains available until the overall organizer clears event data.";
+      noteText = "All booth sessions have ended. Draw Heaven run history remains available until the overall organizer clears event data.";
     }
     timer.innerHTML = `${escapeHtml(timerValue)}<small>${escapeHtml(timerLabel)}</small>`;
     note.textContent = noteText;
@@ -511,7 +534,7 @@ function initHeavenStaff() {
     phasePill.textContent = phaseLabel(phase);
     phasePill.className = `heaven-phase-pill ${phase}`;
     const band = document.getElementById("heaven-assigned-band");
-    band.innerHTML = `<span class="heaven-band-dot" aria-hidden="true"></span>${escapeHtml(session.assignedColor.label)} wristbands · Session ${session.sessionNumber}`;
+    band.innerHTML = `<span class="heaven-band-dot" aria-hidden="true"></span>${escapeHtml(audienceLabel(session))}`;
     band.style.setProperty("--band-color", bandHex(session.assignedColor.id));
     document.getElementById("heaven-session-time").textContent = session.sessionLabel;
     document.getElementById("heaven-assigned-count").textContent = String(session.assignedCount);
@@ -565,7 +588,7 @@ function initHeavenStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!options.silent) setStatus("Refreshing both Draw Heaven sessions…");
+    if (!options.silent) setStatus("Refreshing all Draw Heaven sessions…");
     try {
       const data = await EventAPI.heavenDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -673,7 +696,7 @@ function initHeavenStaff() {
       ? ""
       : "\n\nThis run is not finished, so continue only if you intentionally want to close it early.";
     const approved = window.confirm(
-      `Archive Draw Heaven Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nAll confirmations and attendee progress stay visible in the previous run. The other session will not change.${incompleteWarning}`
+      `Archive Draw Heaven ${sessionTitle(session.sessionNumber)}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nAll confirmations and attendee progress stay visible in the previous run. The other sessions will not change.${incompleteWarning}`
     );
     if (!approved) return;
     controlBusy = true;

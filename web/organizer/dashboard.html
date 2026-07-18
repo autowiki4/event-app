@@ -26,17 +26,19 @@
   .demo-time-field input:focus{ outline:3px solid rgba(111,75,216,.16); border-color:#6f4bd8; }
   .demo-timeline-range{ width:100%; margin:7px 0 5px; accent-color:#6f4bd8; cursor:pointer; }
   .demo-timeline-range:disabled{ cursor:wait; opacity:.55; }
-  .demo-timeline-sessions{ display:grid; grid-template-columns:2fr 2fr 1fr; overflow:hidden; margin-top:5px; border-radius:8px; }
+  .demo-timeline-sessions{ display:grid; grid-template-columns:4fr 4fr 7fr 4fr; overflow:hidden; margin-top:5px; border-radius:8px; }
   .demo-timeline-session{ padding:7px 5px; border-right:2px solid #fff; background:#eee9fb; color:#563ba7; font-size:9px; font-weight:900; text-align:center; }
   .demo-timeline-session:nth-child(2){ background:#e8f2ff; color:#315f91; }
-  .demo-timeline-session:nth-child(3){ border-right:0; background:#e5f4e9; color:#287248; }
+  .demo-timeline-session:nth-child(3){ background:#fff2ce; color:#8a6212; }
+  .demo-timeline-session:nth-child(4){ border-right:0; background:#e5f4e9; color:#287248; }
   .demo-timeline-marks{ position:relative; height:13px; margin-top:5px; color:var(--ink-soft); font-size:9px; font-weight:800; }
   .demo-timeline-marks span{ position:absolute; top:0; transform:translateX(-50%); }
   .demo-timeline-marks span:nth-child(1){ left:0; transform:none; }
-  .demo-timeline-marks span:nth-child(2){ left:40%; }
-  .demo-timeline-marks span:nth-child(3){ left:80%; }
-  .demo-timeline-marks span:nth-child(4){ right:0; transform:none; }
-  .demo-boundary-buttons{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:12px; }
+  .demo-timeline-marks span:nth-child(2){ left:21.0526%; }
+  .demo-timeline-marks span:nth-child(3){ left:42.1053%; }
+  .demo-timeline-marks span:nth-child(4){ left:78.9474%; }
+  .demo-timeline-marks span:nth-child(5){ right:0; transform:none; }
+  .demo-boundary-buttons{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin-top:12px; }
   .demo-boundary-buttons button{ min-height:36px; padding:7px 5px; border:1px solid rgba(78,72,112,.16); border-radius:9px; background:#fff; color:var(--ink); font:800 9px/1.25 inherit; cursor:pointer; }
   .demo-boundary-buttons button:hover,.demo-boundary-buttons button[aria-pressed="true"]{ border-color:#6f4bd8; color:#563ba7; background:#f2edff; }
   .demo-timeline-actions{ display:grid; grid-template-columns:minmax(0,1.35fr) repeat(2,minmax(0,1fr)); gap:8px; margin-top:12px; }
@@ -100,12 +102,15 @@
   .wristband-dot{ width:11px; height:11px; flex:0 0 auto; border-radius:50%; background:var(--wristband-color,#8b97b8); box-shadow:0 0 0 3px color-mix(in srgb,var(--wristband-color,#8b97b8) 18%,transparent); }
   .wristband-location{ display:block; margin-top:4px; color:var(--ink-soft); font-size:11px; line-height:1.4; }
   .wristband-location strong{ color:var(--ink); }
+  .wristband-mode-counts{ display:block; margin-top:4px; color:var(--ink-soft); font-size:10px; font-weight:700; line-height:1.4; }
   .wristband-roster{ border-top:1px solid rgba(78,72,112,.1); }
   .wristband-person{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:11px 14px; border-bottom:1px solid rgba(78,72,112,.08); }
   .wristband-person:last-child{ border-bottom:0; }
   .wristband-person strong{ display:block; color:var(--ink); font-size:12px; }
   .wristband-person span{ display:block; margin-top:3px; color:var(--ink-soft); font-size:10px; }
   .wristband-person span.wristband-catchup{ color:#8b5b13; font-weight:750; }
+  .wristband-person span.attendance-mode-label{ color:#29624f; font-weight:800; }
+  .wristband-person span.attendance-mode-label.online{ color:#66509a; }
   .wristband-progress{ text-align:right; }
   .wristband-progress b{ display:block; color:var(--ink); font-size:11px; }
   .wristband-progress em{ display:inline-block; margin-top:4px; padding:4px 7px; border-radius:999px; background:#f0edf7; color:var(--ink-soft); font-size:9px; font-style:normal; font-weight:800; }
@@ -158,28 +163,30 @@
         <div class="demo-timeline-selection">
           <div>
             <span>Current / selected event point</span>
-            <output id="demo-clock-selected" for="demo-clock-range demo-clock-time-input">3:10:00 PM CDT</output>
+            <output id="demo-clock-selected" for="demo-clock-range demo-clock-time-input">3:35:00 PM CDT</output>
             <p id="demo-clock-selected-context">Session 1 starts</p>
           </div>
           <div class="demo-time-field">
             <label for="demo-clock-time-input">Exact event time</label>
-            <input id="demo-clock-time-input" type="time" min="15:10:00" max="16:00:00" step="1" value="15:10:00">
+            <input id="demo-clock-time-input" type="time" min="15:35:00" max="17:10:00" step="1" value="15:35:00">
           </div>
         </div>
-        <input class="demo-timeline-range" id="demo-clock-range" type="range" min="0" max="3000" step="1" value="0" aria-label="Choose a simulated point from 3:10 PM to 4:00 PM">
+        <input class="demo-timeline-range" id="demo-clock-range" type="range" min="0" max="5700" step="1" value="0" aria-label="Choose a simulated point from 3:35 PM to 5:10 PM">
         <div class="demo-timeline-sessions" aria-hidden="true">
           <div class="demo-timeline-session">Session 1 · 20 min</div>
           <div class="demo-timeline-session">Session 2 · 20 min</div>
-          <div class="demo-timeline-session">Wait for message · 10 min</div>
+          <div class="demo-timeline-session">Message · 35 min</div>
+          <div class="demo-timeline-session">Extra booth · 20 min</div>
         </div>
         <div class="demo-timeline-marks" aria-hidden="true">
-          <span>3:10</span><span>3:30</span><span>3:50</span><span>4:00</span>
+          <span>3:35</span><span>3:55</span><span>4:15</span><span>4:50</span><span>5:10</span>
         </div>
         <div class="demo-boundary-buttons" role="group" aria-label="Choose a session boundary">
-          <button type="button" data-timeline-offset="0">3:10 · Session 1</button>
-          <button type="button" data-timeline-offset="1200">3:30 · Session 2</button>
-          <button type="button" data-timeline-offset="2400">3:50 · Booths end</button>
-          <button type="button" data-timeline-offset="3000">4:00 · Message starts</button>
+          <button type="button" data-timeline-offset="0">3:35 · Session 1</button>
+          <button type="button" data-timeline-offset="1200">3:55 · Session 2</button>
+          <button type="button" data-timeline-offset="2400">4:15 · Message</button>
+          <button type="button" data-timeline-offset="4500">4:50 · Extra booth</button>
+          <button type="button" data-timeline-offset="5700">5:10 · Connections</button>
         </div>
         <div class="demo-timeline-actions" role="group" aria-label="Choose the shared event clock mode">
           <button class="btn btn-ghost" type="button" id="btn-apply-demo-time" aria-pressed="false">Apply simulated time</button>
@@ -222,7 +229,7 @@
     <div class="capacity-grid" id="wristband-capacity-grid"></div>
     <p class="capacity-guidance" id="wristband-capacity-guidance"></p>
 
-    <div class="section-title">Where each wristband is now</div>
+    <div class="section-title">Where each color group is now</div>
     <section class="organizer-rotation-alert" id="organizer-rotation-alert" role="status" aria-live="polite" hidden>
       <span id="organizer-rotation-kicker"></span>
       <strong id="organizer-rotation-title"></strong>
@@ -278,7 +285,7 @@ let dashboardRefreshQueued = false;
 const planningAttendeeEstimate = 150;
 const planningPerColorGuide = Math.round(planningAttendeeEstimate / WRISTBAND_COLORS.length);
 const demoEventStartMs = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
-const demoEventEndMs = new Date(MAIN_MESSAGE_STARTS_AT).getTime();
+const demoEventEndMs = new Date(EVENT_ENDS_AT).getTime();
 const demoEventWindowSeconds = Math.round((demoEventEndMs - demoEventStartMs) / 1000);
 const eventTimeZone = "America/Chicago";
 
@@ -292,8 +299,12 @@ const demoClockLabels = {
   "session1-final15": "Session 1 · final 15s",
   session2: "Session 2 · midpoint",
   "session2-final15": "Session 2 · final 15s",
-  waiting: "Waiting for main message",
-  ended: "Main message time",
+  message: "Message · 4:15–4:50 PM",
+  "extra-booth": "Extra booth · midpoint",
+  "extra-final15": "Extra booth · final 15s",
+  connections: "Connections time",
+  waiting: "Message · compatibility mode",
+  ended: "Connections · compatibility mode",
 };
 
 function exportStatusPayload(source) {
@@ -463,17 +474,22 @@ function formatTimelineDuration(totalSeconds) {
 function timelinePointContext(offsetSeconds = demoTimelineOffsetSeconds) {
   const offset = clampTimelineOffset(offsetSeconds);
   const boothWindowSeconds = Math.round((EventSchedule.boothsEndAtMs() - demoEventStartMs) / 1000);
-  if (offset >= boothWindowSeconds) {
-    const remaining = Math.max(0, demoEventWindowSeconds - offset);
-    return remaining === 0
-      ? "Main message starts"
-      : `Booths ended · ${formatTimelineDuration(remaining)} until the main message`;
+  const messageEndSeconds = Math.round((EventSchedule.messageEndsAtMs() - demoEventStartMs) / 1000);
+  const extraEndSeconds = Math.round((EventSchedule.extraBoothEndsAtMs() - demoEventStartMs) / 1000);
+  if (offset < boothWindowSeconds) {
+    const sessionIndex = Math.min(BOOTH_SESSIONS.length - 1, Math.floor(offset / (20 * 60)));
+    const elapsed = offset - (sessionIndex * 20 * 60);
+    const remaining = (20 * 60) - elapsed;
+    if (elapsed === 0) return `Session ${sessionIndex + 1} starts`;
+    return `Session ${sessionIndex + 1} · ${formatTimelineDuration(remaining)} remaining`;
   }
-  const sessionIndex = Math.min(BOOTH_SESSIONS.length - 1, Math.floor(offset / (20 * 60)));
-  const elapsed = offset - (sessionIndex * 20 * 60);
-  const remaining = (20 * 60) - elapsed;
-  if (elapsed === 0) return `Session ${sessionIndex + 1} starts`;
-  return `Session ${sessionIndex + 1} · ${formatTimelineDuration(remaining)} remaining`;
+  if (offset < messageEndSeconds) {
+    return `Message in progress · ${formatTimelineDuration(messageEndSeconds - offset)} until extra-booth choices`;
+  }
+  if (offset < extraEndSeconds) {
+    return `Extra booth open · ${formatTimelineDuration(extraEndSeconds - offset)} remaining`;
+  }
+  return "Connections open · booth rooms closed";
 }
 
 function renderTimelineSelection() {
@@ -533,7 +549,9 @@ function renderOrganizerRotationAlert(snapshot) {
   }
   target.hidden = false;
   target.className = `organizer-rotation-alert ${notice.level}`;
-  document.getElementById("organizer-rotation-kicker").textContent = `Session ${snapshot.session.number} · all booth leaders`;
+  document.getElementById("organizer-rotation-kicker").textContent = snapshot.phase === "extra"
+    ? "Extra booth · all booth leaders"
+    : `Session ${snapshot.session.number} · all booth leaders`;
   document.getElementById("organizer-rotation-title").textContent = notice.title;
   document.getElementById("organizer-rotation-message").textContent = notice.message;
 }
@@ -541,9 +559,10 @@ function renderOrganizerRotationAlert(snapshot) {
 function demoClockPhaseLabel(snapshot) {
   if (!snapshot) return "Unavailable";
   if (snapshot.phase === "active" && snapshot.session) return `Session ${snapshot.session.number} active`;
+  if (snapshot.phase === "extra") return "Extra booth active · selected attendees";
   if (snapshot.phase === "before") return "Before booth sessions";
-  if (snapshot.phase === "waiting") return "Booths ended · waiting for 4:00 PM";
-  return "Main message time";
+  if (snapshot.phase === "message") return "Message in progress · booths locked";
+  return "Connections open · booths closed";
 }
 
 function renderDemoClock() {
@@ -681,8 +700,9 @@ function groupSignupsByOption(signups) {
 function wristbandEventContext(eventState) {
   if (!eventState || !eventState.phase) return "The current booth-session location is unavailable.";
   if (eventState.phase === "before") return "Waiting lobby is active. Wristband groups move when Session 1 starts.";
-  if (eventState.phase === "waiting") return "Both booth sessions have ended. Attendees can finish Phase 3 and wait for the 4:00 PM main message.";
-  if (eventState.phase === "ended") return "The main message is starting. Booth attendance and Phase 3 progress remain saved.";
+  if (eventState.phase === "message") return "The 4:15–4:50 PM message is in progress. Every booth is locked.";
+  if (eventState.phase === "extra") return "The optional extra booth is active. Each attendee's individually selected destination appears below.";
+  if (eventState.phase === "connections") return "Booths closed at 5:10 PM. Everyone is directed to Connections.";
   return `Session ${eventState.sessionNumber} is active · ${eventState.sessionLabel || "current session"}.`;
 }
 
@@ -690,11 +710,14 @@ function wristbandLocation(group, eventState) {
   if (!eventState || eventState.phase === "before") {
     return { title: "Waiting lobby", detail: "Opens when Session 1 starts" };
   }
-  if (eventState.phase === "waiting") {
-    return { title: "Booth sessions ended", detail: "Phase 3 · wait for 4:00 PM" };
+  if (eventState.phase === "message") {
+    return { title: "Main message", detail: "4:15–4:50 PM · booths locked" };
   }
-  if (eventState.phase === "ended") {
-    return { title: "Main message", detail: "Starting now" };
+  if (eventState.phase === "extra") {
+    return { title: "Individual choices", detail: "Extra booth or Connections" };
+  }
+  if (eventState.phase === "connections") {
+    return { title: "Connections", detail: "Booths closed at 5:10 PM" };
   }
   if (!group.currentBooth) return { title: "Route unavailable", detail: "Check the wristband schedule" };
   return {
@@ -713,6 +736,15 @@ function attendeeProgressStatus(attendee, eventState) {
       ? { label: "Current stop done", complete: true }
       : { label: "Current stop pending", complete: false };
   }
+  if (eventState.phase === "message") return { label: "At the message", complete: false };
+  if (eventState.phase === "extra") {
+    if (!attendee.extraChoice) return { label: "Choose extra stop", complete: false };
+    if (attendee.extraChoice === "connections") return { label: "Connections", complete: true };
+    return attendee.extraCompleted
+      ? { label: "Extra booth done", complete: true }
+      : { label: attendee.extraChoiceName || "Extra booth active", complete: false };
+  }
+  if (eventState.phase === "connections") return { label: "Connections", complete: true };
   if (attendee.phase3Completed) return { label: "Phase 3 done", complete: true };
   if (Array.isArray(attendee.catchUpBooths) && attendee.catchUpBooths.length) {
     return { label: "Catch-up needed", complete: false };
@@ -733,10 +765,17 @@ function renderWristbandGroups(data) {
     const group = groupsByColor.get(color.id) || { colorId: color.id, count: 0, attendees: [], currentBooth: null };
     const location = wristbandLocation(group, eventState);
     const attendees = Array.isArray(group.attendees) ? group.attendees : [];
+    const inPersonCount = Number.isFinite(Number(group.inPersonCount))
+      ? Number(group.inPersonCount)
+      : attendees.filter((attendee) => attendee.attendanceMode !== "online").length;
+    const onlineCount = Number.isFinite(Number(group.onlineCount))
+      ? Number(group.onlineCount)
+      : attendees.filter((attendee) => attendee.attendanceMode === "online").length;
     return `<details class="wristband-group" data-color-id="${esc(color.id)}" style="--wristband-color:${esc(color.hex)}"${openColors.has(color.id) ? " open" : ""}>
       <summary data-count="${attendees.length}">
         <div>
-          <span class="wristband-name"><i class="wristband-dot" aria-hidden="true"></i>${esc(color.label)} wristband · ${attendees.length}</span>
+          <span class="wristband-name"><i class="wristband-dot" aria-hidden="true"></i>${esc(color.label)} group · ${attendees.length}</span>
+          <span class="wristband-mode-counts">${inPersonCount} in person · ${onlineCount} online</span>
           <span class="wristband-location"><strong>${esc(location.title)}</strong> · ${esc(location.detail)}</span>
         </div>
       </summary>
@@ -745,8 +784,10 @@ function renderWristbandGroups(data) {
           const status = attendeeProgressStatus(attendee, eventState);
           const catchUpBooths = Array.isArray(attendee.catchUpBooths) ? attendee.catchUpBooths : [];
           const catchUpText = catchUpBooths.map((booth) => booth.boothName).filter(Boolean).join(", ");
+          const online = attendee.attendanceMode === "online";
+          const attendanceLabel = online ? "💻 Online" : "📍 In person";
           return `<div class="wristband-person">
-            <div><strong>${esc(attendee.name || "Guest")}</strong><span>Raffle #${esc(attendee.raffleNumber || "----")}${attendee.lateArrival ? " · Late arrival" : ""}</span>${catchUpText ? `<span class="wristband-catchup">Catch-up: ${esc(catchUpText)}</span>` : ""}</div>
+            <div><strong>${esc(attendee.name || "Guest")}</strong><span>Raffle #${esc(attendee.raffleNumber || "----")}${attendee.lateArrival ? " · Late arrival" : ""}</span><span class="attendance-mode-label${online ? " online" : ""}">${attendanceLabel}</span>${attendee.extraChoiceName ? `<span>Extra choice: ${esc(attendee.extraChoiceName)}</span>` : ""}${catchUpText ? `<span class="wristband-catchup">Catch-up: ${esc(catchUpText)}</span>` : ""}</div>
             <div class="wristband-progress"><b>${Number(attendee.completedStops) || 0}/${Number(attendee.totalStops) || BOOTH_SESSIONS.length} booths visited</b><em class="${status.complete ? "complete" : ""}">${esc(status.label)}</em></div>
           </div>`;
         }).join("") : `<div class="wristband-empty">No attendees assigned to this color yet.</div>`}
@@ -801,7 +842,7 @@ async function refreshOnce() {
 
   document.getElementById("totals-grid").innerHTML = `
     <div class="dash-card"><div class="num">${data.totals.registered}</div><div class="lbl">Registered</div></div>
-    <div class="dash-card"><div class="num">${data.totals.wristbandsConfirmed}</div><div class="lbl">Wristbands confirmed</div></div>
+    <div class="dash-card"><div class="num">${data.totals.wristbandsConfirmed}</div><div class="lbl">Colors assigned</div></div>
     <div class="dash-card"><div class="num">${data.totals.raffleEntries}</div><div class="lbl">Raffle entries</div></div>
   `;
 
@@ -980,7 +1021,7 @@ OrganizerAuth.init({
   onUnlocked: async () => {
     await startSharedDemoClock();
     renderDemoClock();
-    if (demoBackend) document.getElementById("demo-clock-state").textContent = "Choose any second from 3:10 to 4:00 PM, or return every screen to the live CDT clock.";
+    if (demoBackend) document.getElementById("demo-clock-state").textContent = "Choose any second from 3:35 to 5:10 PM, or return every screen to the live Nashville CDT clock.";
     if (demoBackend && !demoClockReadoutTimer) demoClockReadoutTimer = setInterval(renderDemoClock, 1000);
     await refresh();
     if (OrganizerAuth.key() && !refreshTimer) refreshTimer = setInterval(refresh, 4000);

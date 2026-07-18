@@ -22,7 +22,7 @@
     .art-leader-intro span{ margin-top:3px; color:#6d6d69; font-size:10.5px; line-height:1.45; }
     .art-sync-note{ margin:12px 0; padding:11px 13px; border-radius:12px; background:#eff2ff; color:#4d5fa9; font-size:10.5px; line-height:1.45; }
     .art-sync-note.error{ background:#fff0ea; color:#8f382f; }
-    .art-session-tabs{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:15px; }
+    .art-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:15px; }
     .art-session-tab{
       appearance:none; min-width:0; min-height:63px; padding:11px; border:1.5px solid rgba(77,95,169,.16); border-radius:15px;
       background:#fff; color:#777784; cursor:pointer; text-align:left; transition:border-color .15s,background .15s,transform .15s;
@@ -98,8 +98,9 @@
 
         <div class="section-title">Choose a session</div>
         <div class="art-session-tabs" id="art-session-tabs" role="tablist" aria-label="Art Therapy sessions">
-          <button type="button" class="art-session-tab" id="art-tab-1" role="tab" aria-controls="art-session-panel" aria-selected="true" data-art-session="1"><b>Session 1 · Orange</b><small>3:10–3:30 PM</small></button>
-          <button type="button" class="art-session-tab" id="art-tab-2" role="tab" aria-controls="art-session-panel" aria-selected="false" data-art-session="2"><b>Session 2 · Green</b><small>3:30–3:50 PM</small></button>
+          <button type="button" class="art-session-tab" id="art-tab-1" role="tab" aria-controls="art-session-panel" aria-selected="true" data-art-session="1"><b>Session 1 · Orange</b><small>3:35–3:55 PM</small></button>
+          <button type="button" class="art-session-tab" id="art-tab-2" role="tab" aria-controls="art-session-panel" aria-selected="false" data-art-session="2"><b>Session 2 · Green</b><small>3:55–4:15 PM</small></button>
+          <button type="button" class="art-session-tab" id="art-tab-3" role="tab" aria-controls="art-session-panel" aria-selected="false" data-art-session="3"><b>Extra booth · Selected attendees</b><small>4:50–5:10 PM</small></button>
         </div>
 
         <div class="art-layout" id="art-session-panel" role="tabpanel" aria-labelledby="art-tab-1">
@@ -109,7 +110,7 @@
               <span class="art-phase-pill welcome" id="art-phase-pill">Welcome lobby</span>
             </div>
             <div class="art-schedule-card">
-              <div><strong id="art-assigned-band"><span class="art-band-dot orange" aria-hidden="true"></span>Orange wristbands · Session 1</strong><span id="art-session-time">3:10–3:30 PM</span></div>
+              <div><strong id="art-assigned-band"><span class="art-band-dot orange" aria-hidden="true"></span>Orange wristbands · Session 1</strong><span id="art-session-time">3:35–3:55 PM</span></div>
               <div class="art-session-timer" id="art-session-timer">--:--<small>Checking event clock</small></div>
             </div>
             <div class="art-stats">

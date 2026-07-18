@@ -101,11 +101,18 @@ const AttendeePortal = (() => {
       name: result.name,
       raffleNumber: String(result.raffleNumber),
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
+      attendanceMode: result.attendanceMode
+        || (sameAttendee ? previous.attendanceMode || "in_person" : "in_person"),
       wristbandConfirmedAt: result.wristbandConfirmedAt
         || (sameAttendee ? previous.wristbandConfirmedAt || null : null),
       boothArrivalPlan: result.boothArrivalPlan
         || (sameAttendee ? previous.boothArrivalPlan || null : null),
       phase3CompletedAt: result.phase3CompletedAt || (sameAttendee ? previous.phase3CompletedAt || null : null),
+      extraChoice: result.extraChoice || (sameAttendee ? previous.extraChoice || null : null),
+      extraChoiceSelectedAt: result.extraChoiceSelectedAt
+        || (sameAttendee ? previous.extraChoiceSelectedAt || null : null),
+      extraCompletedAt: result.extraCompletedAt
+        || (sameAttendee ? previous.extraCompletedAt || null : null),
       phone: savedPhone,
       phoneLinked: !!result.phoneLinked || savedPhone.length === 10,
       email: sameAttendee ? previous.email || "" : "",

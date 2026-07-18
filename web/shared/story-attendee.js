@@ -105,6 +105,7 @@ const StoryAttendee = (() => {
           : "waiting";
     return {
       boothId: BOOTH_ID,
+      sessionNumber: Math.max(0, integer(raw.sessionNumber, 0)),
       stepIndex: Math.max(0, Math.min(FINAL_STEP_INDEX, integer(raw.stepIndex))),
       status,
       version: Math.max(0, integer(raw.version)),
@@ -125,12 +126,19 @@ const StoryAttendee = (() => {
       : ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
         && new URLSearchParams(window.location.search).has("preview");
     const updatedMs = value.updatedAt ? new Date(value.updatedAt).getTime() : NaN;
+    const liveBoothPhase = snapshot && ["active", "extra"].includes(snapshot.phase);
+    const savedSessionNumber = integer(value.sessionNumber, 0);
+    const currentSessionNumber = snapshot && snapshot.session
+      ? integer(snapshot.session.number, 0)
+      : 0;
+    const wrongSession = liveBoothPhase
+      && savedSessionNumber > 0
+      && currentSessionNumber > 0
+      && savedSessionNumber !== currentSessionNumber;
     const stale = !isLocalPreview
-      && snapshot
-      && snapshot.phase === "active"
+      && liveBoothPhase
       && snapshot.session
-      && Number.isFinite(updatedMs)
-      && updatedMs < snapshot.session.startMs;
+      && (wrongSession || (Number.isFinite(updatedMs) && updatedMs < snapshot.session.startMs));
     let stepIndex = value.stepIndex;
     let status = value.status;
     if (stale || status === "waiting") {
@@ -146,7 +154,7 @@ const StoryAttendee = (() => {
       stepIndex,
       status,
       stale,
-      sessionNumber: snapshot && snapshot.session ? snapshot.session.number : 0,
+      sessionNumber: currentSessionNumber,
     };
   }
 

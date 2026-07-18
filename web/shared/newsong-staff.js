@@ -6,7 +6,9 @@
  */
 function initNewSongStaff() {
   document.body.classList.add("has-booth-leader-dock");
-  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
+  const SESSION_COUNT = typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+    ? ALL_BOOTH_SESSIONS.length
+    : 3;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const SONGS = [
@@ -25,7 +27,7 @@ function initNewSongStaff() {
   const FALLBACK_BANDS = [
     { id: "green", label: "Green" },
     { id: "yellow", label: "Yellow" },
-    { id: "orange", label: "Orange" },
+    { id: "", label: "Selected attendees" },
   ];
 
   let dashboard = null;
@@ -160,17 +162,27 @@ function initNewSongStaff() {
   }
 
   function sessionSchedule(sessionNumber = selectedSessionNumber) {
-    return typeof BOOTH_SESSIONS !== "undefined" && Array.isArray(BOOTH_SESSIONS)
-      ? BOOTH_SESSIONS[sessionNumber - 1] || null
+    return typeof ALL_BOOTH_SESSIONS !== "undefined" && Array.isArray(ALL_BOOTH_SESSIONS)
+      ? ALL_BOOTH_SESSIONS[sessionNumber - 1] || null
       : null;
   }
 
   function fallbackBand(sessionNumber = selectedSessionNumber) {
+    if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
       const group = EventSchedule.groupForBooth("newsong", sessionNumber - 1);
       if (group) return group;
     }
-    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Assigned" };
+    return FALLBACK_BANDS[sessionNumber - 1] || { id: "", label: "Selected attendees" };
+  }
+
+  function sessionTitle(sessionNumber) {
+    return sessionNumber === 3 ? "Extra booth" : `Session ${sessionNumber}`;
+  }
+
+  function audienceLabel(session) {
+    if (session.sessionNumber === 3) return "Selected attendees · Extra booth";
+    return `${session.assignedColor.label || "Assigned"} wristbands · Session ${session.sessionNumber}`;
   }
 
   function normalizeSession(value, sessionNumber) {
@@ -345,11 +357,11 @@ function initNewSongStaff() {
       <div class="booth-leader-dock">
         <div class="booth-leader-dock-copy">
           <span>Live rotation changed</span>
-          <strong>Session ${sessionNumber} is active now</strong>
+          <strong>${escapeHtml(sessionTitle(sessionNumber))} is active now</strong>
           <small>Switch sessions and review the next step before publishing anything to attendee phones.</small>
         </div>
         <div class="booth-leader-dock-actions">
-          <button type="button" class="btn btn-primary" data-newsong-switch-session="${sessionNumber}" aria-label="Switch to live Session ${sessionNumber}">Switch to Session ${sessionNumber} →</button>
+          <button type="button" class="btn btn-primary" data-newsong-switch-session="${sessionNumber}" aria-label="Switch to live ${escapeHtml(sessionTitle(sessionNumber))}">Switch to ${escapeHtml(sessionTitle(sessionNumber))} →</button>
         </div>
       </div>
     `;
@@ -362,7 +374,7 @@ function initNewSongStaff() {
       actions.querySelector("[data-newsong-switch-session]").addEventListener("click", (event) => {
         const sessionNumber = integer(event.currentTarget.dataset.newsongSwitchSession);
         selectSession(sessionNumber, false);
-        toast(`Now showing live Session ${sessionNumber}. Review the next step, then tap Next to publish it.`);
+        toast(`Now showing live ${sessionTitle(sessionNumber)}. Review the next step, then tap Next to publish it.`);
       });
       return;
     }
@@ -494,13 +506,13 @@ function initNewSongStaff() {
       actions.innerHTML = "";
       return;
     }
-    document.getElementById("newsong-control-title").textContent = `Session ${session.sessionNumber} · Run ${session.state.runNumber}`;
+    document.getElementById("newsong-control-title").textContent = `${sessionTitle(session.sessionNumber)} · Run ${session.state.runNumber}`;
     document.getElementById("newsong-run-label").textContent = `Active run · ${phaseLabel(session.state.phase)}`;
     const phasePill = document.getElementById("newsong-phase-pill");
     phasePill.textContent = phaseLabel(session.state.phase);
     phasePill.className = `newsong-phase-pill ${session.state.phase}`;
     const band = document.getElementById("newsong-assigned-band");
-    band.innerHTML = `<span class="newsong-band-dot" aria-hidden="true"></span>${escapeHtml(session.assignedColor.label)} wristbands · Session ${session.sessionNumber}`;
+    band.innerHTML = `<span class="newsong-band-dot" aria-hidden="true"></span>${escapeHtml(audienceLabel(session))}`;
     band.style.setProperty("--band-color", bandHex(session.assignedColor.id));
     document.getElementById("newsong-session-time").textContent = session.sessionLabel;
     renderStats(session);
@@ -527,29 +539,38 @@ function initNewSongStaff() {
       return;
     }
     const current = EventSchedule.current();
-    const selectedIndex = selectedSessionNumber - 1;
     let timerValue = session.sessionLabel;
     let timerLabel = "Scheduled time";
     let noteText = "";
-    if (current.phase === "active" && current.sessionIndex === selectedIndex) {
+    const boothSessionActive = current.phase === "active" || current.phase === "extra";
+    const currentSessionNumber = current.session ? integer(current.session.number) : 0;
+    if (boothSessionActive && currentSessionNumber === selectedSessionNumber) {
       timerValue = EventSchedule.formatCountdown(current.remainingMs);
       timerLabel = "Remaining now";
     } else if (current.phase === "before") {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Starts at";
       noteText = `The event is in the waiting lobby. Session ${selectedSessionNumber} controls are saved, but attendees cannot enter before their rotation.`;
-    } else if (current.phase === "active" && selectedIndex < current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber < currentSessionNumber) {
       timerValue = "Closed";
       timerLabel = "Rotation passed";
       noteText = "You are reviewing an earlier rotation. Its active and archived New Song runs stay separate.";
-    } else if (current.phase === "active" && selectedIndex > current.sessionIndex) {
+    } else if (boothSessionActive && selectedSessionNumber > currentSessionNumber) {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
-      noteText = `Session ${current.session.number} is active now. You are preparing Session ${selectedSessionNumber}.`;
-    } else if (current.phase === "waiting" || current.phase === "ended") {
+      noteText = `${sessionTitle(currentSessionNumber)} is active now. You are preparing ${sessionTitle(selectedSessionNumber)}.`;
+    } else if (current.phase === "message") {
+      timerValue = selectedSessionNumber === 3
+        ? EventSchedule.formattedTime(schedule.startsAt)
+        : "Closed";
+      timerLabel = selectedSessionNumber === 3 ? "Upcoming" : "Rotation passed";
+      noteText = selectedSessionNumber === 3
+        ? "The main message is in progress. Attendees may enter this extra booth after selecting it at 4:50 PM."
+        : "The main message is in progress. This result and its archived New Song runs stay saved.";
+    } else if (current.phase === "connections" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
-      noteText = "All booth rotations have ended. Results stay available until the overall organizer resets event data.";
+      noteText = "All booth sessions have ended. Results stay available until the overall organizer resets event data.";
     }
     timer.innerHTML = `${escapeHtml(timerValue)}<small>${escapeHtml(timerLabel)}</small>`;
     note.textContent = noteText;
@@ -606,7 +627,7 @@ function initNewSongStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!options.silent) setStatus("Refreshing both New Song sessions…");
+    if (!options.silent) setStatus("Refreshing all New Song sessions…");
     try {
       const data = await EventAPI.newSongDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -650,7 +671,7 @@ function initNewSongStaff() {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
-      toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
+      toast(`No attendee screen changed. ${sessionTitle(activeSessionNumber)} became live, so controls switched there; review the next step, then tap Next.`);
       return;
     }
     const session = sessionByNumber();
@@ -713,7 +734,7 @@ function initNewSongStaff() {
       ? ""
       : "\n\nThis run is not finished, so continue only if you intentionally want to close it early.";
     const approved = window.confirm(
-      `Archive New Song Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nIts votes, result, and attendee list will remain read-only in the archive. The other sessions will not change.${incompleteWarning}`
+      `Archive New Song ${sessionTitle(session.sessionNumber)}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nIts votes, result, and attendee list will remain read-only in the archive. The other sessions will not change.${incompleteWarning}`
     );
     if (!approved) return;
     controlBusy = true;

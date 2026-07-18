@@ -118,12 +118,26 @@ const WRISTBAND_ROUTES = Object.freeze({
   yellow: ["story", "newsong"],
 });
 
+// The wristband route remains two scheduled booth rotations. The optional
+// extra booth is deliberately separate so it never becomes a third automatic
+// wristband stop, while staff/activity APIs can still address it as Session 3.
 const BOOTH_SESSIONS = Object.freeze([
-  { id: "session-1", number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
-  { id: "session-2", number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
+  Object.freeze({ id: "session-1", number: 1, startsAt: "2026-07-18T15:35:00-05:00", endsAt: "2026-07-18T15:55:00-05:00", label: "3:35–3:55 PM" }),
+  Object.freeze({ id: "session-2", number: 2, startsAt: "2026-07-18T15:55:00-05:00", endsAt: "2026-07-18T16:15:00-05:00", label: "3:55–4:15 PM" }),
 ]);
+const EXTRA_BOOTH_SESSION = Object.freeze({
+  id: "session-3",
+  number: 3,
+  kind: "extra",
+  startsAt: "2026-07-18T16:50:00-05:00",
+  endsAt: "2026-07-18T17:10:00-05:00",
+  label: "4:50–5:10 PM",
+});
+const ALL_BOOTH_SESSIONS = Object.freeze([...BOOTH_SESSIONS, EXTRA_BOOTH_SESSION]);
 
-const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:00:00-05:00";
+const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:15:00-05:00";
+const MAIN_MESSAGE_ENDS_AT = "2026-07-18T16:50:00-05:00";
+const EVENT_ENDS_AT = "2026-07-18T17:10:00-05:00";
 
 function wristbandColorById(colorId) {
   return WRISTBAND_COLORS.find((color) => color.id === String(colorId || "").toLowerCase()) || null;
