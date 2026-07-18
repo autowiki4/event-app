@@ -1,6 +1,5 @@
 /* Ordered-screen behavior used by The Heaven Booth leader portal. Leaders
- * move attendee phones with Back/Next, can add a short announcement, and see
- * only this booth's check-ins. */
+ * move attendee phones with Back/Next and see only this booth's check-ins. */
 function initBoothStaff(boothId) {
   const booth = CONNECTOR_BOOTHS.find((item) => item.id === boothId);
   if (!booth) {
@@ -65,7 +64,6 @@ function initBoothStaff(boothId) {
       boothId: booth.id,
       status,
       stepIndex,
-      message: String(raw.message || "").slice(0, 140),
       updatedAt: raw.updatedAt || "",
       version: Number.isFinite(Number(raw.version)) ? Number(raw.version) : 0,
     };
@@ -110,16 +108,7 @@ function initBoothStaff(boothId) {
           `).join("")}
         </div>
 
-        <div class="field">
-          <label for="staff-message">Short announcement (optional)</label>
-          <textarea id="staff-message" rows="3" maxlength="140" placeholder="Example: Please bring your worksheet to the front table."></textarea>
-          <div class="hint"><span id="staff-message-count">0</span>/140 characters. This message appears on the attendee screen.</div>
-        </div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-reset">Restart at welcome</button>
-          <button type="button" class="btn btn-small btn-primary" id="btn-staff-save" style="flex:1;min-width:160px;">Update announcement</button>
-        </div>
+        <button type="button" class="btn btn-small btn-ghost" id="btn-staff-reset">Restart at welcome</button>
         <p id="staff-publish-state" role="status" style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:11px 0 0;">Loading published controls…</p>
       </div>
     `;
@@ -138,14 +127,7 @@ function initBoothStaff(boothId) {
     document.getElementById("btn-staff-previous").addEventListener("click", () => changeStep(-1, true));
     document.getElementById("btn-staff-next").addEventListener("click", () => changeStep(1, true));
     document.getElementById("btn-staff-reset").addEventListener("click", resetDraft);
-    document.getElementById("btn-staff-save").addEventListener("click", savePresentation);
-    document.getElementById("staff-message").addEventListener("input", (event) => {
-      draft.message = event.target.value.slice(0, 140);
-      document.getElementById("staff-message-count").textContent = String(draft.message.length);
-      markDirty();
-      syncControlUi();
-    });
-    syncControlUi(true);
+    syncControlUi();
   }
 
   function changeStep(delta, publishNow) {
@@ -168,9 +150,9 @@ function initBoothStaff(boothId) {
 
   function resetDraft() {
     if (saving || !window.confirm("Return attendee phones to the welcome screen and start this booth over?")) return;
-    draft = normalizePresentation({ status: "waiting", stepIndex: 0, message: "", version: published.version });
+    draft = normalizePresentation({ status: "waiting", stepIndex: 0, version: published.version });
     markDirty();
-    syncControlUi(true);
+    syncControlUi();
     savePresentation();
   }
 
@@ -180,7 +162,7 @@ function initBoothStaff(boothId) {
     if (state) state.textContent = "Change ready to send to attendee phones.";
   }
 
-  function syncControlUi(syncMessage) {
+  function syncControlUi() {
     document.querySelectorAll("[data-step-index]").forEach((button) => {
       const selected = Number(button.dataset.stepIndex) === draft.stepIndex;
       button.setAttribute("aria-checked", String(selected));
@@ -200,13 +182,9 @@ function initBoothStaff(boothId) {
     nextButton.style.opacity = nextButton.disabled ? ".45" : "1";
     document.getElementById("staff-step-position").textContent = `Screen ${draft.stepIndex + 1} of ${steps.length}`;
 
-    if (syncMessage) document.getElementById("staff-message").value = draft.message;
-    document.getElementById("staff-message").disabled = saving;
     const resetButton = document.getElementById("btn-staff-reset");
     resetButton.disabled = saving;
     resetButton.style.opacity = saving ? ".55" : "1";
-    document.getElementById("staff-message-count").textContent = String(draft.message.length);
-    document.getElementById("btn-staff-save").disabled = saving || !dirty;
   }
 
   function formatPublishedAt(value) {
@@ -218,8 +196,7 @@ function initBoothStaff(boothId) {
 
   function samePublishedScreen(left, right) {
     return left.status === right.status
-      && left.stepIndex === right.stepIndex
-      && left.message.trim() === right.message.trim();
+      && left.stepIndex === right.stepIndex;
   }
 
   async function recoverPresentationConflict(intended, authGeneration, organizerKey, state) {
@@ -233,7 +210,7 @@ function initBoothStaff(boothId) {
         draft = { ...latest };
         dirty = false;
         conflictRecoveryPending = false;
-        syncControlUi(true);
+        syncControlUi();
         state.textContent = "Another booth leader already showed this same screen. Attendee phones are current.";
         toast("Attendee phones are already on this screen.");
         return true;
@@ -246,7 +223,7 @@ function initBoothStaff(boothId) {
       };
       dirty = true;
       conflictRecoveryPending = true;
-      syncControlUi(true);
+      syncControlUi();
       state.textContent = "Another booth leader updated first. Your change is still selected—tap the fixed Apply my change button to send it now.";
       toast("Latest update loaded. Your change is ready to apply.");
       return true;
@@ -270,8 +247,6 @@ function initBoothStaff(boothId) {
     presentationEpoch += 1;
     const intended = { ...draft };
     syncControlUi();
-    const saveButton = document.getElementById("btn-staff-save");
-    saveButton.textContent = "Updating…";
     const state = document.getElementById("staff-publish-state");
     state.textContent = "Updating attendee phones…";
     try {
@@ -280,7 +255,6 @@ function initBoothStaff(boothId) {
         organizerKey,
         status: draft.status,
         stepIndex: draft.stepIndex,
-        message: draft.message.trim(),
         version: published.version,
       });
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
@@ -288,7 +262,7 @@ function initBoothStaff(boothId) {
       draft = { ...published };
       dirty = false;
       conflictRecoveryPending = false;
-      syncControlUi(true);
+      syncControlUi();
       state.textContent = `${formatPublishedAt(published.updatedAt)} Changes appear automatically.`;
       toast("Attendee phones updated.");
     } catch (error) {
@@ -303,7 +277,6 @@ function initBoothStaff(boothId) {
     } finally {
       if (OrganizerAuth.isCurrent(authGeneration)) {
         saving = false;
-        saveButton.textContent = conflictRecoveryPending ? "Apply my change" : "Update announcement";
         syncControlUi();
       }
     }
@@ -322,8 +295,7 @@ function initBoothStaff(boothId) {
     conflictRecoveryPending = false;
     published = normalizePresentation(null);
     draft = { ...published };
-    document.getElementById("btn-staff-save").textContent = "Update announcement";
-    syncControlUi(true);
+    syncControlUi();
     document.getElementById("staff-publish-state").textContent = "Unlock this booth to load published controls.";
   }
 
@@ -455,15 +427,14 @@ function initBoothStaff(boothId) {
           draft = normalizePresentation({
             status: "waiting",
             stepIndex: 0,
-            message: "",
             version: published.version,
           });
           dirty = true;
-          syncControlUi(true);
+          syncControlUi();
           document.getElementById("staff-publish-state").textContent = "A new session is ready. Attendee phones will wait on the welcome screen until you tap Next.";
         } else {
           draft = { ...published };
-          syncControlUi(true);
+          syncControlUi();
           document.getElementById("staff-publish-state").textContent = `${formatPublishedAt(published.updatedAt)} Changes appear automatically.`;
         }
       }

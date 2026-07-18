@@ -242,9 +242,9 @@ overall organizer dashboard plus one portal for each of the five booths. The
 older `web/phase2-staff/index.html` URL redirects there so saved links and
 previously printed codes still work. After choosing and unlocking a booth,
 the leader uses the fixed **Next** control to publish the next activity screen.
-The Heaven Booth also offers **Back** and an optional short announcement. If a
-leader does not press Next, attendee phones simply remain on the current
-screen; there is no separate status selector.
+The Heaven Booth also offers **Back** and direct screen selection. If a leader
+does not press Next, attendee phones simply remain on the current screen;
+there is no separate status selector or free-text announcement control.
 
 The attendee hub polls for that booth's published state and refreshes the
 current screen automatically. Restart controls remain separate and less

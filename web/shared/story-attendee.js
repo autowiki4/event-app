@@ -107,7 +107,6 @@ const StoryAttendee = (() => {
       boothId: BOOTH_ID,
       stepIndex: Math.max(0, Math.min(FINAL_STEP_INDEX, integer(raw.stepIndex))),
       status,
-      message: String(raw.message || "").trim().slice(0, 140),
       version: Math.max(0, integer(raw.version)),
       updatedAt: raw.updatedAt || null,
       serverNow: raw.serverNow || null,
@@ -155,7 +154,6 @@ const StoryAttendee = (() => {
     return JSON.stringify({
       stepIndex: value.stepIndex,
       status: value.status,
-      message: value.message,
       version: value.version,
       stale: value.stale,
       sessionNumber: value.sessionNumber,
@@ -172,52 +170,42 @@ const StoryAttendee = (() => {
     `;
   }
 
-  function announcement(value) {
-    return value.message
-      ? `<p class="story-announcement" role="status">${escapeHtml(value.message)}</p>`
-      : "";
-  }
-
-  function renderWelcome(value) {
+  function renderWelcome() {
     container.innerHTML = `
       <article class="story-card story-welcome">
         <h2>The Heaven Booth</h2>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderPicture(value, slide) {
+  function renderPicture(slide) {
     container.innerHTML = `
       <article class="story-card story-picture-card">
         <p class="story-slide-label">Picture ${slide.number} of 4</p>
         ${pictureMarkup(slide.picture)}
         <h2>What do you see in this picture?</h2>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderQuestion(value) {
+  function renderQuestion() {
     container.innerHTML = `
       <article class="story-card story-question">
         <h2>Are all these pictures related?</h2>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderConnection(value) {
+  function renderConnection() {
     container.innerHTML = `
       <article class="story-card story-reveal">
         <p class="story-kicker">They actually are!</p>
         <h2>Do you know what they describe?</h2>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderKingdom(value) {
+  function renderKingdom() {
     container.innerHTML = `
       <article class="story-card story-kingdom">
         <p class="story-slide-label">The four pictures describe</p>
@@ -225,12 +213,11 @@ const StoryAttendee = (() => {
           ${Object.values(PICTURES).map((picture) => `<img src="${picture.src}" alt="${escapeHtml(picture.alt)}" loading="eager" decoding="async">`).join("")}
         </div>
         <h2>The Kingdom of Heaven</h2>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderVerse(value, slide) {
+  function renderVerse(slide) {
     container.innerHTML = `
       <article class="story-card story-verse-card">
         <p class="story-slide-label">${escapeHtml(slide.reference)} · NIV</p>
@@ -240,17 +227,15 @@ const StoryAttendee = (() => {
           <cite>${escapeHtml(slide.reference)} · NIV</cite>
         </blockquote>
         <p class="story-niv-notice">${escapeHtml(NIV_NOTICE)}</p>
-        ${announcement(value)}
       </article>
     `;
   }
 
-  function renderComplete(value) {
+  function renderComplete() {
     container.innerHTML = `
       <article class="story-card story-complete">
         <div class="story-complete-mark" aria-hidden="true">✓</div>
         <h2>Thank you</h2>
-        ${announcement(value)}
         <button type="button" class="btn btn-primary story-done" id="btn-booth-done" ${completionBusy ? "disabled" : ""}>${completionBusy ? "Saving your visit…" : "Finish booth →"}</button>
       </article>
     `;
@@ -267,13 +252,13 @@ const StoryAttendee = (() => {
     renderedSignature = nextSignature;
     container.setAttribute("aria-busy", "false");
     const slide = SLIDES[effective.stepIndex] || SLIDES[0];
-    if (slide.type === "welcome") renderWelcome(effective);
-    else if (slide.type === "picture") renderPicture(effective, slide);
-    else if (slide.type === "question") renderQuestion(effective);
-    else if (slide.type === "connection") renderConnection(effective);
-    else if (slide.type === "kingdom") renderKingdom(effective);
-    else if (slide.type === "verse") renderVerse(effective, slide);
-    else renderComplete(effective);
+    if (slide.type === "welcome") renderWelcome();
+    else if (slide.type === "picture") renderPicture(slide);
+    else if (slide.type === "question") renderQuestion();
+    else if (slide.type === "connection") renderConnection();
+    else if (slide.type === "kingdom") renderKingdom();
+    else if (slide.type === "verse") renderVerse(slide);
+    else renderComplete();
   }
 
   function showSyncIssue(message) {

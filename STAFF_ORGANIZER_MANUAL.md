@@ -132,7 +132,7 @@ The app does not collect artwork, written reflections, ratings, or comments. The
 
 **Groups:** Yellow in Session 1; Orange in Session 2.
 
-This portal has fixed **Back** and **Next** controls, direct screen selection, an optional short announcement, and **Restart at welcome**.
+This portal has fixed **Back** and **Next** controls, direct screen selection, and **Restart at welcome**. It does not include a free-text announcement field.
 
 The ordered flow is:
 
@@ -166,6 +166,7 @@ The app database is the source of truth; Google Sheets is a live mirror. A Sheet
 - Once unlocked, Overall Organizer shows **Not connected**, **Ready**, **Queued**, **Syncing**, **Up to date**, **Needs attention**, or **Unavailable**.
 - **Sync now** or **Retry now** queues an immediate full-snapshot attempt; wait for **Up to date**. Failed attempts also retry automatically.
 - Each successful sync replaces the managed `Live_*` tabs with the latest app state; it does not append permanent history.
+- Phase 3 **Confirm** writes `TRUE`, `staff`, and the event time to `Live_SignUps` columns J–L.
 - Phone numbers are exported in readable formatting. Bible Bowl answers/rankings and New Song votes remain private to their booth portals.
 - Before clearing attendee data, download CSV files or copy the spreadsheet if a historical record is needed.
 

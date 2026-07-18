@@ -62,7 +62,9 @@ to create any `Live_*` tab by hand.
   read it without receiving the organizer key.
 - `status`: `waiting`, `live`, `paused`, `wrap`, or `complete`.
 - `stepIndex`: zero-based presentation step, limited to `0`–`50` by the API.
-- `message`: optional booth-leader text, limited to 500 characters.
+- `message`: legacy compatibility column. The current Heaven Booth portal does
+  not accept or display free-text announcements and always writes this value
+  as blank for that booth.
 - `version`: starts at `1` on the first update and increments on every saved
   change so attendee screens can ignore stale responses.
 

@@ -730,7 +730,9 @@ function boothPresentationFromDb(db, boothId) {
       ? stepIndex
       : 0,
     status: BOOTH_PRESENTATION_STATUSES.has(status) ? status : "waiting",
-    message: typeof stored.message === "string"
+    message: boothId === "story"
+      ? ""
+      : typeof stored.message === "string"
       ? stored.message.slice(0, MAX_PRESENTATION_MESSAGE_LENGTH)
       : "",
     createdAt: stored.createdAt || null,
@@ -3920,7 +3922,9 @@ function updateBoothPresentation(body) {
     boothId: boothResult.boothId,
     stepIndex,
     status,
-    message,
+    // The Heaven Booth no longer has free-text announcements. Keep the
+    // property blank for saved-data/API compatibility and hide older values.
+    message: boothResult.boothId === "story" ? "" : message,
     createdAt: previous.createdAt || now,
     updatedAt: now,
     version: Math.min(Number.MAX_SAFE_INTEGER, previous.version + 1),

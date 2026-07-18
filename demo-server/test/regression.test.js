@@ -1061,7 +1061,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.boothId, "story");
   assert.equal(res.body.stepIndex, 2);
   assert.equal(res.body.status, "live");
-  assert.equal(res.body.message, "Start the story now.");
+  assert.equal(res.body.message, "", "The Heaven Booth must ignore free-text announcements");
   assert.equal(res.body.version, 1);
   assertIsoTimestamp(res.body.createdAt, "presentation createdAt");
   assertIsoTimestamp(res.body.updatedAt, "presentation updatedAt");
@@ -1086,7 +1086,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.version, 2);
   assert.equal(res.body.createdAt, presentationCreatedAt);
   assert.equal(res.body.status, "paused");
-  assert.equal(res.body.message, "Hold here.");
+  assert.equal(res.body.message, "");
 
   for (const invalidPhone of ["615555010", "16155550101"]) {
     res = await request(port, "findOrRegisterByPhone", {
@@ -1443,7 +1443,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.presentation.boothId, "story");
   assert.equal(res.body.presentation.stepIndex, 3);
   assert.equal(res.body.presentation.status, "paused");
-  assert.equal(res.body.presentation.message, "Hold here.");
+  assert.equal(res.body.presentation.message, "");
   assert.equal(res.body.presentation.version, 2);
   assertIsoTimestamp(res.body.serverNow, "booth dashboard serverNow");
   res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
@@ -4626,6 +4626,11 @@ async function runFrontendContractRegression() {
   assert.match(artAttendeeSource, /What is art therapy\?/i);
   assert.match(artAttendeeSource, /Why is art therapy important\?/i);
   assert.match(artAttendeeSource, /Do you know what the Bible says about the heart\?/i);
+  assert.doesNotMatch(
+    artAttendeeSource,
+    /waiting for the next verse|reveal the (?:first|next) verse/i,
+    "Unpublished Art Therapy verses should not be announced on attendee screens"
+  );
   assert.match(artAttendeeSource, /Above all else, guard your heart, for everything you do flows from it\./);
   assert.match(artAttendeeSource, /Proverbs 4:23/);
   assert.match(artAttendeeSource, /the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus\./i);
@@ -5146,13 +5151,17 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /class="booth-leader-dock"/);
   assert.match(boothStaffCommon, /id="btn-staff-next">Next →<\/button>/);
   assert.doesNotMatch(boothStaffCommon, /Publish previous|Publish next|Save to attendee screen|Reset controls/);
+  assert.doesNotMatch(boothStaffCommon, /staff-message|Update announcement|Short announcement/);
   assert.match(boothStaffCommon, /async function recoverPresentationConflict\(/);
   assert.match(boothStaffCommon, /samePublishedScreen\(latest, intended\)/);
   assert.match(boothStaffCommon, /Your change is still selected—tap the fixed Apply my change button/);
   assert.match(boothStaffCommon, /if \(conflictRecoveryPending\) \{[\s\S]*?savePresentation\(\);[\s\S]*?return;/);
   assert.match(boothStaffCommon, /nextButton\.textContent = conflictRecoveryPending \? "Apply my change" : "Next →"/);
-  assert.match(boothStaffCommon, /saveButton\.textContent = conflictRecoveryPending \? "Apply my change" : "Update announcement"/);
   assert.match(boothStaffCommon, /conflictRecoveryPending = true;[\s\S]*?tap Apply my change to try again/);
+  assert.doesNotMatch(storyAttendeeSource, /story-announcement|function announcement\(|raw\.message/);
+  assert.doesNotMatch(storyRoomSource, /story-announcement/);
+  assert.match(phase2Source, /message\.textContent = booth\.id === "story" \? ""/);
+  assert.match(phase2Source, /message\.style\.display = booth\.id !== "story"/);
   [triviaStaffSource, heavenStaffSource, artStaffSource, newSongStaffControllerSource].forEach((source) => {
     assert.match(source, /class="booth-leader-dock"/);
     assert.ok(source.includes("Next →"));
@@ -5698,6 +5707,22 @@ function runAppsScriptRegression() {
     () => gas.actionBoothPresentation({ boothId: "unknown" }),
     (error) => error.code === "BOOTH_NOT_FOUND"
   );
+
+  result = gas.actionUpdateBoothPresentation({
+    boothId: "story",
+    stepIndex: 1,
+    status: "live",
+    message: "This should not appear.",
+    organizerKey: "gas-organizer-key",
+  });
+  assert.equal(result.message, "", "The Apps Script adapter must suppress Heaven Booth announcements");
+  result = gas.actionBoothPresentation({ boothId: "story" });
+  assert.equal(result.message, "");
+  const boothControlsSheet = spreadsheet.getSheetByName("BoothControls");
+  const boothControlsMessageColumn = boothControlsSheet.rows[0].indexOf("message");
+  const boothControlsIdColumn = boothControlsSheet.rows[0].indexOf("boothId");
+  const storyControlRow = boothControlsSheet.rows.find((row) => row[boothControlsIdColumn] === "story");
+  assert.equal(storyControlRow[boothControlsMessageColumn], "");
 
   const beforePresentationWrites = lockState.acquisitions;
   assert.throws(

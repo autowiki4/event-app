@@ -396,7 +396,9 @@ function boothPresentationFromRows(rows, boothId) {
       ? stepIndex
       : 0,
     status: BOOTH_PRESENTATION_STATUSES.indexOf(status) === -1 ? "waiting" : status,
-    message: typeof stored.message === "string"
+    message: boothId === "story"
+      ? ""
+      : typeof stored.message === "string"
       ? stored.message.slice(0, MAX_PRESENTATION_MESSAGE_LENGTH)
       : "",
     createdAt: stored.createdAt || null,
@@ -1283,7 +1285,9 @@ function actionUpdateBoothPresentation(payload) {
       boothId,
       stepIndex,
       status,
-      message,
+      // The Heaven Booth no longer has free-text announcements. Keep the
+      // column blank for legacy Sheet/API compatibility and hide old values.
+      message: boothId === "story" ? "" : message,
       createdAt: previous.createdAt || now,
       updatedAt: now,
       version: Math.min(Number.MAX_SAFE_INTEGER, previous.version + 1),

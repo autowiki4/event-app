@@ -203,10 +203,10 @@ Song use specialized ordered controllers. The Heaven Booth uses the shared
 ordered-screen controller.
 
 Every booth exposes a fixed **Next** action that publishes the next screen to
-attendees. The Heaven Booth also exposes **Back**, direct screen selection, and
-an optional announcement. Leaving the controls alone holds the current screen,
-so booth leaders do not manage a separate waiting/live/paused/wrap selector.
-Restarting a run remains a separate, confirmed action.
+attendees. The Heaven Booth also exposes **Back** and direct screen selection.
+Leaving the controls alone holds the current screen, so booth leaders do not
+manage a separate waiting/live/paused/wrap selector or a free-text
+announcement. Restarting a run remains a separate, confirmed action.
 
 The shared Heaven Booth controller calls the protected
 `updateBoothPresentation` action. The backend stores one current presentation

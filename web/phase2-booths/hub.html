@@ -283,8 +283,8 @@ function displayPresentation(booth) {
           : "Mark your visit complete below, then check your route for what comes next."
         : serverScreenBody || step.body;
   const message = document.getElementById("leader-message");
-  message.textContent = state.message || "";
-  message.style.display = state.message && !serverScreenTitle ? "block" : "none";
+  message.textContent = booth.id === "story" ? "" : state.message || "";
+  message.style.display = booth.id !== "story" && state.message && !serverScreenTitle ? "block" : "none";
   document.getElementById("presentation-updated").textContent = formatUpdated(state.updatedAt);
 }
 

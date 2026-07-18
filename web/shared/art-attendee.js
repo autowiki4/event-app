@@ -167,10 +167,10 @@ const ArtAttendee = (() => {
     `;
   }
 
-  function verse(reference, text, revealed) {
+  function verse(reference, text) {
     return `
-      <blockquote class="art-verse ${revealed ? "is-revealed" : "is-waiting"}">
-        ${revealed ? `<p>“${escapeHtml(text)}”</p><cite>${escapeHtml(reference)}</cite>` : `<span aria-hidden="true">✦</span><small>Waiting for the next verse</small>`}
+      <blockquote class="art-verse is-revealed">
+        <p>“${escapeHtml(text)}”</p><cite>${escapeHtml(reference)}</cite>
       </blockquote>
     `;
   }
@@ -178,10 +178,7 @@ const ArtAttendee = (() => {
   function renderHeart(value) {
     container.innerHTML = card(value, "art-heart", `
       ${heartIntro()}
-      <div class="art-verse-stack">
-        ${verse("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it.", false)}
-      </div>
-      ${leaderNote("Your guide will reveal the first verse when the room is ready.", "📖")}
+      ${leaderNote("Stay with your guide. The next part will appear when the room is ready.", "✨")}
     `);
   }
 
@@ -189,10 +186,9 @@ const ArtAttendee = (() => {
     container.innerHTML = card(value, "art-heart", `
       ${heartIntro()}
       <div class="art-verse-stack">
-        ${verse("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it.", true)}
-        ${verse("Philippians 4:7", "And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.", false)}
+        ${verse("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it.")}
       </div>
-      ${leaderNote("Hold onto that thought. One more verse will be revealed here.", "💭")}
+      ${leaderNote("Take a moment with this thought. More will appear when the room is ready.", "💭")}
     `);
   }
 
@@ -200,8 +196,8 @@ const ArtAttendee = (() => {
     container.innerHTML = card(value, "art-heart art-heart-complete", `
       ${heartIntro()}
       <div class="art-verse-stack">
-        ${verse("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it.", true)}
-        ${verse("Philippians 4:7", "And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.", true)}
+        ${verse("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it.")}
+        ${verse("Philippians 4:7", "And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.")}
       </div>
       ${leaderNote("Listen for the connection between guarding the heart and receiving God's peace.", "🕊️")}
     `);
