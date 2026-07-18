@@ -48,7 +48,7 @@
     <div class="opt-grid" id="opt-grid"></div>
     <button class="btn btn-primary" id="btn-submit" style="margin-top:16px;">Save &amp; finish →</button>
     <button class="btn btn-ghost" id="btn-skip" style="margin-top:10px;">No thanks, finish</button>
-    <a class="btn btn-ghost" id="btn-return-phase2" href="../phase2-booths/hub.html" style="display:none; margin-top:10px; text-decoration:none;">Return to my booth before 4:10 →</a>
+    <a class="btn btn-ghost" id="btn-return-phase2" href="../phase2-booths/hub.html" style="display:none; margin-top:10px; text-decoration:none;">Return to my booth before 3:50 →</a>
     <p class="top-note">You can select more than one.</p>
   </section>
 </div>
@@ -98,7 +98,7 @@ const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync ==
 function reevaluateScheduleAccess() {
   if (!identity || !portalReady || scheduleRedirecting) return;
   const schedule = EventSchedule.current();
-  if (progressAuthoritative && !phase2RouteComplete && schedule.phase !== "ended") {
+  if (progressAuthoritative && !phase2RouteComplete && !["waiting", "ended"].includes(schedule.phase)) {
     scheduleRedirecting = true;
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
@@ -172,7 +172,7 @@ async function showPortal(attendeeIdentity) {
     && route.every((boothId) => completedBooths.has(boothId));
   phase2RouteComplete = phase2Complete;
   const schedule = EventSchedule.current();
-  if (!identity.wristbandColor || (progressAuthoritative && !phase2Complete && schedule.phase !== "ended")) {
+  if (!identity.wristbandColor || (progressAuthoritative && !phase2Complete && !["waiting", "ended"].includes(schedule.phase))) {
     window.location.replace(EventSchedule.linkWithPreview("../phase2-booths/hub.html"));
     return;
   }

@@ -2,8 +2,8 @@
 
 The timed experience no longer needs a different public QR at every booth.
 Phase 1 assigns the wristband color and continues directly into one attendee
-hub, which keeps the same identity through all three 20-minute sessions, Phase
-3, and the final waiting/message screen.
+hub, which keeps the same identity through both 20-minute sessions, the
+3:50–4:00 waiting/handoff, Phase 3, and the final waiting/message screen.
 
 `web/organizer/qr-codes.html` currently generates three cards from a base URL:
 
@@ -52,8 +52,8 @@ appropriate roles or booth-specific credentials.
 
 - **No five attendee booth codes:** the timer and wristband route choose the
   active booth inside `hub.html`.
-- **No required Phase 3 code:** the hub reveals Phase 3 after all three
-  attendee completion taps are saved, or at 4:10 PM even if some visits remain
+- **No required Phase 3 code:** the hub reveals Phase 3 after both attendee
+  completion taps are saved, or at 3:50 PM even if one or both visits remain
   unmarked. Save and **No thanks** continue into the same **DON'T GO YET** or
   main-message screen. A separate Phase 3 recovery sign is optional.
 - **No organizer key in a code:** credentials must never be placed in a URL.
@@ -73,10 +73,10 @@ event team deliberately switches to the fallback operating model.
    temporary preview domain.
 4. Choose **Regenerate codes**.
 5. Scan every printed code with at least one iPhone and one Android phone.
-6. Complete a full test: Phase 1 → direct hub continuation → three completion
+6. Complete a full test: Phase 1 → direct hub continuation → two completion
    taps → reopen the active row → Phase 3 → early **DON'T GO YET** countdown →
-   4:10 PM main message, plus the missed-tap fallback and organizer directory
-   authentication.
+   3:50–4:00 handoff → 4:00 PM main message, plus the missed-tap fallback and
+   organizer directory authentication.
 7. Print only after the URL and routes are frozen.
 
 If the public origin changes, regenerate and reprint every card. A QR encodes

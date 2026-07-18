@@ -5,7 +5,7 @@
  * earlier participation stays visible instead of being mixed or erased.
  */
 function initHeavenStaff() {
-  const SESSION_COUNT = 3;
+  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "drawing", "verse", "comparison", "reflection", "programs", "complete"]);
   const CONFIRMATIONS = ["drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done"];
@@ -18,6 +18,7 @@ function initHeavenStaff() {
   let dashboard = null;
   let selectedSessionNumber = 1;
   let selectionPinned = false;
+  let lastActiveSessionNumber = 0;
   let refreshTimer = null;
   let scheduleTimer = null;
   let refreshInFlight = false;
@@ -174,6 +175,19 @@ function initHeavenStaff() {
   function sessionByNumber(sessionNumber = selectedSessionNumber) {
     const sessions = dashboard && Array.isArray(dashboard.sessions) ? dashboard.sessions : [];
     return sessions.find((session) => session.sessionNumber === sessionNumber) || null;
+  }
+
+  function applySessionSummary(value) {
+    const sessionNumber = integer(value && value.sessionNumber, 0);
+    if (!dashboard || sessionNumber < 1 || sessionNumber > SESSION_COUNT) return false;
+    const next = normalizeSession(value, sessionNumber);
+    dashboard = {
+      ...dashboard,
+      sessions: dashboard.sessions.map((session) => (
+        session.sessionNumber === sessionNumber ? next : session
+      )),
+    };
+    return true;
   }
 
   function phaseLabel(phase) {
@@ -423,7 +437,7 @@ function initHeavenStaff() {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
       noteText = `Session ${current.session.number} is active now. Session ${selectedSessionNumber} attendees cannot enter until their rotation.`;
-    } else if (current.phase === "ended") {
+    } else if (current.phase === "waiting" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
       noteText = "All booth rotations have ended. Draw Heaven run history remains available until the overall organizer clears event data.";
@@ -502,7 +516,7 @@ function initHeavenStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!options.silent) setStatus("Refreshing all three Draw Heaven sessions…");
+    if (!options.silent) setStatus("Refreshing both Draw Heaven sessions…");
     try {
       const data = await EventAPI.heavenDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -511,7 +525,15 @@ function initHeavenStaff() {
       }
       dashboard = normalizeDashboard(data);
       const activeSessionNumber = integer(dashboard.eventState && dashboard.eventState.sessionNumber, 0);
-      if (!selectionPinned && activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT) selectedSessionNumber = activeSessionNumber;
+      if (
+        activeSessionNumber >= 1
+          && activeSessionNumber <= SESSION_COUNT
+          && (!selectionPinned || activeSessionNumber !== lastActiveSessionNumber)
+      ) {
+        selectedSessionNumber = activeSessionNumber;
+        selectionPinned = false;
+      }
+      lastActiveSessionNumber = activeSessionNumber;
       showSyncNote("");
       renderSelectedSession();
       const session = sessionByNumber();
@@ -533,6 +555,14 @@ function initHeavenStaff() {
 
   async function advance(action) {
     if (controlBusy) return;
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
+      selectedSessionNumber = activeSessionNumber;
+      selectionPinned = false;
+      renderSelectedSession();
+      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      return;
+    }
     const session = sessionByNumber();
     const authGeneration = OrganizerAuth.generation();
     const organizerKey = OrganizerAuth.key();
@@ -552,8 +582,10 @@ function initHeavenStaff() {
     };
     setStatus(pendingLabels[action] || "Updating attendee screens…");
     try {
-      await EventAPI.advanceHeavenSession(session.sessionNumber, action, session.state.version, organizerKey);
+      const result = await EventAPI.advanceHeavenSession(session.sessionNumber, action, session.state.version, organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
+      applySessionSummary(result);
+      renderSelectedSession();
       const messages = {
         start: "The drawing prompt is live.",
         show_verse: "The verse and confetti reveal are live.",
@@ -592,7 +624,7 @@ function initHeavenStaff() {
       ? ""
       : "\n\nThis run is not finished, so continue only if you intentionally want to close it early.";
     const approved = window.confirm(
-      `Archive Draw Heaven Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nAll confirmations and attendee progress stay visible in the previous run. The other two sessions will not change.${incompleteWarning}`
+      `Archive Draw Heaven Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nAll confirmations and attendee progress stay visible in the previous run. The other session will not change.${incompleteWarning}`
     );
     if (!approved) return;
     controlBusy = true;
@@ -638,6 +670,7 @@ function initHeavenStaff() {
     refreshInFlight = false;
     activeRefreshId += 1;
     selectionPinned = false;
+    lastActiveSessionNumber = 0;
     selectedSessionNumber = 1;
     if (refreshTimer) clearInterval(refreshTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
@@ -687,8 +720,8 @@ function initHeavenStaff() {
   OrganizerAuth.init({
     onUnlocked: async () => {
       await startSharedDemoClock();
-      const refreshed = await refresh();
-      if (refreshed && OrganizerAuth.key()) {
+      await refresh();
+      if (OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => {
           if (!document.hidden) refresh({ silent: true });
         }, POLL_INTERVAL_MS);

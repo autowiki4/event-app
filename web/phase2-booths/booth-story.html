@@ -169,7 +169,10 @@ initBoothRoom({
   boothId: BOOTH_ID,
   boothName: BOOTH_NAME,
   roomName: BOOTH_ROOM_NAME,
-  onReady: () => StoryAttendee.init({ containerId: "booth-content" }),
+  onReady: () => StoryAttendee.init({
+    containerId: "booth-content",
+    onCompleted: () => window.completeBoothRoom(BOOTH_NAME),
+  }),
 });
 </script>
 </body>

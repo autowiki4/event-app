@@ -101,6 +101,10 @@ const AttendeePortal = (() => {
       name: result.name,
       raffleNumber: String(result.raffleNumber),
       wristbandColor: result.wristbandColor || (sameAttendee ? previous.wristbandColor || "" : ""),
+      wristbandConfirmedAt: result.wristbandConfirmedAt
+        || (sameAttendee ? previous.wristbandConfirmedAt || null : null),
+      boothArrivalPlan: result.boothArrivalPlan
+        || (sameAttendee ? previous.boothArrivalPlan || null : null),
       phase3CompletedAt: result.phase3CompletedAt || (sameAttendee ? previous.phase3CompletedAt || null : null),
       phone: savedPhone,
       phoneLinked: !!result.phoneLinked || savedPhone.length === 10,

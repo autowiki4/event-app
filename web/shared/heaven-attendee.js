@@ -564,14 +564,23 @@ const HeavenAttendee = (() => {
 
   async function completeVisit() {
     if (completionBusy || !state || state.phase !== "complete") return;
+    if (typeof window.isCurrentBoothRoomOpen === "function" && !window.isCurrentBoothRoomOpen()) {
+      toast("This Draw Heaven session has ended. Return to your schedule.");
+      if (typeof window.refreshBoothRoomAccess === "function") window.refreshBoothRoomAccess();
+      return;
+    }
     completionBusy = true;
     interactionEpoch += 1;
     renderState();
     try {
-      if (typeof onCompleted === "function") await onCompleted(state);
-    } finally {
+      await EventAPI.completeHeaven(identity.attendeeId);
       completionBusy = false;
-      if (typeof window.isCurrentBoothRoomOpen !== "function" || window.isCurrentBoothRoomOpen()) renderState();
+      if (typeof onCompleted === "function") onCompleted(state);
+    } catch (error) {
+      console.error(error);
+      completionBusy = false;
+      renderState();
+      toast(error && error.message ? error.message : "Couldn't save your Draw Heaven visit — please try again.");
     }
   }
 

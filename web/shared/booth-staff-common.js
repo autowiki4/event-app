@@ -101,8 +101,8 @@ function initBoothStaff(boothId) {
           `).join("")}
         </div>
         <div style="display:flex;gap:10px;margin-bottom:20px;">
-          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-previous" style="flex:1;">← Previous</button>
-          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-next" style="flex:1;">Next →</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btn-staff-previous" style="flex:1;">← Publish previous</button>
+          <button type="button" class="btn btn-small btn-primary" id="btn-staff-next" style="flex:1;">Publish next →</button>
         </div>
 
         <div class="field">
@@ -133,8 +133,8 @@ function initBoothStaff(boothId) {
         syncControlUi();
       });
     });
-    document.getElementById("btn-staff-previous").addEventListener("click", () => changeStep(-1));
-    document.getElementById("btn-staff-next").addEventListener("click", () => changeStep(1));
+    document.getElementById("btn-staff-previous").addEventListener("click", () => changeStep(-1, true));
+    document.getElementById("btn-staff-next").addEventListener("click", () => changeStep(1, true));
     document.getElementById("btn-staff-reset").addEventListener("click", resetDraft);
     document.getElementById("btn-staff-save").addEventListener("click", savePresentation);
     document.getElementById("staff-message").addEventListener("input", (event) => {
@@ -146,14 +146,18 @@ function initBoothStaff(boothId) {
     syncControlUi(true);
   }
 
-  function changeStep(delta) {
+  function changeStep(delta, publishNow) {
     const nextIndex = Math.max(0, Math.min(steps.length - 1, draft.stepIndex + delta));
     if (nextIndex === draft.stepIndex) return;
     draft.stepIndex = nextIndex;
+    if (publishNow) {
+      draft.status = nextIndex >= steps.length - 1 ? "complete" : "live";
+    }
     markDirty();
     syncControlUi();
     const selected = document.querySelector(`[data-step-index="${nextIndex}"]`);
     if (selected) selected.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (publishNow) savePresentation();
   }
 
   function resetDraft() {
@@ -295,7 +299,7 @@ function initBoothStaff(boothId) {
     const timer = document.getElementById("staff-session-timer");
     if (!label || !group || !timer) return;
     if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") {
-      label.textContent = "Booth sessions: 3:10–4:10 PM";
+      label.textContent = "Booth sessions: 3:10–3:50 PM";
       group.textContent = "The shared event timer is unavailable on this device.";
       timer.textContent = "";
       return;
@@ -322,8 +326,10 @@ function initBoothStaff(boothId) {
       return;
     }
 
-    label.textContent = "Booth rotations finished";
-    group.textContent = "All three 20-minute sessions are complete.";
+    label.textContent = current.phase === "waiting" ? "Booth rotations finished" : "Main message time";
+    group.textContent = current.phase === "waiting"
+      ? "Both 20-minute sessions are complete. The main message starts at 4:00 PM."
+      : "The main message is starting now.";
     timer.textContent = "Closed";
   }
 
@@ -430,8 +436,8 @@ function initBoothStaff(boothId) {
   OrganizerAuth.init({
     onUnlocked: async () => {
       await startSharedDemoClock();
-      const refreshed = await refresh();
-      if (refreshed && OrganizerAuth.key()) {
+      await refresh();
+      if (OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => refresh({ silent: true }), 5000);
         if (!scheduleTimer) scheduleTimer = setInterval(refreshSchedule, 1000);
       }

@@ -1,10 +1,10 @@
 /* Bible Bowl's booth-leader portal is intentionally separate from the
- * generic booth presentation controls. Its three versioned sessions keep the
+ * generic booth presentation controls. Its two versioned sessions keep the
  * speaker in charge of question, reveal, and result timing. Each session can
  * also contain multiple archived runs, so restart never combines or erases
  * an earlier run's leaderboard. */
 function initTriviaStaff() {
-  const SESSION_COUNT = 3;
+  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const QUESTION_COUNT = 15;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "question", "reveal", "complete"]);
@@ -17,6 +17,7 @@ function initTriviaStaff() {
   let dashboard = null;
   let selectedSessionNumber = 1;
   let selectionPinned = false;
+  let lastActiveSessionNumber = 0;
   let refreshTimer = null;
   let scheduleTimer = null;
   let refreshInFlight = false;
@@ -55,6 +56,19 @@ function initTriviaStaff() {
   function sessionByNumber(sessionNumber = selectedSessionNumber) {
     const sessions = dashboard && Array.isArray(dashboard.sessions) ? dashboard.sessions : [];
     return sessions.find((session) => integer(session && session.sessionNumber, -1) === sessionNumber) || null;
+  }
+
+  function applySessionSummary(value) {
+    const sessionNumber = integer(value && value.sessionNumber, 0);
+    if (!dashboard || sessionNumber < 1 || sessionNumber > SESSION_COUNT) return false;
+    const next = normalizedSession(value, sessionNumber);
+    dashboard = {
+      ...dashboard,
+      sessions: dashboard.sessions.map((session) => (
+        session.sessionNumber === sessionNumber ? next : session
+      )),
+    };
+    return true;
   }
 
   function sessionSchedule(sessionNumber = selectedSessionNumber) {
@@ -403,7 +417,7 @@ function initTriviaStaff() {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
       noteText = `Session ${current.session.number} is active now. You are preparing Session ${selectedSessionNumber}; attendees will not enter this room until their timed rotation.`;
-    } else if (current.phase === "ended") {
+    } else if (current.phase === "waiting" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
       noteText = "All booth rotations have ended. The session leaderboard remains available until an organizer resets event data.";
@@ -453,7 +467,7 @@ function initTriviaStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!(options && options.silent)) setStatus("Refreshing all three sessions…");
+    if (!(options && options.silent)) setStatus("Refreshing both sessions…");
     try {
       const data = await EventAPI.triviaDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -462,9 +476,15 @@ function initTriviaStaff() {
       }
       dashboard = normalizeDashboard(data);
       const activeSessionNumber = integer(dashboard.eventState && dashboard.eventState.sessionNumber, 0);
-      if (!selectionPinned && activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT) {
+      if (
+        activeSessionNumber >= 1
+          && activeSessionNumber <= SESSION_COUNT
+          && (!selectionPinned || activeSessionNumber !== lastActiveSessionNumber)
+      ) {
         selectedSessionNumber = activeSessionNumber;
+        selectionPinned = false;
       }
+      lastActiveSessionNumber = activeSessionNumber;
       showSyncNote("");
       renderSelectedSession();
       const session = sessionByNumber();
@@ -486,6 +506,14 @@ function initTriviaStaff() {
 
   async function advance(action) {
     if (controlBusy) return;
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
+      selectedSessionNumber = activeSessionNumber;
+      selectionPinned = false;
+      renderSelectedSession();
+      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      return;
+    }
     const session = sessionByNumber();
     const authGeneration = OrganizerAuth.generation();
     const organizerKey = OrganizerAuth.key();
@@ -503,8 +531,10 @@ function initTriviaStaff() {
     const labels = { start: "Starting Question 1…", reveal: "Revealing the answer…", next: "Opening the next question…", finish: "Showing final results…" };
     setStatus(labels[action] || "Updating attendee screens…");
     try {
-      await EventAPI.advanceTriviaSession(session.sessionNumber, action, session.state.version, organizerKey);
+      const result = await EventAPI.advanceTriviaSession(session.sessionNumber, action, session.state.version, organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
+      applySessionSummary(result);
+      renderSelectedSession();
       toast(({ start: "Question 1 is live.", reveal: "Answer revealed.", next: "Next question is live.", finish: "Final results are live." })[action] || "Attendee screens updated.");
     } catch (error) {
       console.error(error);
@@ -532,7 +562,7 @@ function initTriviaStaff() {
     const organizerKey = OrganizerAuth.key();
     if (!session || !organizerKey) return;
     const approved = window.confirm(
-      `Archive Bible Bowl Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nThe current answers and leaderboard will stay saved under the previous run. The other two sessions will not change.${session.state.phase === "complete" ? "" : "\n\nThis run is not finished yet, so only continue if you intentionally want to close it early."}`
+      `Archive Bible Bowl Session ${session.sessionNumber}, Run ${session.state.runNumber}, and start Run ${session.state.runNumber + 1}?\n\nThe current answers and leaderboard will stay saved under the previous run. The other session will not change.${session.state.phase === "complete" ? "" : "\n\nThis run is not finished yet, so only continue if you intentionally want to close it early."}`
     );
     if (!approved) return;
     if (typeof EventAPI === "undefined" || typeof EventAPI.resetTriviaSession !== "function") {
@@ -583,6 +613,7 @@ function initTriviaStaff() {
     refreshInFlight = false;
     activeRefreshId += 1;
     selectionPinned = false;
+    lastActiveSessionNumber = 0;
     selectedSessionNumber = 1;
     if (refreshTimer) clearInterval(refreshTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
@@ -629,8 +660,8 @@ function initTriviaStaff() {
   OrganizerAuth.init({
     onUnlocked: async () => {
       await startSharedDemoClock();
-      const refreshed = await refresh();
-      if (refreshed && OrganizerAuth.key()) {
+      await refresh();
+      if (OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => {
           if (!document.hidden) refresh({ silent: true });
         }, POLL_INTERVAL_MS);

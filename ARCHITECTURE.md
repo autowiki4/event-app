@@ -33,10 +33,10 @@ One Phase 2 hub
   sticky identity → shared timer → color route → attendee completion taps
         ↓
 Phase 3
-  after 3 saved taps, or at 4:10 → tick next steps → persist completion
+  after 2 saved taps, or at 3:50 booth close → tick next steps → persist completion
         ↓
 Waiting/message screen
-  early finish → DON'T GO YET countdown → 4:10 PM main message
+  early finish → DON'T GO YET countdown → 4:00 PM main message
 ```
 
 ## Identity and continuity
@@ -64,10 +64,10 @@ failure or missing backend record does not erase the phone identity; the UI
 keeps the attendee in place and retries. This makes a mounted persistent data
 path mandatory for a hosted Node process.
 
-Phase 2 requires a confirmed wristband. Before 4:10 PM, Phase 3 requires all
-three route check-ins. At 4:10 PM it becomes available even when one or more
-visits remain unmarked, so a missed stop does not block the attendee after
-booth time has ended. Time ending does not create a check-in or mark Phase 2
+Phase 2 requires a confirmed wristband. Before booths close at 3:50 PM, Phase
+3 requires both route check-ins. At 3:50 PM it becomes available even when
+one or both visits remain unmarked, so the attendee can finish Phase 3 during
+the ten-minute handoff. Time ending does not create a check-in or mark Phase 2
 complete.
 
 Once a wristband color is confirmed, repeating the same color is idempotent
@@ -97,36 +97,38 @@ data or actions become sensitive.
 `web/shared/booths-config.js` is the shared source of truth for booth metadata,
 leader steps, colors, routes, and session timestamps.
 
-| Wristband | Session 1 | Session 2 | Session 3 |
-|---|---|---|---|
-| Blue | Can You Draw Heaven? | Bible Bowl | The Heaven Booth |
-| Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
-| Orange | Art Therapy Table | The Heaven Booth | The New Song in Nashville |
-| Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
-| Yellow | The Heaven Booth | The New Song in Nashville | Bible Bowl |
+| Wristband | Session 1 | Session 2 |
+|---|---|---|
+| Blue | Can You Draw Heaven? | Bible Bowl |
+| Red | Bible Bowl | Can You Draw Heaven? |
+| Orange | Art Therapy Table | The Heaven Booth |
+| Green | The New Song in Nashville | Art Therapy Table |
+| Yellow | The Heaven Booth | The New Song in Nashville |
 
-Each group visits three of the five booths. The inverse lookup also tells a
+Each group visits two of the five booths. Across the five color routes, every
+booth is used once in each rotation. The inverse lookup also tells a
 booth-leader portal which wristband group should be at that booth during the
 current session.
 
 ## Shared clock
 
-The mock defines three contiguous sessions:
+The mock defines two contiguous booth sessions followed by a handoff window:
 
 - Session 1: 3:10–3:30 PM
 - Session 2: 3:30–3:50 PM
-- Session 3: 3:50–4:10 PM
+- Waiting / handoff: 3:50–4:00 PM
+- Main message: 4:00 PM
 
 The ISO timestamps currently assume **July 18, 2026 in Nashville**, where the
 event-day offset is `-05:00`. This is an editable mock assumption. It must be
 confirmed and changed in `BOOTH_SESSIONS` before a real event if the date,
 venue, or timing changes.
 
-`web/shared/event-schedule.js` turns those timestamps into three states:
-`before`, an active session, or `ended`. During backend reads, it can estimate
-the difference between the device clock and server clock; the browser uses
-that offset between refreshes. The attendee timer renders every second, while
-the current booth presentation is refreshed periodically.
+`web/shared/event-schedule.js` turns those timestamps into four states:
+`before`, an active session, `waiting`, or `ended`. During backend reads, it
+can estimate the difference between the device clock and server clock; the
+browser uses that offset between refreshes. The attendee timer renders every
+second, while the current booth presentation is refreshed periodically.
 
 This reduces ordinary phone-clock drift but is not precision show control. A
 bad network connection can delay leader updates. Booth completion taps are
@@ -135,18 +137,18 @@ likely during each session's final seconds; other requests remain online-only.
 The hub shows an offline note and continues from its last clock sync.
 
 For deterministic local rehearsals, `event-schedule.js` recognizes
-`?preview=before|1|2|3|ended` only on `localhost`, `127.0.0.1`, or `::1`.
+`?preview=before|1|2|waiting|ended` only on `localhost`, `127.0.0.1`, or `::1`.
 Preview mode freezes the selected state; it does not simulate a ticking
 20-minute session. Attendee navigation preserves the preview value from Phase
 1 through the hub, Phase 3, and the final waiting/message screen.
 
 The Node service adds a second, shared rehearsal layer. After organizer
 authentication, the dashboard can anchor the shared clock at any exact second
-from **3:10:00 through 4:10:00 PM America/Chicago**. A continuous slider,
-exact-time field, and 3:10/3:30/3:50/4:10 boundary shortcuts all preserve the
-three 20-minute session windows. A legacy **Show waiting lobby** action anchors
-the clock before Session 1, and **Use live CDT clock** removes the override and
-returns every screen to actual Chicago time.
+from **3:10:00 through 4:00:00 PM America/Chicago**. A continuous slider,
+exact-time field, and 3:10/3:30/3:50/4:00 boundary shortcuts preserve both
+20-minute rotations and the 3:50–4:00 handoff window. A legacy **Show waiting
+lobby** action anchors the clock before Session 1, and **Use live CDT clock**
+removes the override and returns every screen to actual Chicago time.
 
 The protected `setDemoClock` action changes the in-memory mode and anchor. The
 clock ticks normally from that anchor; it is not a frozen preview. The public
@@ -168,7 +170,7 @@ The timeline is a rehearsal convenience, not resilient show control.
 
 1. restores the verified Phase 1 identity, or asks for name plus phone on
    a new device;
-2. loads the wristband's three-stop route and completed check-ins;
+2. loads the wristband's two-stop route and completed check-ins;
 3. shows the shared session label and countdown;
 4. resolves the correct booth for the current color and session;
 5. polls that booth's public presentation state and links the active card to
@@ -177,7 +179,7 @@ The timeline is a rehearsal convenience, not resilient show control.
    or **Mark this booth complete** in the hub;
 7. keeps the active route row reopenable, even after that tap, until the
    session ends; and
-8. reveals Phase 3 when all three taps are saved, or at 4:10 PM with any
+8. reveals Phase 3 when both taps are saved, or at 3:50 PM with any
    untapped visits still visibly unmarked.
 
 A scheduled check-in includes the booth, attendee, session number/ID, and
@@ -217,8 +219,8 @@ small mock rather than a full multi-operator show-control system, so staff
 should decide who owns each booth page during a live session.
 
 Art Therapy is a specialized Node/Render-only controller at its existing
-attendee and staff URLs. Its three independent rotations serve Orange, Green,
-and Red wristbands and move through `welcome → definition → importance →
+attendee and staff URLs. Its two independent rotations serve Orange and Green
+wristbands and move through `welcome → definition → importance →
 purpose_image → heart_question → proverbs → philippians → create → finished →
 complete`. Only staff can change the published phase. The attendee client
 polls the versioned state, rejects stale responses, and receives its completion
@@ -227,7 +229,7 @@ rating, or comment; immutable `artCompletions` preserve final Done taps by run.
 
 New Song is a specialized Node/Render-only controller while retaining the
 existing attendee and staff URLs. Its independent session controllers serve
-Green wristbands in Session 1, Yellow in Session 2, and Orange in Session 3,
+Green wristbands in Session 1 and Yellow in Session 2,
 and progress through `welcome → voting → winner → verse → complete`. The first
 vote from an attendee is locked. Staff see a live tally for only the active
 session/run and control when the winner, Revelation 14:3, and completion are
@@ -261,9 +263,9 @@ UI does not collect them.
 
 The organizer dashboard may still confirm an expressed interest in person.
 After a successful Phase 3 save, the final page verifies the persisted
-completion. Before 4:10 PM it shows the original-style **DON'T GO YET** card
+completion. Before 4:00 PM it shows the original-style **DON'T GO YET** card
 and countdown, with a return-to-booth action while a session remains active.
-At 4:10 PM the card switches to the main-message state. A direct Phase 3 URL
+At 4:00 PM the card switches to the main-message state. A direct Phase 3 URL
 uses the same client-side eligibility rules and returns an early attendee to
 the hub.
 
@@ -350,7 +352,7 @@ plus protected `artDashboardData`, `advanceArtSession`, and `resetArtSession`.
 New Song adds attendee `newSongState`,
 `submitNewSongVote`, and `completeNewSong` plus protected
 `newSongDashboardData`, `advanceNewSongSession`, and `resetNewSongSession`.
-All four activities keep independent Session 1–3 controllers and require the
+All four activities keep independent Session 1–2 controllers and require the
 version returned by the preceding staff read when advancing. Their session
 reset actions archive one run and create the next; only
 `resetDemo` deletes the histories. Apps Script intentionally implements none

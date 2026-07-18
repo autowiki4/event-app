@@ -16,32 +16,32 @@ The attendee journey is now one continuous flow:
 2. **Phase 2 — timed booth route:** keep one attendee hub open. It shows the
    attendee's name and raffle number, a shared timer, the current booth, and
    the booth leader's live instructions. Its active button opens the correct
-   timed booth activity without another sign-in. Each wristband visits three
+   timed booth activity without another sign-in. Each wristband visits two
    of the five booths. A visit counts as complete only after the attendee taps
    to mark it; the current route row can be reopened until that session ends.
    The generic comment and star-rating footer has been removed from the active
    attendee booth rooms.
 3. **Phase 3 — tick and go:** select any next-step options and finish. There
    are no ratings, comments, or extra attendee questions. Phase 3 becomes
-   available after all three completion taps are saved, or at 4:10 PM even if
-   some visits remain unmarked. Save and **No thanks, finish** both persist
+   available after both completion taps are saved, or when booths close at
+   3:50 PM even if one or both visits remain unmarked. Save and **No thanks, finish** both persist
    Phase 3 completion. Anyone who finishes early sees the original-style
-   **DON'T GO YET** countdown until the 4:10 PM main message.
+   **DON'T GO YET** countdown until the 4:00 PM main message.
 
 The Art Therapy and New Song kiosk pages remain optional staff-assistance
 fallbacks; the attendee booth-room pages are linked from the timed hub.
 
 ## Wristband routes
 
-The color selected in Phase 1 determines all three stops:
+The color selected in Phase 1 determines both stops:
 
-| Wristband | Session 1 | Session 2 | Session 3 |
-|---|---|---|---|
-| Blue | Can You Draw Heaven? | Bible Bowl | The Heaven Booth |
-| Red | Bible Bowl | Can You Draw Heaven? | Art Therapy Table |
-| Orange | Art Therapy Table | The Heaven Booth | The New Song in Nashville |
-| Green | The New Song in Nashville | Art Therapy Table | Can You Draw Heaven? |
-| Yellow | The Heaven Booth | The New Song in Nashville | Bible Bowl |
+| Wristband | Session 1 | Session 2 |
+|---|---|---|
+| Blue | Can You Draw Heaven? | Bible Bowl |
+| Red | Bible Bowl | Can You Draw Heaven? |
+| Orange | Art Therapy Table | The Heaven Booth |
+| Green | The New Song in Nashville | Art Therapy Table |
+| Yellow | The Heaven Booth | The New Song in Nashville |
 
 The current mock schedule is:
 
@@ -49,7 +49,8 @@ The current mock schedule is:
 |---|---|
 | 1 | 3:10–3:30 PM |
 | 2 | 3:30–3:50 PM |
-| 3 | 3:50–4:10 PM |
+| Waiting / handoff | 3:50–4:00 PM |
+| Main message | 4:00 PM |
 
 These timestamps currently assume **July 18, 2026 in Nashville** and use the
 event-day offset `-05:00` (CDT). That date is an editable mock assumption, not
@@ -76,7 +77,7 @@ Event app demo server running: http://localhost:3000
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
+  Timer previews:       add ?preview=before, 1, 2, waiting, or ended to the attendee/staff URL
   Local organizer key:  demo
 ```
 
@@ -97,14 +98,14 @@ Press `Ctrl+C` in the terminal to stop the server.
 
 Open the organizer portal, choose **Overall Organizer**, unlock it with the
 local key (`demo` by default), and use the **Demo only · Shared event time**
-panel. Its one-hour timeline can start the shared simulated clock at any exact
-second from **3:10:00 through 4:10:00 PM America/Chicago**. Drag the timeline,
-enter a precise time, or use the 3:10, 3:30, 3:50, and 4:10 boundary shortcuts,
+panel. Its 50-minute timeline can start the shared simulated clock at any exact
+second from **3:10:00 through 4:00:00 PM America/Chicago**. Drag the timeline,
+enter a precise time, or use the 3:10, 3:30, 3:50, and 4:00 boundary shortcuts,
 then choose **Apply simulated time**. The chosen point is an anchor rather than
-a frozen preview: it continues ticking normally, so every 20-minute booth
-transition and countdown still happens. **Show waiting lobby** provides the
-pre-session rehearsal state, while **Use live CDT clock** restores actual
-Chicago time for the event day.
+a frozen preview: it continues ticking normally through both 20-minute booth
+rotations and the 3:50–4:00 waiting/handoff window. **Show waiting lobby**
+provides the pre-session rehearsal state, while **Use live CDT clock** restores
+actual Chicago time for the event day.
 
 The change applies to all attendee, overall-organizer, booth-leader, Phase 3,
 and final-message screens using the same Node service, whether that service is
@@ -142,8 +143,9 @@ on a persistent disk. Database writes use a flushed temporary file, atomic
 rename, and last-known-good `.bak`; `/api/health` confirms that the store can be
 loaded. A staged booth-completion tap also retries for two minutes if venue
 Wi-Fi drops at a session boundary. The regression suite uses a concurrent
-150-attendee journey as a representative load check, with 90 live New Song
-votes and 450 booth completions; that test number is not an application cap.
+150-attendee journey as a representative load check with concurrent booth
+completion and New Song voting traffic; that test number is not an application
+cap.
 
 ### Phone registration and recovery
 
@@ -217,7 +219,7 @@ values to Phase 1, the attendee hub, or a booth-leader page:
 ?preview=before
 ?preview=1
 ?preview=2
-?preview=3
+?preview=waiting
 ?preview=ended
 ```
 
@@ -253,8 +255,8 @@ for their booth, the shared timer, and that booth's recent check-ins.
 
 Art Therapy keeps the existing attendee URL
 (`/phase2-booths/booth-art.html`) and staff URL
-(`/phase2-staff/art.html`). On Node/Render, Orange wristbands attend Session 1,
-Green attend Session 2, and Red attend Session 3. Each rotation follows the
+(`/phase2-staff/art.html`). On Node/Render, Orange wristbands attend Session 1
+and Green attend Session 2. Each rotation follows the
 leader-paced sequence **welcome → definition → importance → purpose image →
 heart question → Proverbs 4:23 → Philippians 4:7 → create → finished →
 complete**. The heart question and two passages are progressive reveals within
@@ -272,8 +274,8 @@ only; the optional Art kiosk remains a separate fallback.
 New Song keeps the same attendee URL (`/phase2-booths/booth-newsong.html`) and
 staff URL (`/phase2-staff/newsong.html`). On the Node/Render backend, each
 rotation follows the leader-paced sequence **welcome → voting → winner → verse
-→ complete**: Green wristbands attend Session 1, Yellow attend Session 2, and
-Orange attend Session 3. The leader opens the poll, reveals its winner, shows
+→ complete**: Green wristbands attend Session 1 and Yellow attend Session 2.
+The leader opens the poll, reveals its winner, shows
 Revelation 14:3, and releases the final completion action.
 
 The poll contains exactly these eleven choices:
@@ -311,7 +313,7 @@ event-app/
 │   ├── phase2-booths/      unified hub + optional legacy booth/kiosk pages
 │   ├── phase2-staff/       compatibility redirect and five scoped portals
 │   ├── phase3-signup/      checkbox-only next steps + saved completion
-│   ├── done/               early-finish countdown + 4:10 message state
+│   ├── done/               early-finish countdown + 4:00 message state
 │   ├── organizer/          unified staff directory, dashboard, and QR utility
 │   └── shared/             identity, schedule, API, content, and shared UI
 ├── demo-server/            Node rehearsal backend using a JSON data file

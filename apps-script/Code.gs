@@ -95,17 +95,17 @@ const BOOTH_NAMES = {
   newsong: "The New Song in Nashville",
 };
 const WRISTBAND_ROUTES = {
-  blue: ["heaven", "trivia", "story"],
-  red: ["trivia", "heaven", "art"],
-  orange: ["art", "story", "newsong"],
-  green: ["newsong", "art", "heaven"],
-  yellow: ["story", "newsong", "trivia"],
+  blue: ["heaven", "trivia"],
+  red: ["trivia", "heaven"],
+  orange: ["art", "story"],
+  green: ["newsong", "art"],
+  yellow: ["story", "newsong"],
 };
 const BOOTH_SESSIONS = [
   { number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
   { number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
-  { number: 3, startsAt: "2026-07-18T15:50:00-05:00", endsAt: "2026-07-18T16:10:00-05:00", label: "3:50–4:10 PM" },
 ];
+const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:00:00-05:00";
 const BOOTH_PRESENTATION_STATUSES = ["waiting", "live", "paused", "wrap", "complete"];
 const MAX_PRESENTATION_STEP_INDEX = 50;
 const MAX_PRESENTATION_MESSAGE_LENGTH = 500;
@@ -435,6 +435,15 @@ function eventSessionState(nowMs) {
   if (currentMs < sessions[0].startMs) {
     return {
       phase: "before",
+      serverNow: new Date(currentMs).toISOString(),
+      sessionIndex: null,
+      sessionNumber: null,
+      sessionLabel: null,
+    };
+  }
+  if (currentMs < Date.parse(MAIN_MESSAGE_STARTS_AT)) {
+    return {
+      phase: "waiting",
       serverNow: new Date(currentMs).toISOString(),
       sessionIndex: null,
       sessionNumber: null,
@@ -1098,7 +1107,7 @@ function actionMyCheckins(params) {
     const ids = [attendee.attendeeId].concat(aliasIds);
     const checkins = readRows(SHEET_NAMES.BOOTH_CHECKINS);
     const boothIds = checkins
-      .filter((c) => ids.indexOf(c.attendeeId) !== -1 || (attendee.phone && String(c.phone) === String(attendee.phone)))
+      .filter((c) => ids.indexOf(c.attendeeId) !== -1)
       .map((c) => c.boothId);
     return { boothIds: Array.from(new Set(boothIds)) };
   });
@@ -1137,10 +1146,7 @@ function wristbandGroupsForDashboard(attendees, checkins, eventState) {
           .concat(Array.isArray(parsedAliases) ? parsedAliases : [])
           .map((value) => String(value));
         const completedSet = new Set(checkins
-          .filter((checkin) => (
-            attendeeIds.indexOf(String(checkin.attendeeId)) !== -1
-              || (attendee.phone && String(checkin.phone) === String(attendee.phone))
-          ))
+          .filter((checkin) => attendeeIds.indexOf(String(checkin.attendeeId)) !== -1)
           .map((checkin) => String(checkin.boothId)));
         const completedBoothIds = route.filter((boothId) => completedSet.has(boothId));
         return {

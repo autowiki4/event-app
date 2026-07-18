@@ -44,11 +44,11 @@
       <div class="next-up-live"><span class="next-up-live-dot"></span><span id="next-up-kicker">Don't go yet</span></div>
       <h2 id="next-up-title">You don't want to miss what's next…</h2>
       <div class="next-up-timer" id="next-up-timer">--:--</div>
-      <div class="next-up-label" id="next-up-label">Until the main message · 4:10 PM</div>
-      <p id="next-up-copy">Your Phase 3 choices are saved. Keep this screen open and stay nearby while the final booth session wraps up.</p>
+      <div class="next-up-label" id="next-up-label">Until the main message · 4:00 PM</div>
+      <p id="next-up-copy">Your Phase 3 choices are saved. Keep this screen open and stay nearby for the 4:00 PM main message.</p>
     </div>
 
-    <a class="btn btn-ghost" id="btn-return-booth" href="../phase2-booths/hub.html" style="display:none; margin-top:12px; text-decoration:none;">Return to my booth before 4:10 →</a>
+    <a class="btn btn-ghost" id="btn-return-booth" href="../phase2-booths/hub.html" style="display:none; margin-top:12px; text-decoration:none;">Return to my booth before 3:50 →</a>
     <ul class="summary-list" id="summary-list"></ul>
     <div id="booth-guides"></div>
     <div class="connect-card">
@@ -97,9 +97,11 @@ function renderMessageState() {
     document.getElementById("next-up-kicker").textContent = "Don't go yet";
     document.getElementById("next-up-title").textContent = "You don't want to miss what's next…";
     document.getElementById("next-up-timer").textContent = EventSchedule.formatCountdown(EventSchedule.remainingUntilEventEnd());
-    document.getElementById("next-up-label").textContent = "Until the main message · 4:10 PM";
-    document.getElementById("next-up-copy").textContent = "Your Phase 3 choices are saved. Keep this screen open and stay nearby while the final booth session wraps up.";
-    document.getElementById("done-lede").textContent = "Your choices are saved. Stay with us for the main message at 4:10 PM.";
+    document.getElementById("next-up-label").textContent = "Until the main message · 4:00 PM";
+    document.getElementById("next-up-copy").textContent = snapshot.phase === "waiting"
+      ? "Both booth rotations are complete. Keep this screen open and stay nearby for the main message."
+      : "Your Phase 3 choices are saved. Keep this screen open while the booth rotations finish.";
+    document.getElementById("done-lede").textContent = "Your choices are saved. Stay with us for the main message at 4:00 PM.";
     returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
     returnButton.style.display = snapshot.phase === "active" ? "block" : "none";
   } else {
@@ -152,7 +154,7 @@ async function render() {
   chosen = FINAL_OPTIONS.filter((option) => (signupState.optionIds || []).includes(option.id));
 
   const route = routeForWristband(identity.wristbandColor);
-  const routeLength = route.length || 3;
+  const routeLength = route.length || BOOTH_SESSIONS.length;
   const phase2Complete = route.length === BOOTH_SESSIONS.length
     && route.every((boothId) => boothIds.includes(boothId));
   renderProgress(phase2Complete);

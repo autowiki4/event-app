@@ -60,7 +60,7 @@
         <div class="waiting-lobby-icon" aria-hidden="true">☀️</div>
         <div>
           <span class="status-pill waiting">Waiting lobby</span>
-          <h2>You're checked in and in the right place.</h2>
+          <h2 id="waiting-lobby-title">You're checked in and in the right place.</h2>
           <p id="waiting-lobby-copy">Keep this page open. Your first booth will unlock automatically when the organizer starts the experience.</p>
         </div>
       </div>
@@ -95,9 +95,9 @@
       </div>
     </div>
 
-    <div class="section-title">Your three stops</div>
+    <div class="section-title">Your two stops</div>
     <div class="route-list" id="attendee-route"></div>
-    <p class="top-note">The shared timer changes everyone to the next stop at 3:30 and 3:50. The event clock cannot be paused by a booth.</p>
+    <p class="top-note">The shared timer changes everyone to the second stop at 3:30. Booths finish at 3:50, followed by a ten-minute handoff to the 4:00 PM main message. Late arrivals with fewer than five minutes left wait for the next rotation; a missed stop is saved for catch-up.</p>
   </section>
 </div>
 
@@ -132,6 +132,13 @@ Phone.bind(phase2PhoneInput);
 function routeIsComplete() {
   const route = identity ? EventSchedule.route(identity.wristbandColor) : [];
   return route.length === BOOTH_SESSIONS.length && route.every((boothId) => completedBooths.has(boothId));
+}
+
+function attendeeArrivalPlan() {
+  if (!identity || typeof EventSchedule.arrivalPlan !== "function") {
+    return { firstEligibleSessionIndex: 0, firstEligibleSessionNumber: 1, missedSessionIndices: [] };
+  }
+  return EventSchedule.arrivalPlan(identity.boothArrivalPlan || identity.wristbandConfirmedAt);
 }
 
 function renderProgress(phase2Complete) {
@@ -264,7 +271,7 @@ function displayPresentation(booth) {
     : status === "paused"
       ? "Keep this page open. The leader will continue the activity shortly."
       : status === "complete"
-        ? ["trivia", "heaven"].includes(booth.id)
+        ? ["trivia", "heaven", "story", "art", "newsong"].includes(booth.id)
           ? `Open ${booth.title} above and tap Done on its final screen. Your next booth stays locked until its session begins.`
           : "Mark your visit complete below, then check your route for what comes next."
         : step.body;
@@ -298,20 +305,24 @@ async function loadPresentation(boothId) {
 
 function renderRoute(snapshot) {
   const route = EventSchedule.route(identity.wristbandColor);
+  const arrival = attendeeArrivalPlan();
   const stops = route.map((boothId, index) => {
     const booth = boothById(boothId);
     const session = BOOTH_SESSIONS[index];
     const completed = completedBooths.has(boothId);
     const fallback = (() => {
       const current = snapshot.phase === "active" && snapshot.sessionIndex === index;
-      const past = snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
+      const past = snapshot.phase === "waiting" || snapshot.phase === "ended" || (snapshot.phase === "active" && index < snapshot.sessionIndex);
       if (completed) return { kind: "visited", canOpen: current, faded: true, checked: true };
+      if (arrival.missedSessionIndices.includes(index)) {
+        return { kind: "catchup", canOpen: false, faded: true, checked: false };
+      }
       if (current) return { kind: "active", canOpen: true, faded: false, checked: false };
       if (past) return { kind: "expired", canOpen: false, faded: true, checked: false };
       return { kind: "locked", canOpen: false, faded: true, checked: false };
     })();
     const derived = typeof EventSchedule.deriveBoothStop === "function"
-      ? EventSchedule.deriveBoothStop(index, completed, snapshot)
+      ? EventSchedule.deriveBoothStop(index, completed, snapshot, arrival)
       : fallback;
     const state = { ...fallback, ...(derived || {}) };
     const canOpen = Boolean(state.canOpen);
@@ -326,6 +337,8 @@ function renderRoute(snapshot) {
         ? "Active · Tap in"
         : kind === "expired"
           ? "Ended · Not visited"
+          : kind === "catchup"
+            ? "Catch-up needed"
           : `Locked · Opens ${EventSchedule.formattedTime(session.startsAt)}`;
     return { boothId, index, booth, session, canOpen, checked, classes, stateLabel };
   });
@@ -359,11 +372,20 @@ function renderSchedule() {
   const phase3 = document.getElementById("btn-phase3");
   const phase3Note = document.getElementById("phase3-note");
   const color = wristbandColorById(identity.wristbandColor);
+  const arrival = attendeeArrivalPlan();
   const currentBooth = EventSchedule.currentBooth(identity.wristbandColor, snapshot);
   const route = EventSchedule.route(identity.wristbandColor);
+  const waitingForNextRotation = snapshot.phase === "active" && (
+    arrival.firstEligibleSessionIndex === null
+      || snapshot.sessionIndex < arrival.firstEligibleSessionIndex
+  );
   const completedCount = route.filter((boothId) => completedBooths.has(boothId)).length;
+  const catchUpCount = arrival.missedSessionIndices.filter((index) => (
+    route[index] && !completedBooths.has(route[index])
+  )).length;
   const phase2Complete = routeIsComplete();
   const endingSoon = snapshot.phase === "active"
+    && !waitingForNextRotation
     && !completedBooths.has(route[snapshot.sessionIndex])
     && (typeof EventSchedule.isEndingSoon === "function"
       ? EventSchedule.isEndingSoon(snapshot, 15000)
@@ -382,6 +404,7 @@ function renderSchedule() {
     document.getElementById("clock-title").textContent = "Get ready for Session 1";
     document.getElementById("countdown-label").textContent = "Until your first session";
     waitingLobby.style.display = "flex";
+    document.getElementById("waiting-lobby-title").textContent = "You're checked in and in the right place.";
     document.getElementById("waiting-lobby-copy").textContent = `Keep this page open. ${currentBooth ? currentBooth.title : "Your first booth"} will unlock automatically when the organizer starts the experience or at 3:10 PM.`;
     document.getElementById("current-kicker").textContent = "Your first experience";
     document.getElementById("current-heading").innerHTML = `You will start at <em>${escapeHtml(currentBooth ? currentBooth.title : "your first booth")}</em>`;
@@ -389,12 +412,46 @@ function renderSchedule() {
     card.style.display = "none";
     activeBoothId = "";
   } else if (snapshot.phase === "active") {
-    document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of 3 · ${snapshot.session.label}`;
+    if (waitingForNextRotation) {
+      const nextIndex = arrival.firstEligibleSessionIndex;
+      const nextSession = nextIndex === null ? null : BOOTH_SESSIONS[nextIndex];
+      const nextBooth = nextIndex === null ? null : boothById(route[nextIndex]);
+      document.getElementById("clock-kicker").textContent = `Late arrival · Session ${snapshot.session.number} is ending`;
+      document.getElementById("clock-title").textContent = nextSession
+        ? "Next session starts soon"
+        : "Booth rotations are ending";
+      document.getElementById("countdown-label").textContent = nextSession
+        ? `Until Session ${nextSession.number}`
+        : "Until booths close";
+      waitingLobby.style.display = "flex";
+      document.getElementById("waiting-lobby-title").textContent = nextSession
+        ? "Please wait for the next rotation."
+        : "Please see an organizer for catch-up.";
+      document.getElementById("waiting-lobby-copy").textContent = nextSession
+        ? `${nextBooth ? nextBooth.title : "Your next booth"} opens for you at ${EventSchedule.formattedTime(nextSession.startsAt)}. The booth you missed is marked for catch-up, not completed.`
+        : "There are fewer than five minutes left in the final session. Your missed stops are marked for catch-up, not completed.";
+      document.getElementById("current-kicker").textContent = nextSession
+        ? `Your next experience · Session ${nextSession.number}`
+        : "Catch-up assistance";
+      document.getElementById("current-heading").innerHTML = nextSession
+        ? `You will join <em>${escapeHtml(nextBooth ? nextBooth.title : "your next booth")}</em>`
+        : "Ask the organizer about your <em>catch-up stops.</em>";
+      document.getElementById("current-copy").textContent = nextSession
+        ? `Keep this page open. The shared countdown will unlock Session ${nextSession.number} automatically.`
+        : "Your progress remains saved, and no missed booth has been marked complete.";
+      card.style.display = "none";
+      activeBoothId = "";
+      return;
+    }
+    document.getElementById("clock-kicker").textContent = `Session ${snapshot.session.number} of ${BOOTH_SESSIONS.length} · ${snapshot.session.label}`;
     document.getElementById("clock-title").textContent = "Shared 20-minute session";
     document.getElementById("countdown-label").textContent = "Time remaining";
-    document.getElementById("current-kicker").textContent = `Stop ${snapshot.session.number} of 3 · Go now`;
+    document.getElementById("current-kicker").textContent = `Stop ${snapshot.session.number} of ${route.length} · Go now`;
     document.getElementById("current-heading").innerHTML = `Your booth is <em>${escapeHtml(currentBooth ? currentBooth.title : "loading")}</em>`;
-    document.getElementById("current-copy").textContent = "This screen follows your booth leader. Keep it open while the group moves through the activity.";
+    document.getElementById("current-copy").textContent = arrival.joinedInProgress
+      && arrival.firstEligibleSessionIndex === snapshot.sessionIndex
+      ? "You're joining this session in progress. Open the activity to see the booth leader's current step; you do not need to start from the beginning."
+      : "This screen follows your booth leader. Keep it open while the group moves through the activity.";
     card.style.display = "block";
     if (currentBooth) {
       document.getElementById("current-booth-icon").textContent = currentBooth.icon;
@@ -424,25 +481,32 @@ function renderSchedule() {
       }
     }
     if (phase2Complete) {
-      phase3Note.textContent = `All three visits are marked complete. Continue now, or reopen ${currentBooth ? currentBooth.title : "this booth"} until ${EventSchedule.formattedTime(snapshot.session.endsAt)}.`;
+      phase3Note.textContent = `Both visits are marked complete. Continue now, or reopen ${currentBooth ? currentBooth.title : "this booth"} until ${EventSchedule.formattedTime(snapshot.session.endsAt)}.`;
       phase3Ready.style.display = "block";
     }
   } else {
-    document.getElementById("clock-kicker").textContent = phase2Complete ? "All three visits marked complete" : "Booth time has ended";
-    document.getElementById("clock-title").textContent = "Continue to Phase 3";
-    document.getElementById("session-countdown").textContent = "4:10";
-    document.getElementById("countdown-label").textContent = "Booths closed at";
+    const waitingForMessage = snapshot.phase === "waiting";
+    document.getElementById("clock-kicker").textContent = phase2Complete ? "Both visits marked complete" : "Booth time has ended";
+    document.getElementById("clock-title").textContent = waitingForMessage ? "Main message starts at 4:00 PM" : "The main message is starting";
+    document.getElementById("session-countdown").textContent = waitingForMessage
+      ? EventSchedule.formatCountdown(snapshot.remainingMs)
+      : "NOW";
+    document.getElementById("countdown-label").textContent = waitingForMessage ? "Until the main message" : "Message time";
     document.getElementById("current-kicker").textContent = phase2Complete ? "Phase 2 complete" : "Phase 2 time ended";
     document.getElementById("current-heading").innerHTML = phase2Complete
       ? "Tick your <em>next steps</em> and go."
       : "Continue with your <em>saved progress.</em>";
     document.getElementById("current-copy").textContent = phase2Complete
-      ? "Your three completion taps are saved. Your name and raffle number will carry forward."
-      : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;
+      ? "Your two completion taps are saved. Finish Phase 3, then stay nearby for the 4:00 PM main message."
+      : catchUpCount
+        ? `You marked ${completedCount} of ${route.length} visits complete. ${catchUpCount} ${catchUpCount === 1 ? "stop is" : "stops are"} marked for possible catch-up, and you can still continue.`
+        : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;
     card.style.display = "none";
     phase3Note.textContent = phase2Complete
-      ? "All three booth visits were marked complete."
-      : `Booth time is over. ${completedCount} of ${route.length} visits were marked complete.`;
+      ? "Both booth visits were marked complete."
+      : catchUpCount
+        ? `Booth time is over. ${completedCount} of ${route.length} visits were marked complete; ask an organizer about ${catchUpCount === 1 ? "the catch-up stop" : "the catch-up stops"}.`
+        : `Booth time is over. ${completedCount} of ${route.length} visits were marked complete.`;
     phase3Ready.style.display = "block";
     activeBoothId = "";
   }

@@ -254,7 +254,7 @@ initBoothRoom({
   roomName: BOOTH_ROOM_NAME,
   onReady: () => HeavenAttendee.init({
     containerId: "booth-content",
-    onCompleted: () => finishBooth(BOOTH_ID, BOOTH_NAME),
+    onCompleted: () => window.completeBoothRoom(BOOTH_NAME),
   }),
 });
 </script>

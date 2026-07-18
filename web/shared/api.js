@@ -108,6 +108,8 @@ const EventAPI = (function () {
       version,
       organizerKey,
     }),
+    completeHeaven: (attendeeId) => call("completeHeaven", { attendeeId }),
+    completeStory: (attendeeId) => call("completeStory", { attendeeId }),
     artState: (attendeeId) => call("artState", { attendeeId }),
     artDashboardData: (organizerKey) => call("artDashboardData", { organizerKey }),
     advanceArtSession: (sessionNumber, action, version, organizerKey) => call("advanceArtSession", {

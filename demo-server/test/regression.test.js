@@ -882,7 +882,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
   for (const targetIso of [
     "2026-07-18T20:09:59.999Z",
-    "2026-07-18T21:10:00.001Z",
+    "2026-07-18T21:00:01.000Z",
   ]) {
     res = await request(port, "setDemoClock", { mode: "custom", targetIso, organizerKey });
     assert.equal(res.status, 400, targetIso);
@@ -901,7 +901,8 @@ async function runApiRegression(port) {
   assert.ok(Date.parse(res.body.serverNow) > firstCustomMs, "custom demo time should tick forward");
   for (const boundaryTarget of [
     "2026-07-18T20:10:00.000Z",
-    "2026-07-18T21:10:00.000Z",
+    "2026-07-18T20:55:00.000Z",
+    "2026-07-18T21:00:00.000Z",
   ]) {
     res = await request(port, "setDemoClock", {
       mode: "custom", targetIso: boundaryTarget, organizerKey,
@@ -930,13 +931,36 @@ async function runApiRegression(port) {
     "session1-final15",
     "session2",
     "session2-final15",
-    "session3",
-    "session3-final15",
+    "waiting",
     "ended",
   ]) {
     res = await request(port, "setDemoClock", { mode, targetIso: anchoredTarget, organizerKey });
     assert.equal(res.status, 200, mode);
     assert.equal(res.body.mode, mode);
+  }
+  for (const removedMode of ["session3", "session3-final15"]) {
+    res = await request(port, "setDemoClock", {
+      mode: removedMode,
+      targetIso: "2026-07-18T20:55:00.000Z",
+      organizerKey,
+    });
+    assert.equal(res.status, 400, removedMode);
+    assert.equal(res.body.code, "INVALID_DEMO_CLOCK_MODE", removedMode);
+  }
+
+  // The ten-minute handoff window is distinct from both booth rotations and
+  // the 4:00 PM message. These exact boundaries drive every attendee portal.
+  for (const [targetIso, expectedPhase] of [
+    ["2026-07-18T20:50:00.000Z", "waiting"],
+    ["2026-07-18T20:59:59.000Z", "waiting"],
+    ["2026-07-18T21:00:00.000Z", "ended"],
+  ]) {
+    res = await request(port, "setDemoClock", { mode: "custom", targetIso, organizerKey });
+    assert.equal(res.status, 200, targetIso);
+    res = await request(port, "dashboardData", { organizerKey });
+    assert.equal(res.status, 200, targetIso);
+    assert.equal(res.body.eventState.phase, expectedPhase, targetIso);
+    assert.equal(res.body.eventState.sessionNumber, null, targetIso);
   }
   res = await request(port, "setDemoClock", { mode: "live", targetIso: null, organizerKey });
   assert.equal(res.status, 200);
@@ -1252,7 +1276,7 @@ async function runApiRegression(port) {
     phone: "6155550101",
     boothId: "story",
     boothName: "The Heaven Booth",
-    checkedInBy: "self",
+    checkedInBy: "capacity-test",
     rating: 4,
   });
   assert.equal(res.status, 200);
@@ -1267,7 +1291,7 @@ async function runApiRegression(port) {
     attendeeId: "entry-a",
     boothId: "story",
     boothName: "The Heaven Booth",
-    checkedInBy: "scheduled-attendee",
+    checkedInBy: "capacity-test",
     extraData: { sessionNumber: 2, wristbandColor: "blue" },
   });
   assert.equal(res.status, 200);
@@ -1673,6 +1697,12 @@ async function runTriviaApiRegression(port) {
 
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
 
   async function registerTriviaAttendee(attendeeId, name, wristbandColor) {
     const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
@@ -1695,7 +1725,7 @@ async function runTriviaApiRegression(port) {
   });
   assert.equal(res.status, 200);
 
-  // Staff controls and every session leaderboard are protected. All three
+  // Staff controls and every session leaderboard are protected. Both
   // rotations begin independently on the welcome screen.
   res = await request(port, "triviaDashboardData", { organizerKey: "wrong" });
   assert.equal(res.status, 401);
@@ -1706,10 +1736,16 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "resetTriviaSession", { sessionNumber: 1, organizerKey: "wrong" });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
+  res = await advance(3, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_TRIVIA_SESSION");
 
   res = await request(port, "triviaDashboardData", { organizerKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.sessions.length, 3);
+  assert.equal(res.body.sessions.length, 2);
   assert.deepEqual(
     res.body.sessions.map((session) => [
       session.sessionNumber,
@@ -1721,7 +1757,6 @@ async function runTriviaApiRegression(port) {
     [
       [1, "red", "welcome", 0, 0],
       [2, "blue", "welcome", 0, 0],
-      [3, "yellow", "welcome", 0, 0],
     ]
   );
 
@@ -2046,6 +2081,19 @@ async function runTriviaApiRegression(port) {
   assert.equal(res.body.archivedRuns[1].runId, triviaSession1Run1Id);
   assert.equal(res.body.archivedRuns[1].participantCount, 2);
 
+  res = await request(port, "setDemoClock", {
+    mode: "waiting",
+    targetIso: "2026-07-18T20:50:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "TRIVIA_SESSION_CLOSED");
+  res = await advance(1, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
+
   // The protected overall reset is the only destructive reset; it removes
   // every active game, archived game, answer, leaderboard, and completion.
   res = await request(port, "resetDemo", { organizerKey });
@@ -2053,7 +2101,7 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "triviaDashboardData", { organizerKey });
   assert.deepEqual(
     res.body.sessions.map((session) => [session.state.phase, session.state.version, session.leaderboard.length]),
-    [["welcome", 0, 0], ["welcome", 0, 0], ["welcome", 0, 0]]
+    [["welcome", 0, 0], ["welcome", 0, 0]]
   );
   const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
   assert.deepEqual(resetDb.triviaSessions, {});
@@ -2078,6 +2126,12 @@ async function runHeavenApiRegression(port) {
   );
 
   let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
   assert.equal(res.status, 200);
 
   async function registerHeavenAttendee(attendeeId, name, wristbandColor) {
@@ -2115,7 +2169,7 @@ async function runHeavenApiRegression(port) {
   });
   assert.equal(res.status, 200);
 
-  // Staff reads, transitions, and resets are protected. The three Draw
+  // Staff reads, transitions, and resets are protected. Both Draw
   // Heaven rotations start with independent run 1 welcome states.
   res = await request(port, "heavenDashboardData", { organizerKey: "wrong" });
   assert.equal(res.status, 401);
@@ -2129,9 +2183,15 @@ async function runHeavenApiRegression(port) {
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
+  res = await advance(3, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_HEAVEN_SESSION");
   res = await request(port, "heavenDashboardData", { organizerKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.sessions.length, 3);
+  assert.equal(res.body.sessions.length, 2);
   assert.deepEqual(
     res.body.sessions.map((session) => [
       session.sessionNumber,
@@ -2144,10 +2204,9 @@ async function runHeavenApiRegression(port) {
     [
       [1, "blue", "welcome", 1, 0, 0],
       [2, "red", "welcome", 1, 0, 0],
-      [3, "green", "welcome", 1, 0, 0],
     ]
   );
-  assert.deepEqual(res.body.sessions.map((session) => session.assignedCount), [2, 1, 1]);
+  assert.deepEqual(res.body.sessions.map((session) => session.assignedCount), [2, 1]);
 
   res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
   assert.equal(res.status, 200);
@@ -2450,7 +2509,6 @@ async function runHeavenApiRegression(port) {
   res = await request(port, "heavenDashboardData", { organizerKey });
   heavenSession1 = sessionSummary(res.body, 1);
   const heavenSession2 = sessionSummary(res.body, 2);
-  const heavenSession3 = sessionSummary(res.body, 3);
   assert.equal(heavenSession1.state.runNumber, 3);
   assert.equal(heavenSession1.archivedRuns.length, 2);
   assert.equal(heavenSession1.participantCount, 0);
@@ -2458,8 +2516,19 @@ async function runHeavenApiRegression(port) {
   assert.equal(heavenSession2.participantCount, 1);
   assert.equal(heavenSession2.confirmationCounts.drawing_complete, 1);
   assert.equal(heavenSession2.archivedRuns.length, 0);
-  assert.equal(heavenSession3.state.phase, "welcome");
-  assert.equal(heavenSession3.participantCount, 0);
+
+  res = await request(port, "setDemoClock", {
+    mode: "waiting",
+    targetIso: "2026-07-18T20:50:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "heavenState", { attendeeId: "heaven-red-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "HEAVEN_SESSION_CLOSED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
 
   // The overall reset is the only destructive reset: it clears active runs,
   // archived runs, and every attendee confirmation across all sessions.
@@ -2475,7 +2544,6 @@ async function runHeavenApiRegression(port) {
       session.archivedRuns.length,
     ]),
     [
-      ["welcome", 1, 0, 0, 0],
       ["welcome", 1, 0, 0, 0],
       ["welcome", 1, 0, 0, 0],
     ]
@@ -2501,7 +2569,6 @@ async function runArtApiRegression(port) {
     targetIso: [
       "2026-07-18T20:15:00.000Z",
       "2026-07-18T20:35:00.000Z",
-      "2026-07-18T20:55:00.000Z",
     ][sessionNumber - 1],
     organizerKey,
   });
@@ -2518,6 +2585,12 @@ async function runArtApiRegression(port) {
   ];
 
   let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
   assert.equal(res.status, 200);
 
   async function registerArtAttendee(attendeeId, name, wristbandColor) {
@@ -2537,7 +2610,7 @@ async function runArtApiRegression(port) {
   await registerArtAttendee("art-blue-a", "Blue Visitor", "blue");
 
   // Art Therapy follows the same shared twenty-minute clock as every other
-  // booth. Staff can prepare the three rotations at any time, but public
+  // booth. Staff can prepare the two rotations at any time, but public
   // attendee state and completion remain closed outside an active session.
   res = await request(port, "setDemoClock", {
     mode: "before",
@@ -2570,10 +2643,16 @@ async function runArtApiRegression(port) {
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
+  res = await advance(3, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_ART_SESSION");
 
   res = await request(port, "artDashboardData", { organizerKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.sessions.length, 3);
+  assert.equal(res.body.sessions.length, 2);
   assert.deepEqual(
     res.body.sessions.map((session) => [
       session.sessionNumber,
@@ -2589,7 +2668,6 @@ async function runArtApiRegression(port) {
     [
       [1, "orange", "welcome", 1, 0, 2, 0, 0, 0],
       [2, "green", "welcome", 1, 0, 1, 0, 0, 0],
-      [3, "red", "welcome", 1, 0, 1, 0, 0, 0],
     ]
   );
   assert.deepEqual(
@@ -2772,7 +2850,10 @@ async function runArtApiRegression(port) {
     id: "legacy-duplicate-art-checkin",
     checkedInAt: "2026-07-18T20:19:59.000Z",
     checkedInBy: "legacy-generic",
-    extraData: { reflections: "DO_NOT_KEEP_DUPLICATE_ART_DATA" },
+    extraData: {
+      ...(completedArtCheckin.extraData || {}),
+      reflections: "DO_NOT_KEEP_DUPLICATE_ART_DATA",
+    },
   };
   artDb.boothCheckins.push(duplicateArtCheckin);
   fs.writeFileSync(testDb, JSON.stringify(artDb, null, 2));
@@ -2806,7 +2887,6 @@ async function runArtApiRegression(port) {
   assert.equal(sessionSummary(res.body, 1).completedCount, 2);
   assert.equal(sessionSummary(res.body, 2).state.phase, "definition");
   assert.equal(sessionSummary(res.body, 2).completedCount, 0);
-  assert.equal(sessionSummary(res.body, 3).state.phase, "welcome");
 
   // Restart preserves a read-only snapshot of the completed run. The active
   // run gets a new identity, while stale reset versions cannot replace it.
@@ -2843,9 +2923,8 @@ async function runArtApiRegression(port) {
   );
   const session1Run2Id = res.body.state.runId;
 
-  // The same attendee can complete a later run. Its generic visit row may be
-  // repaired in place, but immutable Art completion records keep Run 1's
-  // archived participant snapshot intact.
+  // The same attendee can complete a later run. Each run keeps its own visit
+  // row so archived booth results cannot be overwritten by a restart.
   res = await setSessionClock(1);
   assert.equal(res.status, 200);
   let session1Run2Version = 10;
@@ -2860,7 +2939,7 @@ async function runArtApiRegression(port) {
   assert.equal(res.status, 200);
   assert.equal(res.body.idempotent, false);
   assert.equal(res.body.runId, session1Run2Id);
-  assert.equal(res.body.checkinId, firstArtCheckinId);
+  assert.notEqual(res.body.checkinId, firstArtCheckinId);
 
   res = await request(port, "artDashboardData", { organizerKey });
   artSession1 = sessionSummary(res.body, 1);
@@ -2905,11 +2984,23 @@ async function runArtApiRegression(port) {
   assert.equal(res.body.archivedRuns[1].runId, session1Run2Id);
   assert.equal(res.body.archivedRuns[2].runId, session1Run1Id);
 
-  // The public APIs close again after 4:10, while protected staff history
+  // The public APIs close as soon as booths end at 3:50, while protected staff history
   // remains available until the overall organizer performs a destructive reset.
   res = await request(port, "setDemoClock", {
+    mode: "waiting",
+    targetIso: "2026-07-18T20:50:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "artState", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+  res = await request(port, "completeArt", { attendeeId: "art-orange-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "ART_SESSION_CLOSED");
+  res = await request(port, "setDemoClock", {
     mode: "ended",
-    targetIso: "2026-07-18T21:15:00.000Z",
+    targetIso: "2026-07-18T21:00:00.000Z",
     organizerKey,
   });
   assert.equal(res.status, 200);
@@ -2937,7 +3028,6 @@ async function runArtApiRegression(port) {
     [
       ["welcome", 1, 0, 0, 0],
       ["welcome", 1, 0, 0, 0],
-      ["welcome", 1, 0, 0, 0],
     ]
   );
   const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
@@ -2962,7 +3052,6 @@ async function runNewSongApiRegression(port) {
     targetIso: [
       "2026-07-18T20:15:00.000Z",
       "2026-07-18T20:35:00.000Z",
-      "2026-07-18T20:55:00.000Z",
     ][sessionNumber - 1],
     organizerKey,
   });
@@ -2971,6 +3060,12 @@ async function runNewSongApiRegression(port) {
   );
 
   let res = await request(port, "resetDemo", { organizerKey });
+  assert.equal(res.status, 200);
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
   assert.equal(res.status, 200);
 
   async function registerNewSongAttendee(attendeeId, name, wristbandColor) {
@@ -2992,7 +3087,7 @@ async function runNewSongApiRegression(port) {
   await registerNewSongAttendee("song-blue-a", "Blue Visitor", "blue");
 
   // Attendee state follows the shared event window. Staff can prepare all
-  // three rotations, but attendee data is unavailable before or after them.
+  // two rotations, but attendee data is unavailable before or after them.
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
@@ -3012,7 +3107,7 @@ async function runNewSongApiRegression(port) {
   res = await setSessionClock(1);
   assert.equal(res.status, 200);
 
-  // Every staff action is protected. The dashboard exposes exactly three
+  // Every staff action is protected. The dashboard exposes exactly two
   // isolated rotations, their timed wristband groups, and the canonical poll.
   res = await request(port, "newSongDashboardData", { organizerKey: "wrong" });
   assert.equal(res.status, 401);
@@ -3027,11 +3122,17 @@ async function runNewSongApiRegression(port) {
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
+  res = await advance(2, "start", 0);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
+  res = await advance(3, "start", 0);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_NEW_SONG_SESSION");
 
   res = await request(port, "newSongDashboardData", { organizerKey });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body.choices, EXPECTED_NEW_SONG_CHOICES);
-  assert.equal(res.body.sessions.length, 3);
+  assert.equal(res.body.sessions.length, 2);
   assert.deepEqual(
     res.body.sessions.map((session) => [
       session.sessionNumber,
@@ -3046,7 +3147,6 @@ async function runNewSongApiRegression(port) {
     [
       [1, "green", "welcome", 1, 0, 3, 0, 0],
       [2, "yellow", "welcome", 1, 0, 2, 0, 0],
-      [3, "orange", "welcome", 1, 0, 1, 0, 0],
     ]
   );
   res.body.sessions.forEach((session) => {
@@ -3180,7 +3280,6 @@ async function runNewSongApiRegression(port) {
     ]
   );
   assert.equal(sessionSummary(res.body, 2).totalVotes, 0);
-  assert.equal(sessionSummary(res.body, 3).totalVotes, 0);
 
   // The leader freezes a unique result. Voting closes immediately, but the
   // attendee result stays on the winner screen until the verse is released.
@@ -3262,6 +3361,9 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.code, "NEW_SONG_NOT_ASSIGNED");
   res = await advance(2, "start", 0);
   assert.equal(res.status, 200);
+  res = await advance(2, "show_winner", 1);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_NO_VOTES");
   for (const [attendeeId, songTitle] of [
     ["song-yellow-a", "Goodbye Yesterday - elevation rhythm"],
     ["song-yellow-b", "He called me"],
@@ -3296,28 +3398,6 @@ async function runNewSongApiRegression(port) {
   assert.equal(session1.totalVotes, 3);
   assert.equal(session2.state.phase, "winner");
   assert.equal(session2.totalVotes, 2);
-  assert.equal(sessionSummary(res.body, 3).state.phase, "welcome");
-
-  // A zero-vote run cannot invent a winner. Once Session 3 receives a vote,
-  // it can advance without changing either earlier session or their totals.
-  res = await setSessionClock(3);
-  assert.equal(res.status, 200);
-  res = await advance(3, "start", 0);
-  assert.equal(res.status, 200);
-  res = await advance(3, "show_winner", 1);
-  assert.equal(res.status, 409);
-  assert.equal(res.body.code, "NEW_SONG_NO_VOTES");
-  res = await request(port, "newSongState", { attendeeId: "song-orange-a" });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.phase, "voting");
-  res = await request(port, "submitNewSongVote", {
-    attendeeId: "song-orange-a",
-    songTitle: "Amen- Madison Ryann Ward",
-  });
-  assert.equal(res.status, 200);
-  res = await advance(3, "show_winner", 1);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.result.featuredWinner, "Amen- Madison Ryann Ward");
 
   // Restarting archives Session 1 instead of deleting its votes. Optimistic
   // reset versions prevent an older staff tab from replacing the active run.
@@ -3391,11 +3471,23 @@ async function runNewSongApiRegression(port) {
   assert.equal(res.body.archivedRuns[1].runId, session1Run1Id);
   assert.equal(res.body.archivedRuns[1].result.featuredWinner, "Victory");
 
-  // After the timed window, attendee state and completion close again while
+  // Once booths close at 3:50, attendee state and completion close while
   // protected staff history remains queryable.
   res = await request(port, "setDemoClock", {
+    mode: "waiting",
+    targetIso: "2026-07-18T20:50:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
+  res = await request(port, "newSongState", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+  res = await request(port, "completeNewSong", { attendeeId: "song-green-a" });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.code, "NEW_SONG_SESSION_CLOSED");
+  res = await request(port, "setDemoClock", {
     mode: "ended",
-    targetIso: "2026-07-18T21:15:00.000Z",
+    targetIso: "2026-07-18T21:00:00.000Z",
     organizerKey,
   });
   assert.equal(res.status, 200);
@@ -3408,7 +3500,6 @@ async function runNewSongApiRegression(port) {
   res = await request(port, "newSongDashboardData", { organizerKey });
   assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 2);
   assert.equal(sessionSummary(res.body, 2).result.featuredWinner, "Goodbye Yesterday - elevation rhythm");
-  assert.equal(sessionSummary(res.body, 3).result.featuredWinner, "Amen- Madison Ryann Ward");
 
   // Only the overall reset destroys active rotations, archives, votes, and
   // booth completions. Every specialized session then returns to run 1.
@@ -3426,7 +3517,6 @@ async function runNewSongApiRegression(port) {
     [
       ["welcome", 1, 0, 0, 0],
       ["welcome", 1, 0, 0, 0],
-      ["welcome", 1, 0, 0, 0],
     ]
   );
   const resetDb = JSON.parse(fs.readFileSync(testDb, "utf8"));
@@ -3440,11 +3530,11 @@ async function runCapacityRegression(port) {
   const organizerKey = "test-organizer-key";
   const colors = ["blue", "red", "orange", "green", "yellow"];
   const routes = {
-    blue: ["heaven", "trivia", "story"],
-    red: ["trivia", "heaven", "art"],
-    orange: ["art", "story", "newsong"],
-    green: ["newsong", "art", "heaven"],
-    yellow: ["story", "newsong", "trivia"],
+    blue: ["heaven", "trivia"],
+    red: ["trivia", "heaven"],
+    orange: ["art", "story"],
+    green: ["newsong", "art"],
+    yellow: ["story", "newsong"],
   };
   const songChoices = ["He called me", "Victory", "Elohim"];
   const artActions = [
@@ -3455,6 +3545,12 @@ async function runCapacityRegression(port) {
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
   assertIsoTimestamp(res.body.dataResetAt, "capacity reset marker");
+  res = await request(port, "setDemoClock", {
+    mode: "before",
+    targetIso: "2026-07-18T20:05:00.000Z",
+    organizerKey,
+  });
+  assert.equal(res.status, 200);
 
   const registrations = await Promise.all(Array.from({ length: 150 }, (_, index) => (
     request(port, "registerAttendee", {
@@ -3488,7 +3584,7 @@ async function runCapacityRegression(port) {
       songTitle: songChoices[index % songChoices.length],
     })
   )));
-  assert.equal(songVotes.length, 90);
+  assert.equal(songVotes.length, 60);
   assert.equal(songVotes.every((result) => result.status === 200), true);
 
   const checkins = await Promise.all(assignments.flatMap((assignment) => (
@@ -3503,7 +3599,7 @@ async function runCapacityRegression(port) {
       extraData: { sessionNumber: sessionIndex + 1, wristbandColor: assignment.colorId },
       }))
   )));
-  assert.equal(checkins.length, 360);
+  assert.equal(checkins.length, 240);
   assert.equal(checkins.every((result) => result.status === 200), true);
 
   const phase3Finishes = await Promise.all(assignments.map((assignment) => (
@@ -3608,7 +3704,6 @@ async function runCapacityRegression(port) {
     row.correctCount === 1 && row.answeredCount === 1 && row.totalQuestions === 1
   )), true);
   assert.equal(res.body.sessions.find((session) => session.sessionNumber === 1).leaderboard.length, 0);
-  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 3).leaderboard.length, 0);
 
   // The same rehearsal sends 30 Green wristbands through leader-paced Art
   // Therapy in Session 2. Release all slides, then save one immutable run
@@ -3638,39 +3733,7 @@ async function runCapacityRegression(port) {
   assert.equal(capacityArtSession2.participantCount, 30);
   assert.equal(capacityArtSession2.participants.filter((participant) => participant.completedAt).length, 30);
   assert.equal(res.body.sessions.find((session) => session.sessionNumber === 1).completedCount, 30);
-  assert.equal(res.body.sessions.find((session) => session.sessionNumber === 3).completedCount, 0);
-
-  // Red wristbands complete Art in Session 3, then return the shared clock to
-  // Session 2 so the dashboard assertions below retain their intended view.
-  res = await request(port, "setDemoClock", {
-    mode: "session3",
-    targetIso: "2026-07-18T20:55:00.000Z",
-    organizerKey,
-  });
-  assert.equal(res.status, 200);
-  for (let version = 0; version < artActions.length; version += 1) {
-    res = await request(port, "advanceArtSession", {
-      sessionNumber: 3,
-      action: artActions[version],
-      version,
-      organizerKey,
-    });
-    assert.equal(res.status, 200, `Session 3 ${artActions[version]}`);
-  }
-  const session3ArtAttendees = assignments.filter((assignment) => assignment.colorId === "red");
-  const session3ArtCompletions = await Promise.all(session3ArtAttendees.map((assignment) => request(
-    port, "completeArt", { attendeeId: assignment.attendeeId }
-  )));
-  assert.equal(session3ArtCompletions.length, 30);
-  assert.equal(session3ArtCompletions.every((result) => result.status === 200), true);
-  res = await request(port, "artDashboardData", { organizerKey });
-  assert.deepEqual(res.body.sessions.map((session) => session.completedCount), [30, 30, 30]);
-  res = await request(port, "setDemoClock", {
-    mode: "session2",
-    targetIso: "2026-07-18T20:35:00.000Z",
-    organizerKey,
-  });
-  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.sessions.map((session) => session.completedCount), [30, 30]);
 
   res = await request(port, "dashboardData", { organizerKey });
   assert.equal(res.status, 200);
@@ -3689,8 +3752,8 @@ async function runCapacityRegression(port) {
   assert.deepEqual(greenGroup.currentBooth, { boothId: "art", boothName: "Art Therapy Table" });
   assert.equal(blueGroup.attendees.length, 30);
   assert.equal(blueGroup.attendees.every((attendee) => (
-    attendee.completedStops === 3
-      && attendee.totalStops === 3
+    attendee.completedStops === 2
+      && attendee.totalStops === 2
       && attendee.currentStopCompleted === true
       && attendee.phase3Completed === true
       && !("attendeeId" in attendee)
@@ -3698,7 +3761,7 @@ async function runCapacityRegression(port) {
   )), true);
   assert.deepEqual(
     Object.fromEntries(res.body.boothCounts.map((entry) => [entry.boothId, entry.count])),
-    { heaven: 90, trivia: 90, story: 90, art: 90, newsong: 90 }
+    { heaven: 60, trivia: 60, story: 60, art: 60, newsong: 60 }
   );
   assert.equal("songVotes" in res.body, false);
   assert.equal("triviaLeaderboard" in res.body, false);
@@ -3706,7 +3769,7 @@ async function runCapacityRegression(port) {
 
   res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
   assert.equal(res.status, 200);
-  assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 90);
+  assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 60);
   res = await request(port, "triviaDashboardData", { organizerKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.sessions.reduce((total, session) => total + session.leaderboard.length, 0), 30);
@@ -4374,12 +4437,12 @@ async function runFrontendContractRegression() {
   assert.match(triviaAttendeeSource, /topThree: phase === "complete"/);
   assert.match(triviaAttendeeSource, /Session top 3/);
 
-  // The booth leader gets a specialized three-session controller with
+  // The booth leader gets a specialized two-session controller with
   // versioned actions and an explicitly session-scoped leaderboard.
   assert.match(triviaStaffPageSource, /shared\/trivia-staff\.js/);
   assert.match(triviaStaffPageSource, /data-session-number="1"/);
   assert.match(triviaStaffPageSource, /data-session-number="2"/);
-  assert.match(triviaStaffPageSource, /data-session-number="3"/);
+  assert.doesNotMatch(triviaStaffPageSource, /data-session-number="3"/);
   assert.match(triviaStaffPageSource, /id="trivia-leaderboard"/);
   assert.match(triviaStaffPageSource, /id="trivia-archive-list"/);
   assert.match(triviaStaffSource, /EventAPI\.triviaDashboardData\(organizerKey\)/);
@@ -4396,7 +4459,7 @@ async function runFrontendContractRegression() {
   // booth from the shared final screen with the run identity attached.
   assert.match(heavenRoomSource, /shared\/heaven-attendee\.js/);
   assert.match(heavenRoomSource, /HeavenAttendee\.init\(/);
-  assert.match(heavenRoomSource, /onCompleted: \(\) => finishBooth\(BOOTH_ID, BOOTH_NAME\)/);
+  assert.match(heavenRoomSource, /onCompleted: \(\) => window\.completeBoothRoom\(BOOTH_NAME\)/);
   assert.match(heavenRoomSource, /window\.getBoothExtraData = \(\) => HeavenAttendee\.extraData\(\)/);
   assert.doesNotMatch(heavenRoomSource, /_DRAFT_SCOPE|setHeavenPage|renderBoothFooter\(/);
   assert.match(heavenAttendeeSource, /new Set\(\[\s*"welcome",\s*"drawing",\s*"verse",\s*"comparison",\s*"reflection",\s*"programs",\s*"complete",?\s*\]\)/);
@@ -4440,13 +4503,13 @@ async function runFrontendContractRegression() {
     true
   );
 
-  // The Heaven staff portal owns three isolated, versioned active runs and
+  // The Heaven staff portal owns two isolated, versioned active runs and
   // their read-only archives instead of using the generic booth controller.
   assert.match(heavenStaffPageSource, /shared\/heaven-staff\.js/);
   assert.match(heavenStaffPageSource, /id="heaven-session-tabs"/);
   assert.match(heavenStaffPageSource, /data-heaven-session="1"/);
   assert.match(heavenStaffPageSource, /data-heaven-session="2"/);
-  assert.match(heavenStaffPageSource, /data-heaven-session="3"/);
+  assert.doesNotMatch(heavenStaffPageSource, /data-heaven-session="3"/);
   assert.match(heavenStaffPageSource, /id="heaven-stage"/);
   assert.match(heavenStaffPageSource, /id="heaven-actions"/);
   assert.match(heavenStaffPageSource, /id="heaven-progress-table"/);
@@ -4511,13 +4574,13 @@ async function runFrontendContractRegression() {
     true
   );
 
-  // The Art booth leader owns three isolated versioned runs, precise reveal
+  // The Art booth leader owns two isolated versioned runs, precise reveal
   // actions, current completion progress, and read-only archived rotations.
   assert.match(artStaffPageSource, /shared\/art-staff\.js/);
   assert.match(artStaffPageSource, /id="art-session-tabs"/);
   assert.match(artStaffPageSource, /data-art-session="1"/);
   assert.match(artStaffPageSource, /data-art-session="2"/);
-  assert.match(artStaffPageSource, /data-art-session="3"/);
+  assert.doesNotMatch(artStaffPageSource, /data-art-session="3"/);
   assert.match(artStaffPageSource, /id="art-stage"/);
   assert.match(artStaffPageSource, /id="art-actions"/);
   assert.match(artStaffPageSource, /id="art-progress-table"/);
@@ -4582,7 +4645,7 @@ async function runFrontendContractRegression() {
   assert.match(newSongStaffPageSource, /shared\/newsong-staff\.js/);
   assert.match(newSongStaffPageSource, /data-newsong-session="1"/);
   assert.match(newSongStaffPageSource, /data-newsong-session="2"/);
-  assert.match(newSongStaffPageSource, /data-newsong-session="3"/);
+  assert.doesNotMatch(newSongStaffPageSource, /data-newsong-session="3"/);
   assert.match(newSongStaffPageSource, /id="newsong-vote-chart"/);
   assert.match(newSongStaffPageSource, /id="newsong-participant-table"/);
   assert.match(newSongStaffPageSource, /id="newsong-run-history"/);
@@ -4636,7 +4699,8 @@ async function runFrontendContractRegression() {
   assert.match(doneSource, /!signupState \|\| !signupState\.completedAt/);
   assert.match(doneSource, /id="next-up-timer"/);
   assert.match(doneSource, /Don't go yet/);
-  assert.match(doneSource, /4:10 PM/);
+  assert.match(doneSource, /4:00 PM/);
+  assert.doesNotMatch(doneSource, /4:10 PM/);
   assert.match(doneSource, /EventSchedule\.remainingUntilEventEnd\(\)/);
   assert.match(organizerDirectorySource, /Overall Organizer/);
   assert.match(organizerDirectorySource, /CONNECTOR_BOOTHS\.map/);
@@ -4668,11 +4732,11 @@ async function runFrontendContractRegression() {
   );
 
   const expectedRoutes = {
-    blue: ["heaven", "trivia", "story"],
-    red: ["trivia", "heaven", "art"],
-    orange: ["art", "story", "newsong"],
-    green: ["newsong", "art", "heaven"],
-    yellow: ["story", "newsong", "trivia"],
+    blue: ["heaven", "trivia"],
+    red: ["trivia", "heaven"],
+    orange: ["art", "story"],
+    green: ["newsong", "art"],
+    yellow: ["story", "newsong"],
   };
   assert.deepEqual(
     Array.from(boothsConfigContext.__wristbandColors, (color) => color.id),
@@ -4682,7 +4746,7 @@ async function runFrontendContractRegression() {
     assert.deepEqual(Array.from(eventSchedule.route(color)), expectedRoute, `${color} wristband route`);
   });
   const allBoothIds = boothConfigs.map((booth) => booth.id).sort();
-  [0, 1, 2].forEach((sessionIndex) => {
+  [0, 1].forEach((sessionIndex) => {
     const assignedBooths = Object.values(expectedRoutes).map((route) => route[sessionIndex]);
     assert.equal(new Set(assignedBooths).size, 5, `session ${sessionIndex + 1} should assign each booth once`);
     assert.deepEqual(assignedBooths.slice().sort(), allBoothIds);
@@ -4710,21 +4774,31 @@ async function runFrontendContractRegression() {
   assert.equal(atSession2.phase, "active");
   assert.equal(atSession2.sessionIndex, 1);
   assert.equal(atSession2.session.number, 2);
-  const atSession3 = eventSchedule.stateAt(Date.parse("2026-07-18T15:50:00-05:00"));
-  assert.equal(atSession3.phase, "active");
-  assert.equal(atSession3.sessionIndex, 2);
-  assert.equal(atSession3.session.number, 3);
-  const atExperienceEnd = eventSchedule.stateAt(Date.parse("2026-07-18T16:10:00-05:00"));
-  assert.equal(atExperienceEnd.phase, "ended");
-  assert.equal(atExperienceEnd.sessionIndex, null);
-  assert.equal(atExperienceEnd.remainingMs, 0);
-  assert.equal(eventSchedule.eventEndsAtMs(), Date.parse("2026-07-18T16:10:00-05:00"));
+  assert.equal(
+    eventSchedule.sessionTimeNotice(eventSchedule.stateAt(Date.parse("2026-07-18T15:49:45-05:00"))).title,
+    "Final 15 seconds"
+  );
+  const atBoothsEnd = eventSchedule.stateAt(Date.parse("2026-07-18T15:50:00-05:00"));
+  assert.equal(atBoothsEnd.phase, "waiting");
+  assert.equal(atBoothsEnd.sessionIndex, null);
+  assert.equal(atBoothsEnd.remainingMs, 10 * 60 * 1000);
+  const justBeforeMessage = eventSchedule.stateAt(Date.parse("2026-07-18T15:59:59-05:00"));
+  assert.equal(justBeforeMessage.phase, "waiting");
+  assert.equal(justBeforeMessage.sessionIndex, null);
+  assert.equal(justBeforeMessage.remainingMs, 1000);
+  const atMessageStart = eventSchedule.stateAt(Date.parse("2026-07-18T16:00:00-05:00"));
+  assert.equal(atMessageStart.phase, "ended");
+  assert.equal(atMessageStart.sessionIndex, null);
+  assert.equal(atMessageStart.remainingMs, 0);
+  assert.equal(eventSchedule.boothsEndAtMs(), Date.parse("2026-07-18T15:50:00-05:00"));
+  assert.equal(eventSchedule.messageStartsAtMs(), Date.parse("2026-07-18T16:00:00-05:00"));
+  assert.equal(eventSchedule.eventEndsAtMs(), Date.parse("2026-07-18T16:00:00-05:00"));
   assert.equal(eventSchedule.eventStartsAtMs(), Date.parse("2026-07-18T15:10:00-05:00"));
   assert.equal(eventSchedule.linkWithPreview("../done/index.html"), "../done/index.html");
   assert.equal(eventSchedule.currentBooth("blue", atSession1).id, "heaven");
   assert.equal(eventSchedule.currentBooth("blue", atSession2).id, "trivia");
-  assert.equal(eventSchedule.currentBooth("blue", atSession3).id, "story");
-  assert.equal(eventSchedule.currentBooth("blue", atExperienceEnd), null);
+  assert.equal(eventSchedule.currentBooth("blue", atBoothsEnd), null);
+  assert.equal(eventSchedule.currentBooth("blue", atMessageStart), null);
   assert.equal(eventSchedule.formatCountdown(20 * 60 * 1000), "20:00");
   assert.equal(eventSchedule.demoTargetIso("before"), "2026-07-18T20:05:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("session1-start"), "2026-07-18T20:10:00.000Z");
@@ -4732,23 +4806,28 @@ async function runFrontendContractRegression() {
   assert.equal(eventSchedule.demoTargetIso("session1-final15"), "2026-07-18T20:29:45.000Z");
   assert.equal(eventSchedule.demoTargetIso("session2"), "2026-07-18T20:35:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("session2-final15"), "2026-07-18T20:49:45.000Z");
-  assert.equal(eventSchedule.demoTargetIso("session3"), "2026-07-18T20:55:00.000Z");
-  assert.equal(eventSchedule.demoTargetIso("session3-final15"), "2026-07-18T21:09:45.000Z");
-  assert.equal(eventSchedule.demoTargetIso("ended"), "2026-07-18T21:11:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("waiting"), "2026-07-18T20:55:00.000Z");
+  assert.equal(eventSchedule.demoTargetIso("session3"), null);
+  assert.equal(eventSchedule.demoTargetIso("session3-final15"), null);
+  assert.equal(eventSchedule.demoTargetIso("ended"), "2026-07-18T21:00:00.000Z");
   assert.equal(eventSchedule.demoTargetIso("live"), null);
   assert.equal(
     eventSchedule.demoTargetIso("custom", "2026-07-18T15:42:17-05:00"),
     "2026-07-18T20:42:17.000Z"
   );
   assert.equal(
-    eventSchedule.demoTargetIso("custom", Date.parse("2026-07-18T16:10:00-05:00")),
-    "2026-07-18T21:10:00.000Z"
+    eventSchedule.demoTargetIso("custom", "2026-07-18T15:55:00-05:00"),
+    "2026-07-18T20:55:00.000Z"
+  );
+  assert.equal(
+    eventSchedule.demoTargetIso("custom", Date.parse("2026-07-18T16:00:00-05:00")),
+    "2026-07-18T21:00:00.000Z"
   );
   assert.equal(eventSchedule.demoTargetIso("custom", "2026-07-18T15:09:59-05:00"), null);
-  assert.equal(eventSchedule.demoTargetIso("custom", "2026-07-18T16:10:01-05:00"), null);
+  assert.equal(eventSchedule.demoTargetIso("custom", "2026-07-18T16:00:01-05:00"), null);
   assert.equal(eventSchedule.demoTargetIso("unknown"), null);
 
-  const session2Stops = [0, 1, 2].map((sessionIndex) => (
+  const session2Stops = [0, 1].map((sessionIndex) => (
     eventSchedule.deriveBoothStop(sessionIndex, false, atSession2)
   ));
   assert.deepEqual({ ...session2Stops[0] }, {
@@ -4756,9 +4835,6 @@ async function runFrontendContractRegression() {
   });
   assert.deepEqual({ ...session2Stops[1] }, {
     kind: "active", canOpen: true, faded: false, checked: false,
-  });
-  assert.deepEqual({ ...session2Stops[2] }, {
-    kind: "locked", canOpen: false, faded: true, checked: false,
   });
   assert.deepEqual({ ...eventSchedule.deriveBoothStop(0, true, atSession2) }, {
     kind: "visited", canOpen: false, faded: true, checked: true,
@@ -4769,11 +4845,38 @@ async function runFrontendContractRegression() {
   assert.equal(eventSchedule.canOpenBooth("blue", "trivia", atSession2), true);
   assert.equal(eventSchedule.canOpenBooth("blue", "heaven", atSession2), false);
   assert.equal(eventSchedule.canOpenBooth("blue", "trivia", eventSchedule.stateAt(atSession2.nowMs - 1)), false);
-  assert.equal(eventSchedule.canOpenBooth("blue", "trivia", atExperienceEnd), false);
+  assert.equal(eventSchedule.canOpenBooth("blue", "trivia", atBoothsEnd), false);
+  assert.deepEqual([0, 1].map((sessionIndex) => ({
+    ...eventSchedule.deriveBoothStop(sessionIndex, false, atBoothsEnd),
+  })), [
+    { kind: "expired", canOpen: false, faded: true, checked: false },
+    { kind: "expired", canOpen: false, faded: true, checked: false },
+  ]);
   assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 15001)), false);
   assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 15000)), true);
   assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs - 1)), true);
   assert.equal(eventSchedule.isEndingSoon(eventSchedule.stateAt(atSession2.session.endMs)), false);
+
+  const arrivalAtFirstCutoff = eventSchedule.arrivalPlan("2026-07-18T15:25:00-05:00");
+  assert.equal(arrivalAtFirstCutoff.firstEligibleSessionIndex, 0);
+  assert.equal(arrivalAtFirstCutoff.joinedInProgress, true);
+  assert.deepEqual(Array.from(arrivalAtFirstCutoff.missedSessionNumbers), []);
+  assert.equal(eventSchedule.canJoinSession("2026-07-18T15:25:00-05:00", 0), true);
+  const arrivalAfterFirstCutoff = eventSchedule.arrivalPlan("2026-07-18T15:25:00.001-05:00");
+  assert.equal(arrivalAfterFirstCutoff.firstEligibleSessionIndex, 1);
+  assert.equal(arrivalAfterFirstCutoff.joinedInProgress, false);
+  assert.deepEqual(Array.from(arrivalAfterFirstCutoff.missedSessionNumbers), [1]);
+  assert.equal(eventSchedule.canJoinSession("2026-07-18T15:25:00.001-05:00", 0), false);
+  assert.equal(eventSchedule.canJoinSession("2026-07-18T15:25:00.001-05:00", 1), true);
+  const arrivalAtFinalCutoff = eventSchedule.arrivalPlan("2026-07-18T15:45:00-05:00");
+  assert.equal(arrivalAtFinalCutoff.firstEligibleSessionIndex, 1);
+  assert.equal(arrivalAtFinalCutoff.joinedInProgress, true);
+  assert.deepEqual(Array.from(arrivalAtFinalCutoff.missedSessionNumbers), [1]);
+  const arrivalAfterFinalCutoff = eventSchedule.arrivalPlan("2026-07-18T15:45:00.001-05:00");
+  assert.equal(arrivalAfterFinalCutoff.firstEligibleSessionIndex, null);
+  assert.equal(arrivalAfterFinalCutoff.joinedInProgress, false);
+  assert.deepEqual(Array.from(arrivalAfterFinalCutoff.missedSessionNumbers), [1, 2]);
+  assert.equal(eventSchedule.canJoinSession("2026-07-18T15:45:00.001-05:00", 1), false);
 
   const pendingClockResponses = [];
   let eventClockCalls = 0;
@@ -4886,14 +4989,15 @@ async function runFrontendContractRegression() {
   assert.strictEqual(pollingRequestA, pollingRequestB);
   pendingClockResponses.shift()({
     serverNow: "2026-07-18T20:55:00.000Z",
-    mode: "session3",
+    mode: "waiting",
     controlled: true,
     targetIso: "2026-07-18T20:55:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
     dataResetAt: "2026-07-15T11:20:00.000Z",
   });
   await pollingRequestA;
-  assert.equal(demoSchedule.current().sessionIndex, 2);
+  assert.equal(demoSchedule.current().phase, "waiting");
+  assert.equal(demoSchedule.current().sessionIndex, null);
   assert.equal(dataResetEvents.length, 4);
   assert.equal(dataResetEvents[3].detail.changed, false);
   demoSchedule.stopDemoClockSync();
@@ -5557,7 +5661,7 @@ function runAppsScriptRegression() {
   assert.equal(gasBlueGroup.attendees[0].name, "Avery");
   assert.equal(gasBlueGroup.attendees[0].raffleNumber, "1001");
   assert.equal(gasBlueGroup.attendees[0].completedStops, 0);
-  assert.equal(gasBlueGroup.attendees[0].totalStops, 3);
+  assert.equal(gasBlueGroup.attendees[0].totalStops, 2);
   assert.equal(gasBlueGroup.attendees[0].phase3Completed, true);
   assert.equal("attendeeId" in gasBlueGroup.attendees[0], false);
   assert.equal("phone" in gasBlueGroup.attendees[0], false);

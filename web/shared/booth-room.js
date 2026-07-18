@@ -136,7 +136,12 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   function boothAccess(identity, snapshot) {
     if (!identity || !identity.wristbandColor) return false;
     if (typeof EventSchedule.canOpenBooth === "function") {
-      return Boolean(EventSchedule.canOpenBooth(identity.wristbandColor, boothId, snapshot));
+      return Boolean(EventSchedule.canOpenBooth(
+        identity.wristbandColor,
+        boothId,
+        snapshot,
+        identity.boothArrivalPlan || identity.wristbandConfirmedAt
+      ));
     }
     const route = EventSchedule.route(identity.wristbandColor);
     return snapshot.phase === "active" && route[snapshot.sessionIndex] === boothId;
@@ -149,13 +154,27 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       return {
         kicker: "Not on your wristband route",
         title: `${roomName} is not one of your stops.`,
-        copy: "Use your personal booth schedule to see the three rooms assigned to your wristband color.",
+        copy: `Use your personal booth schedule to see the ${route.length || BOOTH_SESSIONS.length} rooms assigned to your wristband color.`,
         time: "",
       };
     }
     const session = BOOTH_SESSIONS[routeIndex];
     const sessionTime = session ? `${EventSchedule.formattedTime(session.startsAt)}–${EventSchedule.formattedTime(session.endsAt)}` : "";
-    const isPast = snapshot.phase === "ended" || (snapshot.phase === "active" && routeIndex < snapshot.sessionIndex);
+    const arrival = typeof EventSchedule.arrivalPlan === "function"
+      ? EventSchedule.arrivalPlan(identity.boothArrivalPlan || identity.wristbandConfirmedAt)
+      : { missedSessionIndices: [] };
+    if (arrival.missedSessionIndices.includes(routeIndex)) {
+      const nextNumber = arrival.firstEligibleSessionNumber;
+      return {
+        kicker: "Catch-up needed",
+        title: `${roomName} is saved as a catch-up stop.`,
+        copy: nextNumber
+          ? `You checked in near the end of this rotation, so this room will stay closed. Wait for Session ${nextNumber} and follow your schedule to the next booth.`
+          : "The final rotation is almost over. Ask an organizer how to complete this catch-up booth.",
+        time: sessionTime ? `Original session: ${sessionTime}` : "",
+      };
+    }
+    const isPast = snapshot.phase === "waiting" || snapshot.phase === "ended" || (snapshot.phase === "active" && routeIndex < snapshot.sessionIndex);
     if (isPast) {
       return {
         kicker: "Session ended",
@@ -165,7 +184,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       };
     }
     return {
-      kicker: `Your stop ${routeIndex + 1} of 3`,
+      kicker: `Your stop ${routeIndex + 1} of ${route.length}`,
       title: `${roomName} is not open yet.`,
       copy: "This booth unlocks automatically when its assigned session begins. You do not need to refresh.",
       time: sessionTime ? `Opens for you at ${sessionTime}` : "",
@@ -318,11 +337,15 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
   demoClockReady.then(() => {
     const savedIdentity = Identity.peek();
     const hasRoomAccess = AttendeePortal.hasAccess(portal);
+    const hasArrivalRecord = Boolean(
+      savedIdentity.wristbandConfirmedAt
+        || (savedIdentity.boothArrivalPlan && savedIdentity.boothArrivalPlan.confirmedAt)
+    );
     if (!savedIdentity.attendeeId) {
       showLogin("", true);
       return;
     }
-    if (savedIdentity.wristbandColor) restoreRoomState(savedIdentity);
+    if (savedIdentity.wristbandColor && hasArrivalRecord) restoreRoomState(savedIdentity);
     const restoreIdentity = hasRoomAccess
       ? AttendeePortal.restore(portal)
       : AttendeePortal.continueAs(portal);
@@ -330,7 +353,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
       .then(restoreRoomState)
       .catch((error) => {
         console.error(error);
-        if (savedIdentity.wristbandColor) {
+        if (savedIdentity.wristbandColor && hasArrivalRecord) {
           toast("You're still signed in. Live progress is reconnecting.");
           refreshBoothRoomAccess();
         } else {

@@ -14,7 +14,7 @@
     .heaven-leader-intro strong{ display:block; color:var(--ink); font-family:'Fraunces',serif; font-size:18px; }
     .heaven-leader-intro span{ display:block; max-width:700px; margin-top:4px; color:var(--ink-soft); font-size:12px; line-height:1.45; }
     .heaven-leader-intro .btn{ flex:none; }
-    .heaven-session-tabs{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin:10px 0 16px; }
+    .heaven-session-tabs{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin:10px 0 16px; }
     .heaven-session-tab{
       appearance:none; min-width:0; padding:12px 10px; border:1.5px solid var(--line); border-radius:13px;
       background:rgba(255,255,255,.78); color:var(--ink-soft); cursor:pointer; font:inherit; text-align:left;
@@ -93,7 +93,7 @@
 
       <div class="organizer-access" id="organizer-access">
         <h2>Staff access</h2>
-        <p>Unlock the three separate Draw Heaven sessions, active runs, and archived progress.</p>
+        <p>Unlock both Draw Heaven sessions, active runs, and archived progress.</p>
         <div class="field">
           <label for="organizer-key">Organizer access key</label>
           <input id="organizer-key" type="password" autocomplete="off">
@@ -114,7 +114,6 @@
         <div class="heaven-session-tabs" id="heaven-session-tabs" role="tablist" aria-label="Draw Heaven sessions">
           <button type="button" class="heaven-session-tab" id="heaven-tab-1" role="tab" aria-controls="heaven-session-panel" aria-selected="true" data-heaven-session="1"><b>Session 1 · Blue</b><small>3:10–3:30 PM</small></button>
           <button type="button" class="heaven-session-tab" id="heaven-tab-2" role="tab" aria-controls="heaven-session-panel" aria-selected="false" data-heaven-session="2"><b>Session 2 · Red</b><small>3:30–3:50 PM</small></button>
-          <button type="button" class="heaven-session-tab" id="heaven-tab-3" role="tab" aria-controls="heaven-session-panel" aria-selected="false" data-heaven-session="3"><b>Session 3 · Green</b><small>3:50–4:10 PM</small></button>
         </div>
 
         <div class="heaven-layout" id="heaven-session-panel" role="tabpanel" aria-labelledby="heaven-tab-1">

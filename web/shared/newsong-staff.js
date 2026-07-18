@@ -5,7 +5,7 @@
  * welcome -> voting -> winner -> verse -> complete.
  */
 function initNewSongStaff() {
-  const SESSION_COUNT = 3;
+  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2000 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set(["welcome", "voting", "winner", "verse", "complete"]);
   const SONGS = [
@@ -30,6 +30,7 @@ function initNewSongStaff() {
   let dashboard = null;
   let selectedSessionNumber = 1;
   let selectionPinned = false;
+  let lastActiveSessionNumber = 0;
   let refreshTimer = null;
   let scheduleTimer = null;
   let refreshInFlight = false;
@@ -218,6 +219,19 @@ function initNewSongStaff() {
   function sessionByNumber(sessionNumber = selectedSessionNumber) {
     const sessions = dashboard && Array.isArray(dashboard.sessions) ? dashboard.sessions : [];
     return sessions.find((session) => session.sessionNumber === sessionNumber) || null;
+  }
+
+  function applySessionSummary(value) {
+    const sessionNumber = integer(value && value.sessionNumber, 0);
+    if (!dashboard || sessionNumber < 1 || sessionNumber > SESSION_COUNT) return false;
+    const next = normalizeSession(value, sessionNumber);
+    dashboard = {
+      ...dashboard,
+      sessions: dashboard.sessions.map((session) => (
+        session.sessionNumber === sessionNumber ? next : session
+      )),
+    };
+    return true;
   }
 
   function phaseLabel(value) {
@@ -483,7 +497,7 @@ function initNewSongStaff() {
       timerValue = EventSchedule.formattedTime(schedule.startsAt);
       timerLabel = "Upcoming";
       noteText = `Session ${current.session.number} is active now. You are preparing Session ${selectedSessionNumber}.`;
-    } else if (current.phase === "ended") {
+    } else if (current.phase === "waiting" || current.phase === "ended") {
       timerValue = "Closed";
       timerLabel = "Booth time ended";
       noteText = "All booth rotations have ended. Results stay available until the overall organizer resets event data.";
@@ -543,7 +557,7 @@ function initNewSongStaff() {
     const refreshId = ++activeRefreshId;
     const epoch = requestEpoch;
     const requestStarted = Date.now();
-    if (!options.silent) setStatus("Refreshing all three New Song sessions…");
+    if (!options.silent) setStatus("Refreshing both New Song sessions…");
     try {
       const data = await EventAPI.newSongDashboardData(organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration) || epoch !== requestEpoch) return false;
@@ -552,7 +566,15 @@ function initNewSongStaff() {
       }
       dashboard = normalizeDashboard(data);
       const activeSessionNumber = integer(dashboard.eventState && dashboard.eventState.sessionNumber, 0);
-      if (!selectionPinned && activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT) selectedSessionNumber = activeSessionNumber;
+      if (
+        activeSessionNumber >= 1
+          && activeSessionNumber <= SESSION_COUNT
+          && (!selectionPinned || activeSessionNumber !== lastActiveSessionNumber)
+      ) {
+        selectedSessionNumber = activeSessionNumber;
+        selectionPinned = false;
+      }
+      lastActiveSessionNumber = activeSessionNumber;
       showSyncNote("");
       renderSelectedSession();
       const session = sessionByNumber();
@@ -574,6 +596,14 @@ function initNewSongStaff() {
 
   async function advance(action) {
     if (controlBusy) return;
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
+      selectedSessionNumber = activeSessionNumber;
+      selectionPinned = false;
+      renderSelectedSession();
+      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      return;
+    }
     const session = sessionByNumber();
     const authGeneration = OrganizerAuth.generation();
     const organizerKey = OrganizerAuth.key();
@@ -591,8 +621,10 @@ function initNewSongStaff() {
     };
     setStatus(pending[action] || "Updating attendee screens…");
     try {
-      await EventAPI.advanceNewSongSession(session.sessionNumber, action, session.state.version, organizerKey);
+      const result = await EventAPI.advanceNewSongSession(session.sessionNumber, action, session.state.version, organizerKey);
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
+      applySessionSummary(result);
+      renderSelectedSession();
       const messages = {
         start: "Voting is live.",
         show_winner: "The room result is frozen and visible.",
@@ -674,6 +706,7 @@ function initNewSongStaff() {
     refreshInFlight = false;
     activeRefreshId += 1;
     selectionPinned = false;
+    lastActiveSessionNumber = 0;
     selectedSessionNumber = 1;
     if (refreshTimer) clearInterval(refreshTimer);
     if (scheduleTimer) clearInterval(scheduleTimer);
@@ -725,8 +758,8 @@ function initNewSongStaff() {
   OrganizerAuth.init({
     onUnlocked: async () => {
       await startSharedDemoClock();
-      const refreshed = await refresh();
-      if (refreshed && OrganizerAuth.key()) {
+      await refresh();
+      if (OrganizerAuth.key()) {
         if (!refreshTimer) refreshTimer = setInterval(() => {
           if (!document.hidden) refresh({ silent: true });
         }, POLL_INTERVAL_MS);

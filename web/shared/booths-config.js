@@ -99,7 +99,7 @@ const CONNECTOR_BOOTHS = [
 
 /* ---- Timed wristband experience ----
  * These timestamps include Nashville's UTC offset on the event date. That
- * keeps every device on the same three shared 20-minute windows, regardless
+ * keeps every device on the same two shared 20-minute windows, regardless
  * of the attendee's phone timezone.
  */
 const WRISTBAND_COLORS = [
@@ -111,18 +111,19 @@ const WRISTBAND_COLORS = [
 ];
 
 const WRISTBAND_ROUTES = Object.freeze({
-  blue: ["heaven", "trivia", "story"],
-  red: ["trivia", "heaven", "art"],
-  orange: ["art", "story", "newsong"],
-  green: ["newsong", "art", "heaven"],
-  yellow: ["story", "newsong", "trivia"],
+  blue: ["heaven", "trivia"],
+  red: ["trivia", "heaven"],
+  orange: ["art", "story"],
+  green: ["newsong", "art"],
+  yellow: ["story", "newsong"],
 });
 
 const BOOTH_SESSIONS = Object.freeze([
   { id: "session-1", number: 1, startsAt: "2026-07-18T15:10:00-05:00", endsAt: "2026-07-18T15:30:00-05:00", label: "3:10–3:30 PM" },
   { id: "session-2", number: 2, startsAt: "2026-07-18T15:30:00-05:00", endsAt: "2026-07-18T15:50:00-05:00", label: "3:30–3:50 PM" },
-  { id: "session-3", number: 3, startsAt: "2026-07-18T15:50:00-05:00", endsAt: "2026-07-18T16:10:00-05:00", label: "3:50–4:10 PM" },
 ]);
+
+const MAIN_MESSAGE_STARTS_AT = "2026-07-18T16:00:00-05:00";
 
 function wristbandColorById(colorId) {
   return WRISTBAND_COLORS.find((color) => color.id === String(colorId || "").toLowerCase()) || null;

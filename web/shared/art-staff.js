@@ -5,7 +5,7 @@
  * published phase and receive Done only after the leader closes the run.
  */
 function initArtStaff() {
-  const SESSION_COUNT = 3;
+  const SESSION_COUNT = Array.isArray(BOOTH_SESSIONS) ? BOOTH_SESSIONS.length : 2;
   const POLL_INTERVAL_MS = Math.round(2100 * (0.85 + Math.random() * 0.3));
   const PHASES = new Set([
     "welcome", "definition", "importance", "purpose_image", "heart_question",
@@ -72,6 +72,7 @@ function initArtStaff() {
   let dashboard = null;
   let selectedSessionNumber = 1;
   let selectionPinned = false;
+  let lastActiveSessionNumber = 0;
   let refreshTimer = null;
   let scheduleTimer = null;
   let refreshInFlight = false;
@@ -380,9 +381,15 @@ function initArtStaff() {
       }
       dashboard = normalizeDashboard(result);
       const activeSessionNumber = integer(dashboard.eventState.sessionNumber);
-      if (!selectionPinned && activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT) {
+      if (
+        activeSessionNumber >= 1
+          && activeSessionNumber <= SESSION_COUNT
+          && (!selectionPinned || activeSessionNumber !== lastActiveSessionNumber)
+      ) {
         selectedSessionNumber = activeSessionNumber;
+        selectionPinned = false;
       }
+      lastActiveSessionNumber = activeSessionNumber;
       renderSession();
       setSyncNote("");
       document.getElementById("staff-last-updated").textContent = `Last refreshed ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
@@ -404,6 +411,14 @@ function initArtStaff() {
   }
 
   async function advance(action) {
+    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
+      selectedSessionNumber = activeSessionNumber;
+      selectionPinned = false;
+      renderSession();
+      toast(`Session ${activeSessionNumber} is live. Controls switched to the group attendees can currently see; tap the action again.`);
+      return;
+    }
     const session = currentSession();
     if (!session || controlBusy || !action) return;
     controlBusy = true;
@@ -420,17 +435,18 @@ function initArtStaff() {
       if (!OrganizerAuth.isCurrent(authGeneration)) return;
       applyControlResult(result.dashboard || result);
       renderSession();
-      await refreshDashboard({ queue: true });
       toast("Every attendee screen was updated.");
     } catch (error) {
       console.error(error);
       if (!OrganizerAuth.handleError(error, authGeneration)) {
         toast(error && error.message ? error.message : "Couldn’t publish the next Art Therapy slide.");
       }
-      await refreshDashboard({ queue: true });
     } finally {
       controlBusy = false;
       if (dashboard) renderSession();
+      if (OrganizerAuth.isCurrent(authGeneration) && OrganizerAuth.key()) {
+        window.setTimeout(() => refreshDashboard({ queue: true }), 0);
+      }
     }
   }
 
@@ -445,7 +461,7 @@ function initArtStaff() {
       ? `\n\nWARNING: ${waitingCount} assigned ${waitingCount === 1 ? "attendee has" : "attendees have"} not saved Done for this run. Restarting will move any open attendee screens to the new welcome and they will no longer be able to save this archived run.`
       : "";
     const confirmed = window.confirm(
-      `Archive Session ${session.sessionNumber} · Run ${session.state.runNumber} and start a fresh Art Therapy welcome screen?\n\nSaved completions will remain in read-only history. The other two sessions will not change.${unfinishedRunWarning}${unsavedWarning}`
+      `Archive Session ${session.sessionNumber} · Run ${session.state.runNumber} and start a fresh Art Therapy welcome screen?\n\nSaved completions will remain in read-only history. The other session will not change.${unfinishedRunWarning}${unsavedWarning}`
     );
     if (!confirmed) return;
     controlBusy = true;
@@ -501,6 +517,7 @@ function initArtStaff() {
     scheduleTimer = null;
     refreshQueued = false;
     dashboard = null;
+    lastActiveSessionNumber = 0;
     setSyncNote("");
   }
 

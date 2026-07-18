@@ -27,7 +27,7 @@ Event app demo server running: http://localhost:3000
   Phase 3 attendee:     http://localhost:3000/phase3-signup/index.html
   Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
-  Timer previews:       add ?preview=before, 1, 2, 3, or ended to the attendee/staff URL
+  Timer previews:       add ?preview=before, 1, 2, waiting, or ended to the attendee/staff URL
   Local organizer key:  demo
 ```
 
@@ -69,14 +69,15 @@ reuse the local default or this shared-key model for production.
 Open the organizer portal, choose **Overall Organizer**, unlock the dashboard
 with the organizer key, and use its **Demo only · Shared event time** panel.
 The continuous timeline accepts any exact second from **3:10:00 through
-4:10:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
-3:10, 3:30, 3:50, and 4:10 boundary shortcuts, then choose **Apply simulated
+4:00:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
+3:10, 3:30, 3:50, and 4:00 boundary shortcuts, then choose **Apply simulated
 time**. **Show waiting lobby** provides the pre-session state, and **Use live
 CDT clock** restores actual Chicago time.
 
 The selected mode and anchor are held in memory by this Node process. Simulated
-time ticks normally from that anchor, preserving the three 20-minute booth
-windows. Attendee, overall-organizer, and booth-leader pages sample it about
+time ticks normally from that anchor, preserving both 20-minute booth windows,
+the 3:50–4:00 waiting/handoff, and the 4:00 message transition. Attendee,
+overall-organizer, and booth-leader pages sample it about
 every five seconds with per-browser jitter, while their visible countdown
 advances locally every second. Hidden tabs stop polling and resynchronize when
 visible. The public clock read contains time state and a non-PII reset marker;
@@ -99,7 +100,7 @@ to rehearse a fixed state:
 ?preview=before
 ?preview=1
 ?preview=2
-?preview=3
+?preview=waiting
 ?preview=ended
 ```
 
@@ -137,10 +138,10 @@ The server creates `db.json` on first write. It contains:
   color, and persisted Phase 3 completion time;
 - booth check-ins, including scheduled visits created by attendee completion
   taps;
-- run-scoped New Song votes, Session 1–3 controllers, and archived runs;
+- run-scoped New Song votes, Session 1–2 controllers, and archived runs;
 - Phase 3 option selections, which may be empty for **No thanks, finish**;
 - one current presentation state per booth;
-- versioned Session 1–3 controllers, attendee responses, and archived prior
+- versioned Session 1–2 controllers, attendee responses, and archived prior
   runs for Bible Bowl, Draw Heaven, and New Song;
 - the raffle counter; and
 - a durable `dataResetAt` marker used to invalidate attendee browser identity
@@ -292,7 +293,7 @@ Bible Bowl adds a Node-service-only, leader-paced API:
 - `triviaState` returns the current attendee-safe question state
 - `submitTriviaAnswer` locks one answer and scores it on the server
 - `completeTrivia` records the server-verified final result
-- `triviaDashboardData` returns protected Session 1–3 leaderboards
+- `triviaDashboardData` returns protected Session 1–2 leaderboards
 - `advanceTriviaSession` starts, reveals, advances, or finishes one session
 - `resetTriviaSession` archives the selected run and opens a fresh run without
   mixing its answers or leaderboard with the previous run
@@ -303,7 +304,7 @@ Draw Heaven uses the same Node-only, leader-paced run model:
   confirmations
 - `confirmHeavenStep` idempotently saves the attendee response that is open in
   the current leader phase
-- `heavenDashboardData` returns protected progress for all three rotations and
+- `heavenDashboardData` returns protected progress for both rotations and
   their archived runs
 - `advanceHeavenSession` moves one rotation through welcome, drawing, verse,
   comparison, reflection, programs, and completion using optimistic versions
@@ -317,7 +318,7 @@ attendee and staff URLs:
 - `completeArt` records an immutable completion for the current run and the
   ordinary route-level booth check-in, but accepts no artwork or reflection
   text
-- `artDashboardData` returns protected progress for the Orange, Green, and Red
+- `artDashboardData` returns protected progress for the Orange and Green
   rotations plus their archived runs
 - `advanceArtSession` publishes the definition, importance, supplied image,
   heart question, two verses, creative activity, closing reflection, and Done
@@ -326,8 +327,8 @@ attendee and staff URLs:
 
 New Song also uses a Node/Render-only leader-paced run model without changing
 its attendee (`/phase2-booths/booth-newsong.html`) or staff
-(`/phase2-staff/newsong.html`) URLs. Green, Yellow, and Orange wristbands use
-Sessions 1, 2, and 3 respectively. `newSongState`, `submitNewSongVote`, and
+(`/phase2-staff/newsong.html`) URLs. Green and Yellow wristbands use Sessions
+1 and 2 respectively. `newSongState`, `submitNewSongVote`, and
 `completeNewSong` serve attendees; protected `newSongDashboardData`,
 `advanceNewSongSession`, and `resetNewSongSession` serve staff. The leader
 advances `welcome → voting → winner → verse → complete`, choosing when to show

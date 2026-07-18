@@ -4,6 +4,7 @@
  * between syncs the countdown runs locally without extra requests.
  */
 const EventSchedule = (() => {
+  const LATE_JOIN_MINIMUM_MS = 5 * 60 * 1000;
   const DEMO_CLOCK_MODES = new Set([
     "live",
     "custom",
@@ -11,10 +12,9 @@ const EventSchedule = (() => {
     "session1-start",
     "session1",
     "session2",
-    "session3",
     "session1-final15",
     "session2-final15",
-    "session3-final15",
+    "waiting",
     "ended",
   ]);
   let serverOffsetMs = 0;
@@ -53,13 +53,14 @@ const EventSchedule = (() => {
     if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) return null;
     const preview = new URLSearchParams(window.location.search).get("preview");
     const firstStart = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
-    const lastEnd = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
+    const boothEnd = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
+    const messageStart = messageStartsAtMs();
     const values = {
       before: firstStart - (5 * 60 * 1000),
       "1": firstStart + (5 * 60 * 1000),
       "2": new Date(BOOTH_SESSIONS[1].startsAt).getTime() + (5 * 60 * 1000),
-      "3": new Date(BOOTH_SESSIONS[2].startsAt).getTime() + (5 * 60 * 1000),
-      ended: lastEnd + (60 * 1000),
+      waiting: boothEnd + (5 * 60 * 1000),
+      ended: messageStart,
     };
     return Object.prototype.hasOwnProperty.call(values, preview) ? values[preview] : null;
   }
@@ -85,23 +86,25 @@ const EventSchedule = (() => {
     }
 
     const firstStartMs = new Date(BOOTH_SESSIONS[0].startsAt).getTime();
-    const lastEndMs = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
+    const boothEndMs = new Date(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt).getTime();
+    const messageStartMs = messageStartsAtMs();
     if (mode === "custom") {
       const customMs = customValue instanceof Date
         ? customValue.getTime()
         : typeof customValue === "number"
           ? customValue
           : Date.parse(customValue);
-      return Number.isFinite(customMs) && customMs >= firstStartMs && customMs <= lastEndMs
+      return Number.isFinite(customMs) && customMs >= firstStartMs && customMs <= messageStartMs
         ? new Date(customMs).toISOString()
         : null;
     }
     let targetMs = NaN;
     if (mode === "before") targetMs = firstStartMs - (5 * 60 * 1000);
     if (mode === "session1-start") targetMs = firstStartMs;
-    if (mode === "ended") targetMs = lastEndMs + (60 * 1000);
+    if (mode === "waiting") targetMs = boothEndMs + Math.floor((messageStartMs - boothEndMs) / 2);
+    if (mode === "ended") targetMs = messageStartMs;
 
-    const sessionMatch = /^session([123])(-final15)?$/.exec(mode);
+    const sessionMatch = /^session([12])(-final15)?$/.exec(mode);
     if (sessionMatch) {
       const session = BOOTH_SESSIONS[Number(sessionMatch[1]) - 1];
       if (!session) return null;
@@ -233,6 +236,7 @@ const EventSchedule = (() => {
     }));
     const first = sessions[0];
     const last = sessions[sessions.length - 1];
+    const messageStartMs = messageStartsAtMs();
 
     if (currentMs < first.startMs) {
       return {
@@ -259,12 +263,24 @@ const EventSchedule = (() => {
       };
     }
 
+    if (currentMs < messageStartMs) {
+      return {
+        phase: "waiting",
+        nowMs: currentMs,
+        session: null,
+        sessionIndex: null,
+        targetMs: messageStartMs,
+        remainingMs: messageStartMs - currentMs,
+        nextSession: null,
+      };
+    }
+
     return {
       phase: "ended",
       nowMs: currentMs,
       session: null,
       sessionIndex: null,
-      targetMs: last.endMs,
+      targetMs: messageStartMs,
       remainingMs: 0,
       nextSession: null,
     };
@@ -290,17 +306,102 @@ const EventSchedule = (() => {
     return boothFor(colorId, snapshot.sessionIndex);
   }
 
-  function deriveBoothStop(sessionIndex, visited, state) {
+  function arrivalPlan(wristbandConfirmedAt) {
+    if (wristbandConfirmedAt && typeof wristbandConfirmedAt === "object") {
+      const supplied = wristbandConfirmedAt;
+      const firstIndex = supplied.firstEligibleSessionIndex === null
+        ? null
+        : Number(supplied.firstEligibleSessionIndex);
+      const missedNumbers = Array.isArray(supplied.missedSessionNumbers)
+        ? supplied.missedSessionNumbers
+          .map(Number)
+          .filter((number) => Number.isInteger(number) && number >= 1 && number <= BOOTH_SESSIONS.length)
+        : [];
+      if (firstIndex === null || (Number.isInteger(firstIndex) && firstIndex >= 0 && firstIndex < BOOTH_SESSIONS.length)) {
+        return {
+          known: Boolean(supplied.confirmedAt),
+          confirmedAtMs: supplied.confirmedAt ? Date.parse(supplied.confirmedAt) : null,
+          late: supplied.late === true,
+          joinedInProgress: supplied.joinedInProgress === true,
+          firstEligibleSessionIndex: firstIndex,
+          firstEligibleSessionNumber: firstIndex === null ? null : firstIndex + 1,
+          missedSessionIndices: missedNumbers.map((number) => number - 1),
+          missedSessionNumbers: missedNumbers,
+          minimumJoinMinutes: Number(supplied.minimumJoinMinutes) || (LATE_JOIN_MINIMUM_MS / 60000),
+        };
+      }
+    }
+    const confirmedAtMs = Date.parse(String(wristbandConfirmedAt || ""));
+    const sessions = BOOTH_SESSIONS.map((session, index) => ({
+      ...session,
+      index,
+      startMs: new Date(session.startsAt).getTime(),
+      endMs: new Date(session.endsAt).getTime(),
+    }));
+    if (!Number.isFinite(confirmedAtMs)) {
+      return {
+        known: false,
+        confirmedAtMs: null,
+        late: false,
+        joinedInProgress: false,
+        firstEligibleSessionIndex: 0,
+        firstEligibleSessionNumber: 1,
+        missedSessionIndices: [],
+        missedSessionNumbers: [],
+        minimumJoinMinutes: LATE_JOIN_MINIMUM_MS / 60000,
+      };
+    }
+    const firstEligibleSessionIndex = sessions.findIndex((session) => (
+      confirmedAtMs <= session.endMs - LATE_JOIN_MINIMUM_MS
+    ));
+    const missedSessionCount = firstEligibleSessionIndex < 0
+      ? sessions.length
+      : firstEligibleSessionIndex;
+    const missedSessionIndices = sessions.slice(0, missedSessionCount).map((session) => session.index);
+    const eligibleSession = firstEligibleSessionIndex >= 0
+      ? sessions[firstEligibleSessionIndex]
+      : null;
+    return {
+      known: true,
+      confirmedAtMs,
+      late: confirmedAtMs > sessions[0].startMs,
+      joinedInProgress: Boolean(
+        eligibleSession
+        && confirmedAtMs > eligibleSession.startMs
+        && confirmedAtMs < eligibleSession.endMs
+      ),
+      firstEligibleSessionIndex: eligibleSession ? firstEligibleSessionIndex : null,
+      firstEligibleSessionNumber: eligibleSession ? eligibleSession.number : null,
+      missedSessionIndices,
+      missedSessionNumbers: missedSessionIndices.map((index) => sessions[index].number),
+      minimumJoinMinutes: LATE_JOIN_MINIMUM_MS / 60000,
+    };
+  }
+
+  function canJoinSession(wristbandConfirmedAt, sessionIndex) {
+    const index = Number(sessionIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= BOOTH_SESSIONS.length) return false;
+    const plan = arrivalPlan(wristbandConfirmedAt);
+    return plan.firstEligibleSessionIndex !== null && index >= plan.firstEligibleSessionIndex;
+  }
+
+  function deriveBoothStop(sessionIndex, visited, state, attendeePlan) {
     const snapshot = state || current();
     const index = Number(sessionIndex);
     const isCurrent = snapshot.phase === "active" && snapshot.sessionIndex === index;
     if (visited) {
       return { kind: "visited", canOpen: isCurrent, faded: true, checked: true };
     }
+    const missedForCatchUp = attendeePlan
+      && Array.isArray(attendeePlan.missedSessionIndices)
+      && attendeePlan.missedSessionIndices.includes(index);
+    if (missedForCatchUp) {
+      return { kind: "catchup", canOpen: false, faded: true, checked: false };
+    }
     if (isCurrent) {
       return { kind: "active", canOpen: true, faded: false, checked: false };
     }
-    const isPast = snapshot.phase === "ended"
+    const isPast = snapshot.phase === "waiting" || snapshot.phase === "ended"
       || (snapshot.phase === "active" && index < snapshot.sessionIndex);
     if (isPast) {
       return { kind: "expired", canOpen: false, faded: true, checked: false };
@@ -308,10 +409,11 @@ const EventSchedule = (() => {
     return { kind: "locked", canOpen: false, faded: true, checked: false };
   }
 
-  function canOpenBooth(colorId, boothId, state) {
+  function canOpenBooth(colorId, boothId, state, wristbandConfirmedAt) {
     const snapshot = state || current();
     if (!snapshot || snapshot.phase !== "active") return false;
-    return route(colorId)[snapshot.sessionIndex] === boothId;
+    return route(colorId)[snapshot.sessionIndex] === boothId
+      && canJoinSession(wristbandConfirmedAt, snapshot.sessionIndex);
   }
 
   function isEndingSoon(state, thresholdMs = 15000) {
@@ -387,9 +489,20 @@ const EventSchedule = (() => {
     }).format(date);
   }
 
-  function eventEndsAtMs() {
+  function boothsEndAtMs() {
     const last = BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1];
     return last ? new Date(last.endsAt).getTime() : NaN;
+  }
+
+  function messageStartsAtMs() {
+    const configured = typeof MAIN_MESSAGE_STARTS_AT !== "undefined"
+      ? new Date(MAIN_MESSAGE_STARTS_AT).getTime()
+      : NaN;
+    return Number.isFinite(configured) ? configured : boothsEndAtMs();
+  }
+
+  function eventEndsAtMs() {
+    return messageStartsAtMs();
   }
 
   function eventStartsAtMs() {
@@ -426,6 +539,8 @@ const EventSchedule = (() => {
     route,
     boothFor,
     currentBooth,
+    arrivalPlan,
+    canJoinSession,
     deriveBoothStop,
     canOpenBooth,
     isEndingSoon,
@@ -434,6 +549,8 @@ const EventSchedule = (() => {
     formatCountdown,
     formattedTime,
     eventStartsAtMs,
+    boothsEndAtMs,
+    messageStartsAtMs,
     eventEndsAtMs,
     remainingUntilEventEnd,
     linkWithPreview,

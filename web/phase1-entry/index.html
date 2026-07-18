@@ -173,6 +173,8 @@ function saveAttendeeIdentity(result, submitted) {
     name: result.name || submitted.name,
     raffleNumber: String(result.raffleNumber),
     wristbandColor: result.wristbandColor || "",
+    wristbandConfirmedAt: result.wristbandConfirmedAt || null,
+    boothArrivalPlan: result.boothArrivalPlan || null,
     phase3CompletedAt: result.phase3CompletedAt || null,
     phone: submitted.phone,
     phoneLinked: true,
@@ -251,7 +253,11 @@ document.getElementById("btn-enter-gym").addEventListener("click", async () => {
   try {
     const identity = Identity.get();
     const confirmation = await EventAPI.confirmWristband(identity.attendeeId, selectedWristbandColor);
-    Identity.set({ wristbandColor: confirmation.wristbandColor || selectedWristbandColor });
+    Identity.set({
+      wristbandColor: confirmation.wristbandColor || selectedWristbandColor,
+      wristbandConfirmedAt: confirmation.wristbandConfirmedAt || new Date(EventSchedule.nowMs()).toISOString(),
+      boothArrivalPlan: confirmation.boothArrivalPlan || null,
+    });
     window.location.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
   } catch (error) {
     console.error(error);
@@ -271,7 +277,7 @@ async function resumeDestination(saved) {
     const route = EventSchedule.route(saved.wristbandColor);
     const routeComplete = route.length === BOOTH_SESSIONS.length
       && route.every((boothId) => completed.has(boothId));
-    if (routeComplete || EventSchedule.current().phase === "ended") return "../phase3-signup/index.html";
+    if (routeComplete || ["waiting", "ended"].includes(EventSchedule.current().phase)) return "../phase3-signup/index.html";
   } catch (error) {
     console.warn("Couldn't resolve the last completed stage; reopening the saved booth route.", error);
   }

@@ -72,6 +72,7 @@ const StoryAttendee = (() => {
   let refreshEpoch = 0;
   let completionBusy = false;
   let pollTimer = null;
+  let onCompleted = null;
 
   function object(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -317,16 +318,30 @@ const StoryAttendee = (() => {
   }
 
   async function completeVisit() {
-    if (completionBusy) return;
+    if (completionBusy || !presentation) return;
+    if (typeof window.isCurrentBoothRoomOpen === "function" && !window.isCurrentBoothRoomOpen()) {
+      toast("This Heaven Booth session has ended. Return to your schedule.");
+      if (typeof window.refreshBoothRoomAccess === "function") window.refreshBoothRoomAccess();
+      return;
+    }
     completionBusy = true;
     renderedSignature = "";
     render();
     try {
-      await finishBooth(BOOTH_ID, BOOTH_NAME);
-    } finally {
+      const identity = typeof window.getCurrentBoothIdentity === "function"
+        ? window.getCurrentBoothIdentity()
+        : Identity.peek();
+      await EventAPI.completeStory(identity.attendeeId);
+      completionBusy = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
+      if (typeof onCompleted === "function") onCompleted();
+    } catch (error) {
+      console.error(error);
       completionBusy = false;
       renderedSignature = "";
       render();
+      toast(error && error.message ? error.message : "Couldn't save your Heaven Booth visit — please try again.");
     }
   }
 
@@ -336,6 +351,7 @@ const StoryAttendee = (() => {
       return;
     }
     initialized = true;
+    onCompleted = options && options.onCompleted;
     container = document.getElementById(options && options.containerId ? options.containerId : "booth-content");
     if (!container) return;
     container.addEventListener("click", (event) => {

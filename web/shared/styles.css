@@ -343,6 +343,10 @@ button.route-stop:focus-visible{ outline:3px solid rgba(240,168,60,.34); outline
 .route-stop.faded:not(.complete):not(.visited) .route-number{ opacity:.5; }
 .route-stop.locked,.route-stop.expired{ background:#f7f8fa; }
 .route-stop.expired .route-number{ text-decoration:line-through; }
+.route-stop.catchup{ border-color:#e0b85e; background:#fff8e8; }
+.route-stop.catchup .route-number{ background:#f0a83c; color:#fff; opacity:1; }
+.route-stop.catchup .route-state{ color:#8b5b13; opacity:1; }
+.route-stop.catchup .route-stop-copy{ opacity:.72; }
 .route-stop.complete,.route-stop.visited{ border-color:#69a980; background:#edf8f1; }
 .route-stop.complete .route-number,.route-stop.visited .route-number{ background:#2f8a57; color:#fff; text-decoration:none; }
 .route-stop.complete .route-state,.route-stop.visited .route-state{ color:#267247; }

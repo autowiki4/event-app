@@ -20,7 +20,7 @@ to create any `Live_*` tab by hand.
   gaps can appear in the sequence.
 - `wristbandColor`: one of `blue`, `red`, `orange`, `green`, or `yellow`.
   It is written at the same time staff confirm the wristband and determines
-  the attendee's three-booth route. Older rows are left intact and receive an
+  the attendee's two-booth route. Older rows are left intact and receive an
   empty value until staff reconfirm a color.
 - `phase3CompletedAt`: the first time the attendee clicks either Phase 3 finish
   action. It is recorded even when they choose no options and is not changed by
