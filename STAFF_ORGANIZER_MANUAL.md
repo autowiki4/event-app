@@ -10,7 +10,24 @@ Staff begin at:
 https://YOUR-RENDER-SITE/organizer/
 ```
 
-Choose **Overall Organizer** or the booth you are leading, then enter the shared organizer key. Do not give the staff link or key to attendees.
+Choose **Overall Organizer** or the booth you are leading, then enter that role's password. Each booth password opens only its own booth, and the Overall Organizer password does not open booth portals. Give each leader only the password they need; do not give the staff link or any staff password to attendees.
+
+### Password setup for the technical owner
+
+Render uses six unique server-only variables:
+
+```text
+EVENT_APP_ORGANIZER_KEY=Overall Organizer only
+EVENT_APP_DRAW_HEAVEN_KEY=Draw Heaven only
+EVENT_APP_BIBLE_BOWL_KEY=Bible Bowl only
+EVENT_APP_HEAVEN_BOOTH_KEY=The Heaven Booth only
+EVENT_APP_ART_THERAPY_KEY=Art Therapy only
+EVENT_APP_NEW_SONG_KEY=New Song only
+```
+
+For an existing deployment, keep the current `EVENT_APP_ORGANIZER_KEY` value for Overall Organizer. **Before deploying the updated code**, add the other five variables with different strong values. Choose **Save and deploy**, then distribute each booth password privately to that booth's leader. A missing hosted value disables only that portal; there is no shared or Overall-password fallback, and values must not be reused between roles. Open staff tabs must enter their password again after deployment.
+
+No link changes are required. This password update does not alter attendee data, the persistent database, or the Google Sheets credentials or tab layout. Local-only defaults are `demo`, `demo-draw-heaven`, `demo-bible-bowl`, `demo-heaven-booth`, `demo-art-therapy`, and `demo-new-song`; never use those on Render.
 
 ## 1. Schedule and wristband routes
 
@@ -78,6 +95,7 @@ Use **Clear all attendee data** only when intentionally starting over. It perman
 ## 4. Rules for every booth leader
 
 - Open and unlock the booth portal before the group arrives. Confirm the active session, wristband color, and countdown.
+- Before that selected session starts, the main control is disabled and says **Wait for booth time**. It unlocks only while the same session is live. The server also blocks early, late, and wrong-session updates, so leaders cannot accidentally change attendee screens from the waiting lobby.
 - In Draw Heaven, Bible Bowl, Art Therapy, and New Song, the fixed control at the bottom tells you what **Next →** will show. One tap updates eligible attendee phones, normally within 2–5 seconds.
 - When you need to pause, simply do not tap Next; attendee phones stay on the current screen.
 - In those four session-based booths, a wrong-session control says **Switch to Session**. Use Session 1 or 2 during the regular route and Session 3 from 4:50–5:10 for attendees who selected your booth. Switch first, review the next action, and then tap Next.
@@ -146,7 +164,7 @@ The ordered flow is:
 5. Show the four NIV passage screens: Matthew 13:31–32, 13:33, 13:44, and 13:47–48.
 6. Show **Thank you**, which releases **Finish booth →**.
 
-Back and Next publish immediately. Tapping a screen in the list also publishes it immediately. The portal automatically follows the clock-current Session 1, Session 2, or extra-booth run; each run keeps independent progress so a late click cannot change the next group. Its recent check-in list remains combined. Use **Restart at welcome** only when deliberately resetting the current run.
+While the current booth session is live, Back and Next publish immediately. Tapping a screen in the list also publishes it immediately. Outside that window, those publish controls are disabled with **Wait for booth time**. The portal automatically follows the clock-current Session 1, Session 2, or extra-booth run; each run keeps independent progress so a late click cannot change the next group. Its recent check-in list remains combined. Use **Restart at welcome** only when deliberately resetting the current run.
 
 ### New Song
 
@@ -155,7 +173,10 @@ Back and Next publish immediately. Tapping a screen in the list also publishes i
 1. Keep the welcome screen open until the room is ready, then tap **Next →** to open the 11-song poll.
 2. Each attendee gets one saved vote. The booth leader can watch the private live graph while attendees wait.
 3. Tap Next to close voting and show the most-voted song to leaders and attendees. At least one vote is required. Ties display all tied songs.
-4. Give the room time to discuss or guess. Tap Next only when ready to reveal Revelation 14:3 KJV and its artwork.
+4. Give the room time to discuss or guess. Tap Next only when ready to reveal **Revelation 14:3 · NIV** and its artwork:
+
+   > And they sang a new song before the throne and before the four living creatures and the elders. No one could learn the song except the 144,000 who had been redeemed from the earth.
+
 5. Tap Next after the reflection to release **Finish booth →**.
 
 Votes, results, attendee progress, and archived runs remain separate for each session. Restart after the group clears the booth so the saved run remains available. Session 3 contains only attendees who choose New Song at 4:50.
@@ -192,15 +213,15 @@ EVENT_APP_SHEETS_EXPORT_DEBOUNCE_MS=3000
 EVENT_APP_SHEETS_EXPORT_TIMEOUT_MS=10000
 ```
 
-Remove the retired Apps Script variables if present, choose **Save and deploy**, then open Overall Organizer and choose **Sync now**. Apps Script and `Code.gs` are not used. Never put the JSON key in GitHub, Slack, or browser code.
+Remove the retired Apps Script variables if present, choose **Save and deploy**, then open Overall Organizer and choose **Sync now**. Apps Script and `Code.gs` are not used while `web/shared/config.js` points to `/api`; the old adapter retains a legacy single-key model but is not part of this deployment. Never put the JSON key in GitHub, Slack, or browser code.
 
 ## 7. Event-day checklist
 
 1. Confirm Render is healthy, running one instance, and using its persistent disk.
 2. Open Overall Organizer and select **Use live CDT clock**.
 3. Confirm Google Sheets says **Up to date**, if export is enabled.
-4. Have each booth leader unlock their portal and confirm Session 1's wristband color.
-5. Leave attendees on the welcome/lobby screen until 3:35.
+4. Have each booth leader unlock their portal with that booth's password and confirm Session 1's wristband color.
+5. Leave attendees on the welcome/lobby screen until 3:35. Confirm each leader's main control says **Wait for booth time** and cannot be tapped early.
 6. At 3:55, confirm every portal has switched to Session 2.
 7. At 4:15, confirm every attendee screen shows **The message is being delivered. I hope you get blessed today.**
 8. Before 4:50, prepare Session 3 in the four tabbed booth portals. The Heaven Booth switches automatically to its separate extra-booth welcome at 4:50.
@@ -209,10 +230,12 @@ Remove the retired Apps Script variables if present, choose **Save and deploy**,
 
 ### Quick troubleshooting
 
+- **The control says Wait for booth time:** this is expected until the selected session is live. Check the shared clock and selected session; do not try to pre-publish from the lobby.
 - **Next did not change phones:** wait a few seconds, confirm you are controlling the live session, and use Refresh. If the button says Switch to Session, switch first and then tap Next.
 - **An attendee cannot enter:** check their wristband, current time, and late-arrival status. Off-route rooms are intentionally locked.
 - **An attendee refreshed:** their position should restore. On a new device, they sign in with the same name and phone number.
-- **A staff refresh asks for the key again:** re-enter the organizer key; staff access is remembered only for the current page session.
+- **A staff refresh asks for a password again:** re-enter that role's password; staff access is remembered only for the current page session.
+- **A password opens the wrong portal or no portal:** each value must be unique and mapped to the exact Render variable above. There is no Overall-password fallback for booths.
 - **The session ended before Finish booth:** the visit stays unmarked; never mark it complete automatically. At 4:50, that booth may appear as one of the attendee's optional unvisited choices.
 - **An extra-booth attendee is missing:** confirm it is 4:50–5:10, that they selected that booth rather than Connections, and that the booth leader is viewing Session 3.
 - **Sheets needs attention:** the event app still works. Retry, then verify the Sheet ID, Sheets API, service-account sharing, and Render JSON variable.

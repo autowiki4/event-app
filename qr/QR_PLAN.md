@@ -42,13 +42,27 @@ schedule and cannot be reopened, helping the group move to the next room.
 
 Keep this card in staff materials rather than public attendee signage. It
 opens one directory with the overall organizer dashboard and all five booth
-portals. Staff choose their role, then enter the organizer key on the selected
-page. The key is not embedded in the QR or URL. The previous
+portals. Staff choose their role, then enter that role's separate password on
+the selected page. The password is not embedded in the QR or URL. The previous
 `phase2-staff/index.html` address redirects to this directory for compatibility.
 
-All staff portals currently share one organizer key, so possession of that key
-is broader than one booth. A final production plan should replace this with
-appropriate roles or booth-specific credentials.
+The Overall Organizer password opens only Overall Organizer, and each booth
+password opens only its named booth. There is no cross-role or
+Overall-password fallback. Give each leader only their booth's password. The
+same staff directory URL and QR remain valid when passwords change.
+
+Before a staff QR is distributed for a Render deployment, retain the existing
+`EVENT_APP_ORGANIZER_KEY` value for Overall Organizer and add five unique
+values for `EVENT_APP_DRAW_HEAVEN_KEY`, `EVENT_APP_BIBLE_BOWL_KEY`,
+`EVENT_APP_HEAVEN_BOOTH_KEY`, `EVENT_APP_ART_THERAPY_KEY`, and
+`EVENT_APP_NEW_SONG_KEY` **before deploying**. Then choose **Save and deploy**.
+Open staff tabs must authenticate again; attendee data, URLs, the database, and
+Google Sheets credentials/schema remain unchanged.
+
+The directory can be opened before the event, but every booth's
+forward/publish control remains disabled with **Wait for booth time** until
+that selected session is live. The Node server enforces that timing rule as
+well as the page.
 
 ## Codes not needed in the normal flow
 
@@ -59,7 +73,7 @@ appropriate roles or booth-specific credentials.
   attendee hub shows the message, then the one-extra-booth
   or Connections chooser, and the final Connections direction. A separate
   Phase 3 recovery sign is optional.
-- **No organizer key in a code:** credentials must never be placed in a URL.
+- **No staff password in a code:** credentials must never be placed in a URL.
 - **No preview values:** `?preview=...` is only for local rehearsal. It
   propagates through the attendee journey for testing and should never be
   printed.

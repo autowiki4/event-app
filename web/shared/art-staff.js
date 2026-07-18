@@ -148,6 +148,40 @@ function initArtStaff() {
       : null;
   }
 
+  function selectedControlWindow() {
+    if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") {
+      return {
+        open: false,
+        currentSessionNumber: 0,
+        message: "The shared event clock is unavailable, so attendee-screen controls are locked.",
+      };
+    }
+    const snapshot = EventSchedule.current();
+    const currentSessionNumber = snapshot && snapshot.session
+      ? integer(snapshot.session.number, 0)
+      : 0;
+    const livePhase = Boolean(snapshot && ["active", "extra"].includes(snapshot.phase));
+    if (livePhase && currentSessionNumber === selectedSessionNumber) {
+      return { open: true, currentSessionNumber, message: "One tap updates everyone in this session." };
+    }
+
+    const schedule = sessionSchedule();
+    const startsAt = schedule && typeof EventSchedule.formattedTime === "function"
+      ? EventSchedule.formattedTime(schedule.startsAt)
+      : "its scheduled time";
+    let message = "Booth time has ended. Attendee-screen controls are locked.";
+    if (!snapshot || snapshot.phase === "before") {
+      message = `Waiting lobby — controls unlock when ${sessionTitle(selectedSessionNumber)} begins at ${startsAt}.`;
+    } else if (livePhase && currentSessionNumber) {
+      message = `${sessionTitle(currentSessionNumber)} is live. Switch to that session before updating attendee phones.`;
+    } else if (snapshot.phase === "message") {
+      message = selectedSessionNumber === 3
+        ? `The message is in progress — Extra booth controls unlock at ${startsAt}.`
+        : "The message is in progress. This session's attendee-screen controls are locked.";
+    }
+    return { open: false, currentSessionNumber, message };
+  }
+
   function fallbackBand(sessionNumber = selectedSessionNumber) {
     if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
@@ -284,7 +318,8 @@ function initArtStaff() {
   }
 
   function renderActions(session) {
-    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    const controlWindow = selectedControlWindow();
+    const activeSessionNumber = controlWindow.currentSessionNumber;
     if (
       activeSessionNumber >= 1
         && activeSessionNumber <= SESSION_COUNT
@@ -319,15 +354,29 @@ function initArtStaff() {
         <div class="booth-leader-dock-copy">
           <span>Next on attendee phones</span>
           <strong>${escapeHtml(model.actionLabel)}</strong>
-          <small>One tap updates everyone in this session.</small>
+          <small data-art-control-help>${escapeHtml(controlWindow.message)}</small>
         </div>
         <div class="booth-leader-dock-actions">
-          <button type="button" class="btn btn-primary" id="btn-art-advance" data-art-action="${model.action}" aria-label="Next: ${escapeHtml(model.actionLabel)}" ${controlBusy ? "disabled" : ""}>${controlBusy ? "Updating…" : "Next →"}</button>
+          <button type="button" class="btn btn-primary" id="btn-art-advance" data-art-action="${model.action}" aria-label="Next: ${escapeHtml(model.actionLabel)}" ${controlBusy || !controlWindow.open ? "disabled" : ""}>${controlBusy ? "Updating…" : controlWindow.open ? "Next →" : "Wait for booth time"}</button>
         </div>
       </div>
     `;
     const button = actions.querySelector("[data-art-action]");
     if (button) button.addEventListener("click", () => advance(String(button.dataset.artAction || "")));
+  }
+
+  function syncActionAvailability() {
+    const controlWindow = selectedControlWindow();
+    const button = actions.querySelector("[data-art-action]");
+    if (button) {
+      button.disabled = controlBusy || !controlWindow.open;
+      button.textContent = controlBusy
+        ? "Updating…"
+        : controlWindow.open ? "Next →" : "Wait for booth time";
+      button.title = controlWindow.open ? "" : controlWindow.message;
+    }
+    const controlHelp = actions.querySelector("[data-art-control-help]");
+    if (controlHelp) controlHelp.textContent = controlWindow.message;
   }
 
   function participantRows(session) {
@@ -462,12 +511,19 @@ function initArtStaff() {
   }
 
   async function advance(action) {
-    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    const controlWindow = selectedControlWindow();
+    const activeSessionNumber = controlWindow.currentSessionNumber;
     if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSession();
       toast(`No attendee screen changed. ${sessionTitle(activeSessionNumber)} became live, so controls switched there; review the next step, then tap Next.`);
+      return;
+    }
+    if (!controlWindow.open) {
+      syncActionAvailability();
+      toast(controlWindow.message);
+      document.getElementById("art-publish-state").textContent = `${controlWindow.message} No attendee screen changed.`;
       return;
     }
     const session = currentSession();
@@ -490,7 +546,12 @@ function initArtStaff() {
     } catch (error) {
       console.error(error);
       if (!OrganizerAuth.handleError(error, authGeneration)) {
-        toast(error && error.message ? error.message : "Couldn’t publish the next Art Therapy slide.");
+        if (error && error.code === "BOOTH_SESSION_NOT_ACTIVE") {
+          toast("Booth time changed. No attendee phone was updated.");
+          document.getElementById("art-publish-state").textContent = "Booth time changed. Controls are locked until this session is live again.";
+        } else {
+          toast(error && error.message ? error.message : "Couldn’t publish the next Art Therapy slide.");
+        }
       }
     } finally {
       controlBusy = false;
@@ -550,10 +611,11 @@ function initArtStaff() {
     }, POLL_INTERVAL_MS);
     scheduleTimer = window.setInterval(() => {
       renderTimer();
+      syncActionAvailability();
       if (!selectionPinned && dashboard) {
         const snapshot = EventSchedule.current();
         const activeSessionNumber = snapshot && snapshot.session ? integer(snapshot.session.number) : 0;
-        if (snapshot.phase === "active" && activeSessionNumber && activeSessionNumber !== selectedSessionNumber) {
+        if (["active", "extra"].includes(snapshot.phase) && activeSessionNumber && activeSessionNumber !== selectedSessionNumber) {
           selectedSessionNumber = activeSessionNumber;
           renderSession();
         }
@@ -606,6 +668,7 @@ function initArtStaff() {
   });
 
   OrganizerAuth.init({
+    scope: "art",
     onUnlocked: async () => {
       selectionPinned = false;
       await EventSchedule.startDemoClockSync(5000).catch(() => {});

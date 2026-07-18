@@ -133,9 +133,9 @@
 
     <div class="organizer-access" id="organizer-access">
       <h2>Staff access</h2>
-      <p>Enter the event's organizer key. It stays only in this page's memory and is never stored in the public site files or browser storage.</p>
+      <p>Enter the Overall Organizer password. It stays only in this page's memory and is never stored in the public site files or browser storage.</p>
       <div class="field">
-        <label for="organizer-key">Organizer access key</label>
+        <label for="organizer-key">Overall Organizer password</label>
         <input id="organizer-key" type="password" autocomplete="off">
         <div class="err" id="err-organizer-key"></div>
       </div>
@@ -1018,6 +1018,7 @@ if (!demoBackend) {
 }
 
 OrganizerAuth.init({
+  scope: "overall",
   onUnlocked: async () => {
     await startSharedDemoClock();
     renderDemoClock();

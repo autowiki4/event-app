@@ -76,8 +76,8 @@ eligible for the attendee's optional 4:50 choice.
 
 Once a wristband color is confirmed, repeating the same color is idempotent
 but an unauthenticated call cannot switch the attendee to another group. A
-correction requires the organizer key at the API boundary; the mock does not
-yet include a dedicated correction screen.
+correction requires the Overall Organizer password at the API boundary; the
+mock does not yet include a dedicated correction screen.
 
 Every attendee stage displays the attendee's name and raffle number in a top
 banner. Tapping the name opens the explicit **Log out on this device** action;
@@ -171,6 +171,8 @@ organizer-controlled mode takes precedence over a page's query preview.
 This shared override works with the same-origin Node `/api`, locally or on
 Render. The Apps Script adapter exposes neither clock action, its organizer
 controls are hidden, and its pages continue to use synchronized real time.
+That adapter retains legacy single-key authentication, but it is not deployed
+or called while `web/shared/config.js` uses the current same-origin `/api` path.
 The timeline is a rehearsal convenience, not resilient show control.
 
 ## Unified Phase 2 attendee hub
@@ -224,6 +226,14 @@ Leaving the controls alone holds the current screen, so booth leaders do not
 manage a separate waiting/live/paused/wrap selector or a free-text
 announcement. Restarting a run remains a separate, confirmed action.
 
+Forward and direct-publish controls are clock-gated. Unless the selected
+Session 1, Session 2, or Session 3 is the session currently live on the shared
+clock, the portal disables them and displays **Wait for booth time**. The Node
+API independently applies the same active-session check to every booth control
+write. This fail-closed server check prevents a waiting-lobby tab, stale
+session tab, or crafted request from changing attendee screens outside that
+booth window.
+
 The shared Heaven Booth controller calls the protected
 `updateBoothPresentation` action. The backend stores an independent ordered
 presentation for Sessions 1, 2, and 3 while retaining older status values for
@@ -232,7 +242,7 @@ includes its session number on every publish, and rejects stale or
 wrong-session updates at a rotation boundary. The current UI derives waiting,
 active, and complete from the ordered flow.
 The attendee hub calls
-the read-only `boothPresentation` action without receiving the organizer key.
+the read-only `boothPresentation` action without receiving any staff password.
 `boothDashboardData` returns that booth's current presentation and recent
 check-ins to the authenticated staff page.
 
@@ -259,6 +269,11 @@ and progress through `welcome → voting → winner → verse → complete`. The
 vote from an attendee is locked. Staff see a live tally for only the active
 session/run and control when the winner, Revelation 14:3, and completion are
 shown. Restarting one session archives its current run and opens a clean one.
+The verse is labelled **Revelation 14:3 · NIV** and uses this exact text:
+
+> And they sang a new song before the throne and before the four living
+> creatures and the elders. No one could learn the song except the 144,000 who
+> had been redeemed from the earth.
 
 Bible Bowl, Draw Heaven, Art Therapy, New Song, and The Heaven Booth keep
 independent Session 1–3 progress. The four specialized portals expose session
@@ -272,11 +287,29 @@ Day**, **Praise - elevation worship**, **I thank God - maverick city**, **Amen-
 Madison Ryann Ward**, **Quick - Caleb Gordon**, **Goodbye Yesterday - elevation
 rhythm**, **He called me**, **247**, and **Elohim**.
 
-All booth and organizer pages currently use the same organizer key. The API
-does filter booth dashboard results by the requested booth, but the key does
-not prevent its holder from opening a different booth page or the overall
-dashboard. A live deployment should use role-based or booth-specific access,
-key rotation, and an audit/incident plan.
+The Node API uses six strict staff scopes. `EVENT_APP_ORGANIZER_KEY` grants
+Overall Organizer only; `EVENT_APP_DRAW_HEAVEN_KEY`,
+`EVENT_APP_BIBLE_BOWL_KEY`, `EVENT_APP_HEAVEN_BOOTH_KEY`,
+`EVENT_APP_ART_THERAPY_KEY`, and `EVENT_APP_NEW_SONG_KEY` each grant only the
+named booth. The browser sends the requested non-secret scope along with the
+entered password, while every protected API action independently derives and
+enforces its required scope. There is no master-password or cross-scope
+fallback. Passwords stay in the staff page's memory and are not written to a
+URL or browser storage.
+
+Hosted runtimes fail closed: a missing value disables only its matching
+portal, and duplicate values are treated as invalid rather than allowing one
+password to span roles. Local development has separate defaults: `demo`,
+`demo-draw-heaven`, `demo-bible-bowl`, `demo-heaven-booth`,
+`demo-art-therapy`, and `demo-new-song`.
+
+For an existing Render service, preserve the current
+`EVENT_APP_ORGANIZER_KEY` value as the Overall Organizer credential. Add the
+five booth variables with unique strong values **before** deploying the new
+code, then choose **Save and deploy** and distribute each value only to its
+leader. Existing staff tabs must authenticate again. The change is confined
+to staff authorization: routes, attendee state, the persistent database, and
+the Google Sheets credentials and managed-tab schema are unchanged.
 
 ## Phase 3
 
@@ -371,9 +404,12 @@ both selected options and the empty **No thanks** path; reads return that
 completion state so the final page cannot be reached by merely opening Phase
 3.
 
-The protected actions shared by both backends are `verifyOrganizer`,
+The protected action names shared by both backends include `verifyOrganizer`,
 `updateBoothPresentation`, `boothDashboardData`, `dashboardData`, and
-`confirmSignupInPerson`. The Node service additionally has protected
+`confirmSignupInPerson`. On Node, each action is bound to Overall Organizer or
+the relevant booth scope. The legacy Apps Script adapter still uses its one
+legacy organizer key and is not the configured backend when
+`API_BASE_URL` is `/api`. The Node service additionally has protected
 `resetDemo`, `setDemoClock`, `googleSheetsExportStatus`, and
 `syncGoogleSheetsExport` actions plus the public, PII-free `eventClock` read.
 The export status is sanitized and never returns the spreadsheet ID,
@@ -407,15 +443,15 @@ change the selected clock mode or anchor. If the Sheet mirror is configured,
 the empty post-reset state is exported and clears the `Live_*` data rows.
 
 Public presentation reads return only the booth's display state and server
-time. They do not return the organizer key, attendee roster, or event-wide
+time. They do not return staff passwords, attendee roster, or event-wide
 dashboard data.
 
 ## What still needs a production decision
 
 - Confirm the event date, Nashville timezone assumption, and exact session
   transitions.
-- Replace the shared organizer key with appropriate staff authentication and
-  authorization.
+- Decide whether the scoped static staff passwords are sufficient or should be
+  replaced with managed accounts, rotation, recovery, and audit logging.
 - Test venue Wi-Fi capacity and define an offline/manual fallback.
 - Treat around 150 as a planning estimate rather than a registration cap. If
   turnout is near that estimate, keep wristband colors reasonably close to 30

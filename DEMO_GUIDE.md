@@ -19,8 +19,17 @@ cd demo-server
 node server.js
 ```
 
-No `npm install`, Google account, or database is needed. The local organizer
-key is `demo`.
+No `npm install`, Google account, or database is needed. Local staff passwords
+are intentionally different:
+
+| Role | Local password |
+|---|---|
+| Overall Organizer | `demo` |
+| Draw Heaven | `demo-draw-heaven` |
+| Bible Bowl | `demo-bible-bowl` |
+| The Heaven Booth | `demo-heaven-booth` |
+| Art Therapy | `demo-art-therapy` |
+| New Song | `demo-new-song` |
 
 If this is not the first rehearsal, clear the old data from the organizer
 dashboard or run:
@@ -47,9 +56,9 @@ Open these windows:
 
 Use a private/incognito window for A so a previous attendee identity is not
 reused. The same organizer URL is used in B and C: choose the relevant booth
-in B and **Overall Organizer** in C, then unlock each selected page with
-`demo`. Staff access is kept in the current page's memory, so a reload may ask
-for the key again.
+in B and **Overall Organizer** in C, then unlock each selected page with that
+role's password from the table above. Staff access is kept only in the current
+page's memory, so a reload asks for the password again.
 
 In Window C, find **Demo only · Shared event time**. Its continuous timeline
 affects every attendee, overall-organizer, and booth-leader page connected to
@@ -95,6 +104,12 @@ Point out:
 - the page names the first booth before the session starts; and
 - the countdown is shared from the event schedule.
 
+Also open a booth-leader page during this waiting state. Its publish control is
+disabled and reads **Wait for booth time**. Even a stale page or direct request
+cannot advance attendee screens because the Node server enforces the same
+active-session rule. The control unlocks only after the selected session is
+live.
+
 Refresh Window A while it is in the lobby. It should return as Jordan instead
 of showing registration again. In Window C, use the **3:35** shortcut and
 choose **Apply simulated time**. Show that the lobby unlocks the first booth on
@@ -109,9 +124,9 @@ synchronized Chicago time.
 
 In Window C, move the timeline to **3:45:00 PM** and choose **Apply simulated
 time**. From the organizer directory in Window B, open **Draw Heaven** and
-unlock it with `demo`. The page should show that Blue wristbands are scheduled
-there in Session 1. The fixed control names the next screen attendees will see;
-choose **Next →** once to open the drawing activity.
+unlock it with `demo-draw-heaven`. The page should show that Blue wristbands
+are scheduled there in Session 1. The fixed control names the next screen
+attendees will see; choose **Next →** once to open the drawing activity.
 
 Within the next refresh, the attendee activity shows the leader's selected
 screen. Point out the Session 1 label, the 3:35–3:55 time, the
@@ -156,6 +171,13 @@ The complete routing matrix is:
 | Orange | Art Therapy | The Heaven Booth |
 | Green | New Song | Art Therapy |
 | Yellow | The Heaven Booth | New Song |
+
+When rehearsing New Song, the leader reveals **Revelation 14:3 · NIV** only
+after the winner/guess screen. Both leader and attendee views must show:
+
+> And they sang a new song before the throne and before the four living
+> creatures and the elders. No one could learn the song except the 144,000 who
+> had been redeemed from the earth.
 
 ## 6. Show the message and optional extra booth
 
@@ -249,8 +271,9 @@ chosen a shared time, that Node-controlled time takes precedence.
 - **Does this work offline?** No. The timer can continue from its last sync,
   but sign-in, leader updates, check-ins, and submissions need the backend.
 - **Can a leader control only their booth?** The data endpoint and page are
-  booth-scoped, but all staff pages currently share one organizer key. Anyone
-  with that key can open another booth or the overall dashboard.
+  strictly booth-scoped and each role has its own password. A booth password
+  cannot unlock another booth or Overall Organizer; no overall-password
+  fallback exists.
 - **Is name plus phone secure login?** No. It is lightweight mock record
   recovery rather than strong authentication, and no message is sent to prove
   control of the number. The raffle is display-only and cannot be used to log
@@ -273,6 +296,9 @@ chosen a shared time, that Node-controlled time takes precedence.
   Chicago time. It can coordinate all same-origin pages locally or on Render,
   but it is not resilient show-control infrastructure. Apps Script pages have
   no remote clock control and continue to use synchronized real time.
+- **Does the Apps Script adapter use these scoped passwords?** No. It retains
+  its legacy single-key model and is not deployed or called while
+  `web/shared/config.js` uses the current same-origin `/api` backend.
 - **Is this ready for live attendee data?** Not yet. Confirm credentials,
   access roles, privacy/retention, device testing, venue Wi-Fi, and a manual
   fallback first.

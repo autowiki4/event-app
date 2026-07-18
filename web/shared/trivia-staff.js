@@ -80,6 +80,40 @@ function initTriviaStaff() {
       : null;
   }
 
+  function selectedControlWindow() {
+    if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") {
+      return {
+        open: false,
+        currentSessionNumber: 0,
+        message: "The shared event clock is unavailable, so attendee-screen controls are locked.",
+      };
+    }
+    const snapshot = EventSchedule.current();
+    const currentSessionNumber = snapshot && snapshot.session
+      ? integer(snapshot.session.number, 0)
+      : 0;
+    const livePhase = Boolean(snapshot && ["active", "extra"].includes(snapshot.phase));
+    if (livePhase && currentSessionNumber === selectedSessionNumber) {
+      return { open: true, currentSessionNumber, message: "One tap updates everyone in this session." };
+    }
+
+    const schedule = sessionSchedule();
+    const startsAt = schedule && typeof EventSchedule.formattedTime === "function"
+      ? EventSchedule.formattedTime(schedule.startsAt)
+      : "its scheduled time";
+    let message = "Booth time has ended. Attendee-screen controls are locked.";
+    if (!snapshot || snapshot.phase === "before") {
+      message = `Waiting lobby — controls unlock when ${sessionTitle(selectedSessionNumber)} begins at ${startsAt}.`;
+    } else if (livePhase && currentSessionNumber) {
+      message = `${sessionTitle(currentSessionNumber)} is live. Switch to that session before updating attendee phones.`;
+    } else if (snapshot.phase === "message") {
+      message = selectedSessionNumber === 3
+        ? `The message is in progress — Extra booth controls unlock at ${startsAt}.`
+        : "The message is in progress. This session's attendee-screen controls are locked.";
+    }
+    return { open: false, currentSessionNumber, message };
+  }
+
   function fallbackBand(sessionNumber = selectedSessionNumber) {
     if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
@@ -274,15 +308,16 @@ function initTriviaStaff() {
   }
 
   function nextActionButton(id, description, action) {
+    const controlWindow = selectedControlWindow();
     return `
       <div class="booth-leader-dock">
         <div class="booth-leader-dock-copy">
           <span>Next on attendee phones</span>
           <strong>${escapeHtml(description)}</strong>
-          <small>One tap updates everyone in this session.</small>
+          <small data-trivia-control-help>${escapeHtml(controlWindow.message)}</small>
         </div>
         <div class="booth-leader-dock-actions">
-          <button type="button" class="btn btn-primary" id="${id}" data-trivia-action="${action}" aria-label="Next: ${escapeHtml(description)}">Next →</button>
+          <button type="button" class="btn btn-primary" id="${id}" data-trivia-action="${action}" data-ready-label="Next →" aria-label="Next: ${escapeHtml(description)}" ${controlWindow.open ? "" : "disabled"}>${controlWindow.open ? "Next →" : "Wait for booth time"}</button>
         </div>
       </div>
     `;
@@ -502,9 +537,21 @@ function initTriviaStaff() {
 
   function syncBusyState() {
     const busy = controlBusy;
+    const controlWindow = selectedControlWindow();
     settings.classList.toggle("trivia-loading", busy);
     tabs.forEach((tab) => { tab.disabled = busy; });
-    actions.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+    actions.querySelectorAll("button").forEach((button) => {
+      const changesPhones = button.hasAttribute("data-trivia-action");
+      button.disabled = busy || (changesPhones && !controlWindow.open);
+      if (changesPhones) {
+        const readyLabel = button.dataset.readyLabel || button.textContent || "Next →";
+        button.dataset.readyLabel = readyLabel;
+        button.textContent = controlWindow.open ? readyLabel : "Wait for booth time";
+        button.title = controlWindow.open ? "" : controlWindow.message;
+      }
+    });
+    const controlHelp = actions.querySelector("[data-trivia-control-help]");
+    if (controlHelp) controlHelp.textContent = controlWindow.message;
     refreshButton.disabled = busy;
     resetButton.disabled = busy || !sessionByNumber();
   }
@@ -579,12 +626,19 @@ function initTriviaStaff() {
 
   async function advance(action) {
     if (controlBusy) return;
-    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    const controlWindow = selectedControlWindow();
+    const activeSessionNumber = controlWindow.currentSessionNumber;
     if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
       toast(`No attendee screen changed. Session ${activeSessionNumber} became live, so controls switched there; review the next step, then tap Next.`);
+      return;
+    }
+    if (!controlWindow.open) {
+      syncBusyState();
+      toast(controlWindow.message);
+      setStatus(`${controlWindow.message} No attendee screen changed.`, "error");
       return;
     }
     const session = sessionByNumber();
@@ -612,7 +666,10 @@ function initTriviaStaff() {
     } catch (error) {
       console.error(error);
       if (OrganizerAuth.handleError(error, authGeneration)) return;
-      if (error && (error.status === 409 || /CONFLICT|STALE/.test(String(error.code || "")))) {
+      if (error && error.code === "BOOTH_SESSION_NOT_ACTIVE") {
+        toast("Booth time changed. No attendee phone was updated.");
+        setStatus("Booth time changed. Controls are locked until this session is live again.", "error");
+      } else if (error && (error.status === 409 || /CONFLICT|STALE/.test(String(error.code || "")))) {
         toast("Another leader updated this session. Reloading the latest state.");
         setStatus("Another leader moved the session first. Latest controls are loading…", "error");
       } else {
@@ -731,6 +788,7 @@ function initTriviaStaff() {
   });
 
   OrganizerAuth.init({
+    scope: "trivia",
     onUnlocked: async () => {
       await startSharedDemoClock();
       await refresh();
@@ -738,7 +796,10 @@ function initTriviaStaff() {
         if (!refreshTimer) refreshTimer = setInterval(() => {
           if (!document.hidden) refresh({ silent: true });
         }, POLL_INTERVAL_MS);
-        if (!scheduleTimer) scheduleTimer = setInterval(renderSchedule, 1000);
+        if (!scheduleTimer) scheduleTimer = setInterval(() => {
+          renderSchedule();
+          syncBusyState();
+        }, 1000);
       }
     },
     onLocked: clearStaffState,

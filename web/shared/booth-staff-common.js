@@ -495,6 +495,7 @@ function initBoothStaff(boothId) {
   document.getElementById("btn-staff-refresh").addEventListener("click", () => refresh());
 
   OrganizerAuth.init({
+    scope: booth.id,
     onUnlocked: async () => {
       await startSharedDemoClock();
       await refresh();

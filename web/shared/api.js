@@ -155,7 +155,10 @@ const EventAPI = (function () {
       targetIso: targetIso || null,
       organizerKey,
     }),
-    verifyOrganizer: (organizerKey) => call("verifyOrganizer", { organizerKey }),
+    verifyOrganizer: (organizerKey, staffScope) => call("verifyOrganizer", {
+      organizerKey,
+      staffScope: staffScope || "overall",
+    }),
     resetDemo: (organizerKey) => call("resetDemo", { organizerKey }),
     myCheckins: (attendeeId) => call("myCheckins", { attendeeId: attendeeId || "" }),
     mySignupSelections: (attendeeId) => call("mySignupSelections", { attendeeId: attendeeId || "" }),

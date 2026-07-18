@@ -7,9 +7,22 @@ const path = require("path");
 const vm = require("vm");
 const { once } = require("events");
 
+const TEST_STAFF_KEYS = Object.freeze({
+  overall: "test-overall-key",
+  heaven: "test-draw-heaven-key",
+  trivia: "test-bible-bowl-key",
+  story: "test-heaven-booth-key",
+  art: "test-art-therapy-key",
+  newsong: "test-new-song-key",
+});
 const testDb = path.join(os.tmpdir(), `event-app-test-${process.pid}.json`);
 process.env.EVENT_APP_DB_PATH = testDb;
-process.env.EVENT_APP_ORGANIZER_KEY = "test-organizer-key";
+process.env.EVENT_APP_ORGANIZER_KEY = TEST_STAFF_KEYS.overall;
+process.env.EVENT_APP_DRAW_HEAVEN_KEY = TEST_STAFF_KEYS.heaven;
+process.env.EVENT_APP_BIBLE_BOWL_KEY = TEST_STAFF_KEYS.trivia;
+process.env.EVENT_APP_HEAVEN_BOOTH_KEY = TEST_STAFF_KEYS.story;
+process.env.EVENT_APP_ART_THERAPY_KEY = TEST_STAFF_KEYS.art;
+process.env.EVENT_APP_NEW_SONG_KEY = TEST_STAFF_KEYS.newsong;
 process.env.NODE_ENV = "test";
 delete process.env.EVENT_APP_SHEETS_EXPORT_URL;
 delete process.env.EVENT_APP_SHEETS_EXPORT_KEY;
@@ -833,7 +846,7 @@ async function runGoogleSheetsExporterRegression() {
 }
 
 async function runGoogleSheetsExportApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.overall;
   let response = await request(port, "googleSheetsExportStatus", {});
   assert.equal(response.status, 401);
   assert.equal(response.body.code, "AUTH_REQUIRED");
@@ -871,8 +884,206 @@ async function runGoogleSheetsExportApiRegression(port) {
   });
 }
 
+async function runStaffScopeRegression(port) {
+  const protectedReads = [
+    ["overall", "dashboardData", {}],
+    ["heaven", "heavenDashboardData", {}],
+    ["trivia", "triviaDashboardData", {}],
+    ["story", "boothDashboardData", { boothId: "story" }],
+    ["art", "artDashboardData", {}],
+    ["newsong", "newSongDashboardData", {}],
+  ];
+
+  for (const [requestedScope] of protectedReads) {
+    for (const [candidateScope, candidateKey] of Object.entries(TEST_STAFF_KEYS)) {
+      const response = await request(port, "verifyOrganizer", {
+        organizerKey: candidateKey,
+        staffScope: requestedScope,
+      });
+      assert.equal(
+        response.status,
+        candidateScope === requestedScope ? 200 : 401,
+        `${candidateScope} password against ${requestedScope} portal`
+      );
+      if (response.status === 200) {
+        assert.deepEqual(response.body, { ok: true, staffScope: requestedScope });
+      } else {
+        assert.equal(response.body.code, "AUTH_REQUIRED");
+      }
+    }
+  }
+
+  for (const [requestedScope, action, payload] of protectedReads) {
+    const accepted = await request(port, action, {
+      ...payload,
+      organizerKey: TEST_STAFF_KEYS[requestedScope],
+    });
+    assert.equal(accepted.status, 200, `${requestedScope} password should read its own portal`);
+    for (const [candidateScope, candidateKey] of Object.entries(TEST_STAFF_KEYS)) {
+      if (candidateScope === requestedScope) continue;
+      const denied = await request(port, action, { ...payload, organizerKey: candidateKey });
+      assert.equal(denied.status, 401, `${candidateScope} password must not read ${requestedScope}`);
+      assert.equal(denied.body.code, "AUTH_REQUIRED");
+    }
+  }
+
+  for (const boothKey of Object.values(TEST_STAFF_KEYS).filter((key) => key !== TEST_STAFF_KEYS.overall)) {
+    let denied = await request(port, "setDemoClock", { mode: "before", organizerKey: boothKey });
+    assert.equal(denied.status, 401, "booth passwords must not control the event clock");
+    denied = await request(port, "resetDemo", { organizerKey: boothKey });
+    assert.equal(denied.status, 401, "booth passwords must not clear attendee data");
+    denied = await request(port, "googleSheetsExportStatus", { organizerKey: boothKey });
+    assert.equal(denied.status, 401, "booth passwords must not read Google Sheets status");
+  }
+
+  let response = await request(port, "findOrRegisterByPhone", {
+    phone: "6155550888",
+    name: "Kiosk Scope Check",
+    allowCreate: false,
+    organizerKey: TEST_STAFF_KEYS.overall,
+  });
+  assert.equal(response.status, 400, "a kiosk request must name its booth scope");
+  assert.equal(response.body.code, "INVALID_STAFF_SCOPE");
+  response = await request(port, "findOrRegisterByPhone", {
+    phone: "6155550888",
+    name: "Kiosk Scope Check",
+    allowCreate: false,
+    staffScope: "art",
+    organizerKey: TEST_STAFF_KEYS.overall,
+  });
+  assert.equal(response.status, 401, "the Overall Organizer password must not fall back into an Art kiosk");
+  response = await request(port, "findOrRegisterByPhone", {
+    phone: "6155550888",
+    name: "Kiosk Scope Check",
+    allowCreate: false,
+    staffScope: "art",
+    organizerKey: TEST_STAFF_KEYS.newsong,
+  });
+  assert.equal(response.status, 401, "New Song password must not unlock the Art kiosk");
+  response = await request(port, "findOrRegisterByPhone", {
+    phone: "6155550888",
+    name: "Kiosk Scope Check",
+    allowCreate: false,
+    staffScope: "art",
+    organizerKey: TEST_STAFF_KEYS.art,
+  });
+  assert.notEqual(response.status, 401, "Art password should pass Art kiosk authentication");
+
+  response = await request(port, "boothCheckin", {
+    attendeeId: "missing-kiosk-attendee",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "staff-kiosk",
+    organizerKey: TEST_STAFF_KEYS.newsong,
+  });
+  assert.equal(response.status, 401);
+  response = await request(port, "boothCheckin", {
+    attendeeId: "missing-kiosk-attendee",
+    boothId: "art",
+    boothName: "Art Therapy Table",
+    checkedInBy: "staff-kiosk",
+    organizerKey: TEST_STAFF_KEYS.art,
+  });
+  assert.equal(response.status, 404, "Art password should pass auth before attendee lookup");
+
+  response = await request(port, "findOrRegisterByPhone", {
+    attendeeId: "scoped-kiosk-created",
+    phone: "6155550889",
+    name: "Scoped Kiosk Creation",
+    allowCreate: true,
+    staffScope: "art",
+    organizerKey: TEST_STAFF_KEYS.art,
+  });
+  assert.equal(response.status, 200, "a valid scoped kiosk request must not fail after authentication");
+  assert.equal(response.body.attendeeId, "scoped-kiosk-created");
+  assert.equal(response.body.isNew, true);
+
+  response = await request(port, "boothCheckin", {
+    attendeeId: "scoped-kiosk-created",
+    boothId: "story",
+    boothName: "The Heaven Booth",
+    checkedInBy: "staff-kiosk-copy",
+  });
+  assert.equal(response.status, 400, "an invented check-in actor must not bypass a booth password");
+  assert.equal(response.body.code, "INVALID_CHECKIN_ACTOR");
+
+  response = await request(port, "resetDemo", { organizerKey: TEST_STAFF_KEYS.overall });
+  assert.equal(response.status, 200);
+}
+
+async function runPreEventBoothControlRegression(port) {
+  const overallKey = TEST_STAFF_KEYS.overall;
+  let response = await request(port, "resetDemo", { organizerKey: overallKey });
+  assert.equal(response.status, 200);
+  response = await request(port, "setDemoClock", { mode: "before", organizerKey: overallKey });
+  assert.equal(response.status, 200);
+
+  const cases = [
+    {
+      name: "Bible Bowl",
+      action: "advanceTriviaSession",
+      payload: { sessionNumber: 1, action: "start", version: 0, organizerKey: TEST_STAFF_KEYS.trivia },
+      read: () => request(port, "triviaDashboardData", { organizerKey: TEST_STAFF_KEYS.trivia }),
+      state: (body) => body.sessions[0].state,
+    },
+    {
+      name: "Draw Heaven",
+      action: "advanceHeavenSession",
+      payload: { sessionNumber: 1, action: "start", version: 0, organizerKey: TEST_STAFF_KEYS.heaven },
+      read: () => request(port, "heavenDashboardData", { organizerKey: TEST_STAFF_KEYS.heaven }),
+      state: (body) => body.sessions[0].state,
+    },
+    {
+      name: "Art Therapy",
+      action: "advanceArtSession",
+      payload: { sessionNumber: 1, action: "start", version: 0, organizerKey: TEST_STAFF_KEYS.art },
+      read: () => request(port, "artDashboardData", { organizerKey: TEST_STAFF_KEYS.art }),
+      state: (body) => body.sessions[0].state,
+    },
+    {
+      name: "New Song",
+      action: "advanceNewSongSession",
+      payload: { sessionNumber: 1, action: "start", version: 0, organizerKey: TEST_STAFF_KEYS.newsong },
+      read: () => request(port, "newSongDashboardData", { organizerKey: TEST_STAFF_KEYS.newsong }),
+      state: (body) => body.sessions[0].state,
+    },
+    {
+      name: "The Heaven Booth",
+      action: "updateBoothPresentation",
+      payload: {
+        boothId: "story",
+        sessionNumber: 1,
+        stepIndex: 1,
+        status: "live",
+        version: 0,
+        organizerKey: TEST_STAFF_KEYS.story,
+      },
+      read: () => request(port, "boothDashboardData", {
+        boothId: "story",
+        organizerKey: TEST_STAFF_KEYS.story,
+      }),
+      state: (body) => body.presentation,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const before = await testCase.read();
+    assert.equal(before.status, 200, testCase.name);
+    const beforeState = testCase.state(before.body);
+    response = await request(port, testCase.action, testCase.payload);
+    assert.equal(response.status, 409, `${testCase.name} must remain locked in the waiting lobby`);
+    assert.equal(response.body.code, "BOOTH_SESSION_NOT_ACTIVE", testCase.name);
+    const after = await testCase.read();
+    const afterState = testCase.state(after.body);
+    assert.equal(afterState.version, beforeState.version, `${testCase.name} version must not change early`);
+    assert.equal(afterState.phase || afterState.status, beforeState.phase || beforeState.status, `${testCase.name} phase must not change early`);
+  }
+}
+
 async function runApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.overall;
+  const storyKey = TEST_STAFF_KEYS.story;
+  const newSongKey = TEST_STAFF_KEYS.newsong;
 
   let res = await request(port, "dashboardData", {});
   assert.equal(res.status, 401);
@@ -882,7 +1093,16 @@ async function runApiRegression(port) {
   res = await request(port, "verifyOrganizer", { organizerKey: "wrong" });
   assert.equal(res.status, 401);
   res = await request(port, "verifyOrganizer", { organizerKey });
-  assert.deepEqual(res.body, { ok: true });
+  assert.deepEqual(res.body, { ok: true, staffScope: "overall" });
+  res = await request(port, "verifyOrganizer", { organizerKey: storyKey, staffScope: "story" });
+  assert.deepEqual(res.body, { ok: true, staffScope: "story" });
+  res = await request(port, "verifyOrganizer", { organizerKey, staffScope: "story" });
+  assert.equal(res.status, 401, "the Overall Organizer password must not unlock a booth portal");
+  res = await request(port, "verifyOrganizer", { organizerKey: storyKey, staffScope: "overall" });
+  assert.equal(res.status, 401, "a booth password must not unlock Overall Organizer");
+  res = await request(port, "verifyOrganizer", { organizerKey: storyKey, staffScope: "unknown" });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, "INVALID_STAFF_SCOPE");
 
   res = await rawRequest(port, "eventClock", "{not-json", { "Content-Type": "application/json" });
   assert.equal(res.status, 400);
@@ -1072,18 +1292,18 @@ async function runApiRegression(port) {
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 1, status: "not-a-status", message: "Begin", organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 1, status: "not-a-status", message: "Begin", organizerKey: storyKey,
   });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_PRESENTATION_STATUS");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 1, status: "live", message: "x".repeat(501), organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 1, status: "live", message: "x".repeat(501), organizerKey: storyKey,
   });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_PRESENTATION_MESSAGE");
 
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 2, status: "live", message: "  Start the story now.  ", organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 2, status: "live", message: "  Start the story now.  ", organizerKey: storyKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.boothId, "story");
@@ -1098,7 +1318,7 @@ async function runApiRegression(port) {
   const presentationCreatedAt = res.body.createdAt;
 
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 4, status: "wrap", message: "Stale", version: 0, organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 4, status: "wrap", message: "Stale", version: 0, organizerKey: storyKey,
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, "PRESENTATION_CONFLICT");
@@ -1109,7 +1329,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.version, 0);
   assert.equal(res.body.status, "waiting");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 3, status: "paused", message: "Hold here.", version: 1, organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 3, status: "paused", message: "Hold here.", version: 1, organizerKey: storyKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.version, 2);
@@ -1128,12 +1348,12 @@ async function runApiRegression(port) {
   assert.equal(res.body.status, "waiting");
   assert.equal(res.body.version, 0);
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 1, stepIndex: 4, status: "live", version: 2, organizerKey,
+    boothId: "story", sessionNumber: 1, stepIndex: 4, status: "live", version: 2, organizerKey: storyKey,
   });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, "BOOTH_SESSION_NOT_ACTIVE");
   res = await request(port, "updateBoothPresentation", {
-    boothId: "story", sessionNumber: 2, stepIndex: 1, status: "live", version: 0, organizerKey,
+    boothId: "story", sessionNumber: 2, stepIndex: 1, status: "live", version: 0, organizerKey: storyKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.sessionNumber, 2);
@@ -1153,7 +1373,8 @@ async function runApiRegression(port) {
       phone: invalidPhone,
       name: "Invalid",
       allowCreate: true,
-      organizerKey,
+      staffScope: "newsong",
+      organizerKey: newSongKey,
     });
     assert.equal(res.status, 400);
     assert.equal(res.body.code, "INVALID_PHONE");
@@ -1352,7 +1573,8 @@ async function runApiRegression(port) {
   res = await request(port, "findOrRegisterByPhone", {
     phone: "615-555-0101",
     name: "Guest",
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
@@ -1362,7 +1584,8 @@ async function runApiRegression(port) {
   res = await request(port, "findOrRegisterByPhone", {
     phone: "615-555-0101",
     raffleNumber: "#1001",
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.name, "Avery");
@@ -1373,7 +1596,8 @@ async function runApiRegression(port) {
     phone: "615-555-0101",
     raffleNumber: "#1001",
     confirmPairing: true,
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-a");
@@ -1400,7 +1624,7 @@ async function runApiRegression(port) {
     boothId: "story",
     boothName: "The Heaven Booth",
     checkedInBy: "staff-kiosk",
-    organizerKey,
+    organizerKey: storyKey,
   });
   assert.equal(res.status, 200);
   const storyCheckinId = res.body.checkinId;
@@ -1414,7 +1638,8 @@ async function runApiRegression(port) {
     phone: "6155550101",
     boothId: "story",
     boothName: "The Heaven Booth",
-    checkedInBy: "capacity-test",
+    checkedInBy: "staff-kiosk",
+    organizerKey: storyKey,
     rating: 4,
   });
   assert.equal(res.status, 200);
@@ -1429,7 +1654,8 @@ async function runApiRegression(port) {
     attendeeId: "entry-a",
     boothId: "story",
     boothName: "The Heaven Booth",
-    checkedInBy: "capacity-test",
+    checkedInBy: "staff-kiosk",
+    organizerKey: storyKey,
     extraData: { sessionNumber: 2, wristbandColor: "blue" },
   });
   assert.equal(res.status, 200);
@@ -1458,7 +1684,8 @@ async function runApiRegression(port) {
     phone: "6155550202",
     name: "Guest",
     allowCreate: true,
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.raffleNumber, "1002");
@@ -1471,7 +1698,7 @@ async function runApiRegression(port) {
     boothId: "newsong",
     boothName: "The New Song in Nashville",
     checkedInBy: "staff-kiosk",
-    organizerKey,
+    organizerKey: newSongKey,
   });
   res = await request(port, "mySignupSelections", { attendeeId: kioskOnlyId });
   assert.deepEqual(res.body.optionIds, []);
@@ -1490,7 +1717,8 @@ async function runApiRegression(port) {
   res = await request(port, "findOrRegisterByPhone", {
     phone: "6155550202",
     raffleNumber: "1003",
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.body.requiresPairingConfirmation, true);
   let dbBeforeConfirmedMerge = JSON.parse(fs.readFileSync(testDb, "utf8"));
@@ -1501,7 +1729,8 @@ async function runApiRegression(port) {
     phone: "6155550202",
     raffleNumber: "1003",
     confirmPairing: true,
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-c");
@@ -1523,10 +1752,10 @@ async function runApiRegression(port) {
   res = await request(port, "boothDashboardData", { boothId: "story", organizerKey: "wrong" });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
-  res = await request(port, "boothDashboardData", { boothId: "unknown", organizerKey });
+  res = await request(port, "boothDashboardData", { boothId: "unknown", organizerKey: storyKey });
   assert.equal(res.status, 404);
   assert.equal(res.body.code, "BOOTH_NOT_FOUND");
-  res = await request(port, "boothDashboardData", { boothId: "story", organizerKey });
+  res = await request(port, "boothDashboardData", { boothId: "story", organizerKey: storyKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.boothId, "story");
   assert.equal(res.body.totalCheckins, 1);
@@ -1539,7 +1768,7 @@ async function runApiRegression(port) {
   assert.equal(res.body.presentation.message, "");
   assert.equal(res.body.presentation.version, 2);
   assertIsoTimestamp(res.body.serverNow, "booth dashboard serverNow");
-  res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
+  res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey: newSongKey });
   assert.equal(res.body.totalCheckins, 1);
   assert.deepEqual(res.body.recentCheckins.map((checkin) => checkin.name), ["Casey"]);
   assert.deepEqual(res.body.songVotes, [{ title: "Victory", votes: 1 }]);
@@ -1556,6 +1785,7 @@ async function runApiRegression(port) {
     attendeeId: "entry-d",
     phone: "6155550101",
     name: "Drew",
+    staffScope: "newsong",
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
@@ -1566,7 +1796,8 @@ async function runApiRegression(port) {
     attendeeId: "entry-d",
     phone: "6155550404",
     name: "Drew",
-    organizerKey,
+    staffScope: "newsong",
+    organizerKey: newSongKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.attendeeId, "entry-d");
@@ -1629,6 +1860,7 @@ async function runApiRegression(port) {
     attendeeId: "missing-public-id",
     phone: "6155550999",
     name: "Bypass",
+    staffScope: "newsong",
   });
   assert.equal(res.status, 401);
   assert.equal(res.body.code, "AUTH_REQUIRED");
@@ -1829,7 +2061,8 @@ async function runApiRegression(port) {
 }
 
 async function runTriviaApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.trivia;
+  const overallKey = TEST_STAFF_KEYS.overall;
   const sessionSummary = (dashboard, sessionNumber) => (
     dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
   );
@@ -1839,20 +2072,20 @@ async function runTriviaApiRegression(port) {
     { sessionNumber, action, version, organizerKey: key }
   );
 
-  let res = await request(port, "resetDemo", { organizerKey });
+  let res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
   async function registerTriviaAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey: overallKey });
     assert.equal(registration.status, 200);
     const confirmation = await request(port, "confirmWristband", {
-      attendeeId, wristbandColor, organizerKey,
+      attendeeId, wristbandColor, organizerKey: overallKey,
     });
     assert.equal(confirmation.status, 200);
     return registration.body;
@@ -1865,7 +2098,7 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "session1",
     targetIso: "2026-07-18T20:15:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
@@ -2073,7 +2306,7 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "session2",
     targetIso: "2026-07-18T20:35:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "triviaState", { attendeeId: "trivia-blue-a" });
@@ -2178,7 +2411,7 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "session1",
     targetIso: "2026-07-18T20:15:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
@@ -2229,7 +2462,7 @@ async function runTriviaApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "waiting",
     targetIso: "2026-07-18T20:50:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "triviaState", { attendeeId: "trivia-red-a" });
@@ -2241,7 +2474,7 @@ async function runTriviaApiRegression(port) {
 
   // The protected overall reset is the only destructive reset; it removes
   // every active game, archived game, answer, leaderboard, and completion.
-  res = await request(port, "resetDemo", { organizerKey });
+  res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "triviaDashboardData", { organizerKey });
   assert.deepEqual(
@@ -2256,7 +2489,8 @@ async function runTriviaApiRegression(port) {
 }
 
 async function runHeavenApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.heaven;
+  const overallKey = TEST_STAFF_KEYS.overall;
   const confirmationActions = [
     "drawing_complete", "description_yes", "size_yes", "impact_yes", "programs_done",
   ];
@@ -2270,20 +2504,20 @@ async function runHeavenApiRegression(port) {
     { sessionNumber, action, version, organizerKey: key }
   );
 
-  let res = await request(port, "resetDemo", { organizerKey });
+  let res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
   async function registerHeavenAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey: overallKey });
     assert.equal(registration.status, 200);
     const confirmation = await request(port, "confirmWristband", {
-      attendeeId, wristbandColor, organizerKey,
+      attendeeId, wristbandColor, organizerKey: overallKey,
     });
     assert.equal(confirmation.status, 200);
     return registration.body;
@@ -2300,7 +2534,7 @@ async function runHeavenApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "heavenState", { attendeeId: "heaven-blue-a" });
@@ -2310,7 +2544,7 @@ async function runHeavenApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "session1",
     targetIso: "2026-07-18T20:15:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
@@ -2633,7 +2867,7 @@ async function runHeavenApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "session2",
     targetIso: "2026-07-18T20:35:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "heavenState", { attendeeId: "heaven-red-a" });
@@ -2666,7 +2900,7 @@ async function runHeavenApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "waiting",
     targetIso: "2026-07-18T20:50:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "heavenState", { attendeeId: "heaven-red-a" });
@@ -2678,7 +2912,7 @@ async function runHeavenApiRegression(port) {
 
   // The overall reset is the only destructive reset: it clears active runs,
   // archived runs, and every attendee confirmation across all sessions.
-  res = await request(port, "resetDemo", { organizerKey });
+  res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "heavenDashboardData", { organizerKey });
   assert.deepEqual(
@@ -2702,7 +2936,8 @@ async function runHeavenApiRegression(port) {
 }
 
 async function runArtApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.art;
+  const overallKey = TEST_STAFF_KEYS.overall;
   const sessionSummary = (dashboard, sessionNumber) => (
     dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
   );
@@ -2717,7 +2952,7 @@ async function runArtApiRegression(port) {
       "2026-07-18T20:15:00.000Z",
       "2026-07-18T20:35:00.000Z",
     ][sessionNumber - 1],
-    organizerKey,
+    organizerKey: overallKey,
   });
   const transitions = [
     ["start", "definition"],
@@ -2731,20 +2966,20 @@ async function runArtApiRegression(port) {
     ["finish", "complete"],
   ];
 
-  let res = await request(port, "resetDemo", { organizerKey });
+  let res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
   async function registerArtAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey: overallKey });
     assert.equal(registration.status, 200);
     const confirmation = await request(port, "confirmWristband", {
-      attendeeId, wristbandColor, organizerKey,
+      attendeeId, wristbandColor, organizerKey: overallKey,
     });
     assert.equal(confirmation.status, 200);
     return registration.body;
@@ -2762,7 +2997,7 @@ async function runArtApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "artState", { attendeeId: "art-orange-a" });
@@ -3137,7 +3372,7 @@ async function runArtApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "waiting",
     targetIso: "2026-07-18T20:50:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "artState", { attendeeId: "art-orange-a" });
@@ -3149,7 +3384,7 @@ async function runArtApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "ended",
     targetIso: "2026-07-18T21:00:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "artState", { attendeeId: "art-orange-a" });
@@ -3162,7 +3397,7 @@ async function runArtApiRegression(port) {
   assert.equal(sessionSummary(res.body, 1).archivedRuns.length, 3);
   assert.equal(sessionSummary(res.body, 2).state.phase, "definition");
 
-  res = await request(port, "resetDemo", { organizerKey });
+  res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "artDashboardData", { organizerKey });
   assert.deepEqual(
@@ -3187,7 +3422,8 @@ async function runArtApiRegression(port) {
 }
 
 async function runNewSongApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.newsong;
+  const overallKey = TEST_STAFF_KEYS.overall;
   const sessionSummary = (dashboard, sessionNumber) => (
     dashboard.sessions.find((session) => session.sessionNumber === sessionNumber)
   );
@@ -3202,26 +3438,26 @@ async function runNewSongApiRegression(port) {
       "2026-07-18T20:15:00.000Z",
       "2026-07-18T20:35:00.000Z",
     ][sessionNumber - 1],
-    organizerKey,
+    organizerKey: overallKey,
   });
   const voteCount = (summary, title) => (
     summary.voteCounts.find((entry) => entry.title === title).votes
   );
 
-  let res = await request(port, "resetDemo", { organizerKey });
+  let res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
 
   async function registerNewSongAttendee(attendeeId, name, wristbandColor) {
-    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey });
+    const registration = await request(port, "registerAttendee", { attendeeId, name, organizerKey: overallKey });
     assert.equal(registration.status, 200);
     const confirmation = await request(port, "confirmWristband", {
-      attendeeId, wristbandColor, organizerKey,
+      attendeeId, wristbandColor, organizerKey: overallKey,
     });
     assert.equal(confirmation.status, 200);
     return registration.body;
@@ -3240,7 +3476,7 @@ async function runNewSongApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "before",
     targetIso: "2026-07-18T20:05:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "newSongState", { attendeeId: "song-green-a" });
@@ -3626,7 +3862,7 @@ async function runNewSongApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "waiting",
     targetIso: "2026-07-18T20:50:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "newSongState", { attendeeId: "song-green-a" });
@@ -3638,7 +3874,7 @@ async function runNewSongApiRegression(port) {
   res = await request(port, "setDemoClock", {
     mode: "ended",
     targetIso: "2026-07-18T21:00:00.000Z",
-    organizerKey,
+    organizerKey: overallKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "newSongState", { attendeeId: "song-green-a" });
@@ -3653,7 +3889,7 @@ async function runNewSongApiRegression(port) {
 
   // Only the overall reset destroys active rotations, archives, votes, and
   // booth completions. Every specialized session then returns to run 1.
-  res = await request(port, "resetDemo", { organizerKey });
+  res = await request(port, "resetDemo", { organizerKey: overallKey });
   assert.equal(res.status, 200);
   res = await request(port, "newSongDashboardData", { organizerKey });
   assert.deepEqual(
@@ -3678,7 +3914,9 @@ async function runNewSongApiRegression(port) {
 }
 
 async function runExtraBoothApiRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.overall;
+  const heavenKey = TEST_STAFF_KEYS.heaven;
+  const triviaKey = TEST_STAFF_KEYS.trivia;
   let res = await request(port, "resetDemo", { organizerKey });
   assert.equal(res.status, 200);
   res = await request(port, "setDemoClock", { mode: "before", organizerKey });
@@ -3715,7 +3953,7 @@ async function runExtraBoothApiRegression(port) {
     boothId: "heaven",
     boothName: "Draw Heaven",
     checkedInBy: "staff-kiosk",
-    organizerKey,
+    organizerKey: heavenKey,
     extraData: { sessionNumber: 1 },
   });
   assert.equal(res.status, 200);
@@ -3808,7 +4046,7 @@ async function runExtraBoothApiRegression(port) {
   assert.equal(res.body.code, "TRIVIA_NOT_ASSIGNED");
 
   res = await request(port, "advanceTriviaSession", {
-    sessionNumber: 3, action: "start", version: 0, organizerKey,
+    sessionNumber: 3, action: "start", version: 0, organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.state.phase, "question");
@@ -3819,11 +4057,11 @@ async function runExtraBoothApiRegression(port) {
   });
   assert.equal(res.status, 200);
   res = await request(port, "advanceTriviaSession", {
-    sessionNumber: 3, action: "reveal", version: 1, organizerKey,
+    sessionNumber: 3, action: "reveal", version: 1, organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "advanceTriviaSession", {
-    sessionNumber: 3, action: "finish", version: 2, organizerKey,
+    sessionNumber: 3, action: "finish", version: 2, organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "completeTrivia", { attendeeId: triviaGuest.attendeeId });
@@ -3834,7 +4072,7 @@ async function runExtraBoothApiRegression(port) {
   res = await request(port, "myCheckins", { attendeeId: triviaGuest.attendeeId });
   assert.deepEqual(res.body.boothIds.sort(), ["heaven", "trivia"]);
   assertIsoTimestamp(res.body.extraCompletedAt, "extra booth completion time");
-  res = await request(port, "triviaDashboardData", { organizerKey });
+  res = await request(port, "triviaDashboardData", { organizerKey: triviaKey });
   const extraSession = res.body.sessions.find((session) => session.sessionNumber === 3);
   assert.equal(extraSession.assignedColor.id, "extra");
   assert.equal(extraSession.assignedCount, 1);
@@ -3871,7 +4109,10 @@ async function runExtraBoothApiRegression(port) {
 }
 
 async function runCapacityRegression(port) {
-  const organizerKey = "test-organizer-key";
+  const organizerKey = TEST_STAFF_KEYS.overall;
+  const artKey = TEST_STAFF_KEYS.art;
+  const triviaKey = TEST_STAFF_KEYS.trivia;
+  const newSongKey = TEST_STAFF_KEYS.newsong;
   const colors = ["blue", "red", "orange", "green", "yellow"];
   const routes = {
     blue: ["heaven", "trivia"],
@@ -3942,7 +4183,8 @@ async function runCapacityRegression(port) {
       attendeeId: assignment.attendeeId,
       boothId,
       boothName: boothId,
-      checkedInBy: "capacity-test",
+      checkedInBy: "staff-kiosk",
+      organizerKey: TEST_STAFF_KEYS[boothId],
       extraData: { sessionNumber: sessionIndex + 1, wristbandColor: assignment.colorId },
       }))
   )));
@@ -3976,7 +4218,7 @@ async function runCapacityRegression(port) {
       sessionNumber: 1,
       action: artActions[version],
       version,
-      organizerKey,
+      organizerKey: artKey,
     });
     assert.equal(res.status, 200, `Session 1 ${artActions[version]}`);
   }
@@ -4001,7 +4243,7 @@ async function runCapacityRegression(port) {
     sessionNumber: 2,
     action: "start",
     version: 0,
-    organizerKey,
+    organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.state.phase, "question");
@@ -4022,14 +4264,14 @@ async function runCapacityRegression(port) {
     sessionNumber: 2,
     action: "reveal",
     version: 1,
-    organizerKey,
+    organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   res = await request(port, "advanceTriviaSession", {
     sessionNumber: 2,
     action: "finish",
     version: 2,
-    organizerKey,
+    organizerKey: triviaKey,
   });
   assert.equal(res.status, 200);
   const triviaCompletions = await Promise.all(session2TriviaAttendees.map((assignment) => request(
@@ -4043,7 +4285,7 @@ async function runCapacityRegression(port) {
       && result.body.score.answeredCount === 1
       && result.body.score.totalQuestions === 1
   )), true);
-  res = await request(port, "triviaDashboardData", { organizerKey });
+  res = await request(port, "triviaDashboardData", { organizerKey: triviaKey });
   const capacitySession2 = res.body.sessions.find((session) => session.sessionNumber === 2);
   assert.equal(capacitySession2.responseCount, 30);
   assert.equal(capacitySession2.leaderboard.length, 30);
@@ -4060,7 +4302,7 @@ async function runCapacityRegression(port) {
       sessionNumber: 2,
       action: artActions[version],
       version,
-      organizerKey,
+      organizerKey: artKey,
     });
     assert.equal(res.status, 200, artActions[version]);
   }
@@ -4073,7 +4315,7 @@ async function runCapacityRegression(port) {
   )));
   assert.equal(artCompletions.every((result) => result.status === 200), true);
   assert.equal(artCompletions.every((result) => result.body.idempotent === false), true);
-  res = await request(port, "artDashboardData", { organizerKey });
+  res = await request(port, "artDashboardData", { organizerKey: artKey });
   const capacityArtSession2 = res.body.sessions.find((session) => session.sessionNumber === 2);
   assert.equal(capacityArtSession2.state.phase, "complete");
   assert.equal(capacityArtSession2.completedCount, 30);
@@ -4118,10 +4360,10 @@ async function runCapacityRegression(port) {
   assert.equal("triviaLeaderboard" in res.body, false);
   assert.equal(res.body.signups.length, 150);
 
-  res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey });
+  res = await request(port, "boothDashboardData", { boothId: "newsong", organizerKey: newSongKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.songVotes.reduce((total, entry) => total + entry.votes, 0), 60);
-  res = await request(port, "triviaDashboardData", { organizerKey });
+  res = await request(port, "triviaDashboardData", { organizerKey: triviaKey });
   assert.equal(res.status, 200);
   assert.equal(res.body.sessions.reduce((total, session) => total + session.leaderboard.length, 0), 30);
 
@@ -4553,13 +4795,15 @@ async function runFrontendContractRegression() {
   let resolveVerification;
   let rejectVerification;
   let verificationCalls = 0;
+  const verificationArguments = [];
   let unlockedCount = 0;
   const authContext = {
     console: { error() {} },
     document: { getElementById: (id) => authElements[id] || null },
     EventAPI: {
-      verifyOrganizer: () => new Promise((resolve, reject) => {
+      verifyOrganizer: (key, scope) => new Promise((resolve, reject) => {
         verificationCalls += 1;
+        verificationArguments.push({ key, scope });
         resolveVerification = resolve;
         rejectVerification = reject;
       }),
@@ -4569,12 +4813,13 @@ async function runFrontendContractRegression() {
   const authSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "organizer-auth.js"), "utf8");
   vm.runInContext(`${authSource}\nthis.__organizerAuth = OrganizerAuth;`, authContext);
   const auth = authContext.__organizerAuth;
-  auth.init({ onUnlocked: () => { unlockedCount += 1; } });
+  auth.init({ scope: "art", onUnlocked: () => { unlockedCount += 1; } });
 
   // Locking while verification is in flight invalidates that response, so it
   // cannot reveal stale kiosk/dashboard state after a later unlock.
   authElements["organizer-key"].value = "first-key";
   authElements["btn-organizer-unlock"].listeners.click();
+  assert.deepEqual(verificationArguments[0], { key: "first-key", scope: "art" });
   authElements["btn-organizer-lock"].listeners.click();
   resolveVerification({ ok: true });
   await new Promise((resolve) => setImmediate(resolve));
@@ -4593,7 +4838,7 @@ async function runFrontendContractRegression() {
   authElements["organizer-key"].value = "missing-config";
   authElements["btn-organizer-unlock"].listeners.click();
   const notConfigured = new Error("not configured");
-  notConfigured.code = "ORGANIZER_KEY_NOT_CONFIGURED";
+  notConfigured.code = "STAFF_KEY_NOT_CONFIGURED";
   rejectVerification(notConfigured);
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(authElements["err-organizer-key"].textContent, /not been configured/);
@@ -4637,6 +4882,7 @@ async function runFrontendContractRegression() {
   });
   assert.equal(compositionPrevented, false);
   assert.equal(verificationCalls, callsBeforeComposition);
+  assert.equal(verificationArguments.every((entry) => entry.scope === "art"), true);
   assert.doesNotMatch(authSource, /sessionStorage|localStorage/);
 
   const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "organizer", "dashboard.html"), "utf8");
@@ -4678,6 +4924,10 @@ async function runFrontendContractRegression() {
     assert.match(source, new RegExp(`data-${boothId}-switch-session`));
     assert.match(source, /No attendee screen changed\./);
     assert.match(source, /One tap updates everyone in this session\./);
+    assert.match(source, /function selectedControlWindow\(\)/);
+    assert.match(source, /Wait for booth time/);
+    assert.match(source, /if \(!controlWindow\.open\)/);
+    assert.match(source, /BOOTH_SESSION_NOT_ACTIVE/);
   });
   const boothsConfigSource = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booths-config.js"), "utf8");
   const boothsConfigContext = {};
@@ -4691,6 +4941,15 @@ async function runFrontendContractRegression() {
   assert.match(dashboardSource, /groupSignupsByOption\(data\.signups\)/);
   assert.match(dashboardSource, /Phone\.formatDisplay\(s\.phone\)/);
   assert.match(dashboardSource, /EventAPI\.dashboardData\(/);
+  assert.match(dashboardSource, /OrganizerAuth\.init\(\{\s*scope: "overall"/);
+  assert.match(triviaStaffSource, /OrganizerAuth\.init\(\{\s*scope: "trivia"/);
+  assert.match(heavenStaffSource, /OrganizerAuth\.init\(\{\s*scope: "heaven"/);
+  assert.match(artStaffSource, /OrganizerAuth\.init\(\{\s*scope: "art"/);
+  assert.match(newSongStaffControllerSource, /OrganizerAuth\.init\(\{\s*scope: "newsong"/);
+  assert.match(artKioskSource, /OrganizerAuth\.init\(\{ scope: "art"/);
+  assert.match(songKioskSource, /OrganizerAuth\.init\(\{ scope: "newsong"/);
+  assert.match(artKioskSource, /staffScope: BOOTH_ID/);
+  assert.match(songKioskSource, /staffScope: BOOTH_ID/);
   assert.match(dashboardSource, /attendance-mode-label/);
   assert.match(dashboardSource, /inPersonCount/);
   assert.match(dashboardSource, /onlineCount/);
@@ -5096,7 +5355,13 @@ async function runFrontendContractRegression() {
   assert.match(newSongAttendeeSource, /result\.isTie/);
   assert.match(newSongAttendeeSource, /result\.tiedTitles/);
   assert.match(newSongAttendeeSource, /result\.featuredWinner/);
-  assert.match(newSongAttendeeSource, /Revelation 14:3 · KJV/);
+  const revelation143Niv = "And they sang a new song before the throne and before the four living creatures and the elders. No one could learn the song except the 144,000 who had been redeemed from the earth.";
+  assert.ok(newSongAttendeeSource.includes(revelation143Niv));
+  assert.ok(newSongStaffControllerSource.includes(revelation143Niv));
+  assert.match(newSongAttendeeSource, /Revelation 14:3 · NIV/);
+  assert.match(newSongStaffControllerSource, /Revelation 14:3 · NIV/);
+  assert.doesNotMatch(newSongAttendeeSource, /Revelation 14:3 · KJV/);
+  assert.doesNotMatch(newSongStaffControllerSource, /Revelation 14:3 · KJV/);
   assert.match(newSongAttendeeSource, /revelation-14-3-new-song\.webp/);
   const newSongWinnerBlock = newSongAttendeeSource.slice(
     newSongAttendeeSource.indexOf("function renderWinner"),
@@ -5529,6 +5794,7 @@ async function runFrontendContractRegression() {
   });
 
   const boothStaffCommon = fs.readFileSync(path.join(__dirname, "..", "..", "web", "shared", "booth-staff-common.js"), "utf8");
+  assert.match(boothStaffCommon, /OrganizerAuth\.init\(\{\s*scope: booth\.id/);
   assert.match(boothStaffCommon, /EventAPI\.boothDashboardData/);
   assert.match(boothStaffCommon, /EventAPI\.updateBoothPresentation/);
   assert.match(boothStaffCommon, /EventSchedule\.groupForBooth/);
@@ -6520,11 +6786,12 @@ async function main() {
       assert.equal("phoneVerificationRequired" in migrated.attendees[0], false);
     });
     const migrationReset = await request(port, "resetDemo", {
-      organizerKey: "test-organizer-key",
+      organizerKey: TEST_STAFF_KEYS.overall,
     });
     assert.equal(migrationReset.status, 200);
     assertIsoTimestamp(migrationReset.body.dataResetAt, "post-migration reset marker");
     await runGoogleSheetsExportApiRegression(port);
+    await runStaffScopeRegression(port);
     await runApiRegression(port);
     await runTriviaApiRegression(port);
     await runHeavenApiRegression(port);
@@ -6532,6 +6799,7 @@ async function main() {
     await runNewSongApiRegression(port);
     await runExtraBoothApiRegression(port);
     await runCapacityRegression(port);
+    await runPreEventBoothControlRegression(port);
     await runFrontendContractRegression();
     runBoothDraftPersistenceRegression();
     runAppsScriptRegression();

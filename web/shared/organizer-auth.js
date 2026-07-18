@@ -1,9 +1,12 @@
-/* Staff-only pages ask for an event-long organizer key at runtime. The key
+/* Staff-only pages ask for their portal-specific password at runtime. The key
  * stays only in this page's JavaScript memory: it is never put in web storage,
- * the static site bundle, or a URL. The backend is still the authority: this
- * gate only reveals the UI after verifyOrganizer accepts the key. */
+ * the static site bundle, or a URL. The non-secret scope only identifies which
+ * portal is being opened; every protected backend action independently enforces
+ * that same role so changing browser code cannot grant access. */
 const OrganizerAuth = (function () {
+  const validScopes = new Set(["overall", "heaven", "trivia", "story", "art", "newsong"]);
   let memoryKey = "";
+  let staffScope = "overall";
   let authGeneration = 0;
   let onUnlocked = null;
   let onLocked = null;
@@ -36,7 +39,7 @@ const OrganizerAuth = (function () {
     if (el.gate) el.gate.style.display = "block";
     if (el.content) el.content.style.display = "none";
     if (el.error) {
-      el.error.textContent = message || "Enter the organizer access key.";
+      el.error.textContent = message || "Enter this portal's staff password.";
       el.error.style.display = message ? "block" : "none";
     }
     if (el.input) {
@@ -68,7 +71,7 @@ const OrganizerAuth = (function () {
     const el = elements();
     const value = String(candidate || "").trim();
     if (!value) {
-      showGate("Enter the organizer access key.");
+      showGate("Enter this portal's staff password.");
       return;
     }
     const attemptGeneration = ++authGeneration;
@@ -77,7 +80,7 @@ const OrganizerAuth = (function () {
       el.button.textContent = "Checking…";
     }
     try {
-      await EventAPI.verifyOrganizer(value);
+      await EventAPI.verifyOrganizer(value, staffScope);
       if (attemptGeneration !== authGeneration) return;
       saveKey(value);
       showContent();
@@ -88,8 +91,10 @@ const OrganizerAuth = (function () {
       clearKey();
       if (e.code === "AUTH_REQUIRED") {
         showGate("Access key not recognized. Try again.");
-      } else if (e.code === "ORGANIZER_KEY_NOT_CONFIGURED") {
-        showGate("Organizer access has not been configured on the backend.");
+      } else if (["STAFF_KEY_NOT_CONFIGURED", "ORGANIZER_KEY_NOT_CONFIGURED"].includes(e.code)) {
+        showGate("This portal's staff password has not been configured on the backend.");
+      } else if (e.code === "STAFF_KEY_CONFIGURATION_INVALID") {
+        showGate("This portal needs a unique password before it can be unlocked.");
       } else {
         showGate("Couldn't verify access — check the connection and try again.");
       }
@@ -104,6 +109,9 @@ const OrganizerAuth = (function () {
   function init(options) {
     onUnlocked = options && options.onUnlocked;
     onLocked = options && options.onLocked;
+    const requestedScope = String((options && options.scope) || "overall").trim().toLowerCase();
+    if (!validScopes.has(requestedScope)) throw new Error("Choose a valid staff portal scope.");
+    staffScope = requestedScope;
     const el = elements();
     if (!el.gate || !el.content || !el.input || !el.button) {
       throw new Error("Organizer access gate is incomplete.");
@@ -127,10 +135,18 @@ const OrganizerAuth = (function () {
     // A response from a page that was locked (and perhaps unlocked again)
     // must never invalidate the newer staff session.
     if (expectedGeneration !== undefined && expectedGeneration !== authGeneration) return true;
-    if (!error || (error.code !== "AUTH_REQUIRED" && error.code !== "ORGANIZER_KEY_NOT_CONFIGURED")) return false;
-    lock(error.code === "ORGANIZER_KEY_NOT_CONFIGURED"
-      ? "Organizer access has not been configured on the backend."
-      : "Organizer access expired or was rejected. Unlock again.");
+    if (!error || ![
+      "AUTH_REQUIRED",
+      "STAFF_KEY_NOT_CONFIGURED",
+      "ORGANIZER_KEY_NOT_CONFIGURED",
+      "STAFF_KEY_CONFIGURATION_INVALID",
+    ].includes(error.code)) return false;
+    const message = ["STAFF_KEY_NOT_CONFIGURED", "ORGANIZER_KEY_NOT_CONFIGURED"].includes(error.code)
+      ? "This portal's staff password has not been configured on the backend."
+      : error.code === "STAFF_KEY_CONFIGURATION_INVALID"
+        ? "This portal needs a unique password before it can be unlocked."
+        : "Staff access expired or was rejected. Unlock again.";
+    lock(message);
     return true;
   }
 

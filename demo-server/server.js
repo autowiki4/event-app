@@ -24,7 +24,34 @@ const DB_PATH = process.env.EVENT_APP_DB_PATH || path.join(__dirname, "db.json")
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
 const WEB_DIR = path.join(__dirname, "..", "web");
 const PORT = process.env.PORT || 3000;
-const ORGANIZER_KEY = process.env.EVENT_APP_ORGANIZER_KEY || "demo";
+const HOSTED_RUNTIME = Boolean(
+  process.env.RENDER
+    || process.env.RENDER_SERVICE_ID
+    || process.env.NODE_ENV === "production"
+);
+function configuredStaffKey(environmentName, localDefault) {
+  const configured = String(process.env[environmentName] || "").trim();
+  return configured || (HOSTED_RUNTIME ? "" : localDefault);
+}
+// Staff credentials stay server-only and are deliberately scoped. The existing
+// organizer variable now unlocks only the Overall Organizer dashboard; every
+// booth has its own independently configured password.
+const STAFF_KEY_ENV_BY_SCOPE = Object.freeze({
+  overall: "EVENT_APP_ORGANIZER_KEY",
+  heaven: "EVENT_APP_DRAW_HEAVEN_KEY",
+  trivia: "EVENT_APP_BIBLE_BOWL_KEY",
+  story: "EVENT_APP_HEAVEN_BOOTH_KEY",
+  art: "EVENT_APP_ART_THERAPY_KEY",
+  newsong: "EVENT_APP_NEW_SONG_KEY",
+});
+const STAFF_ACCESS_KEYS = Object.freeze({
+  overall: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.overall, "demo"),
+  heaven: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.heaven, "demo-draw-heaven"),
+  trivia: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.trivia, "demo-bible-bowl"),
+  story: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.story, "demo-heaven-booth"),
+  art: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.art, "demo-art-therapy"),
+  newsong: configuredStaffKey(STAFF_KEY_ENV_BY_SCOPE.newsong, "demo-new-song"),
+});
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const BOOTH_IDS = new Set(["heaven", "trivia", "story", "art", "newsong"]);
 const WRISTBAND_COLORS = new Set(["blue", "red", "orange", "green", "yellow"]);
@@ -1748,20 +1775,80 @@ function newSongBoothPresentation(db, eventState = eventSessionState()) {
   };
 }
 
-function organizerKeyMatches(value) {
+function normalizeStaffScope(value) {
+  const scope = String(value || "overall").trim().toLowerCase();
+  return scope === "overall" || BOOTH_IDS.has(scope) ? scope : null;
+}
+
+function secureKeyMatches(value, expectedValue) {
+  const expectedText = String(expectedValue || "");
+  if (!expectedText) return false;
   const supplied = Buffer.from(String(value || ""));
-  const expected = Buffer.from(ORGANIZER_KEY);
+  const expected = Buffer.from(expectedText);
   return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+}
+
+function duplicateStaffKeyScopes() {
+  const scopesByKey = new Map();
+  Object.entries(STAFF_ACCESS_KEYS).forEach(([scope, key]) => {
+    if (!key) return;
+    if (!scopesByKey.has(key)) scopesByKey.set(key, []);
+    scopesByKey.get(key).push(scope);
+  });
+  return new Set(
+    Array.from(scopesByKey.values())
+      .filter((scopes) => scopes.length > 1)
+      .flat()
+  );
+}
+
+const DUPLICATE_STAFF_KEY_SCOPES = duplicateStaffKeyScopes();
+
+function staffKeyMatches(value, scopeValue) {
+  const scope = normalizeStaffScope(scopeValue);
+  return Boolean(
+    scope
+      && !DUPLICATE_STAFF_KEY_SCOPES.has(scope)
+      && secureKeyMatches(value, STAFF_ACCESS_KEYS[scope])
+  );
+}
+
+function organizerKeyMatches(value) {
+  return staffKeyMatches(value, "overall");
 }
 
 function errorResult(status, error, code) {
   return { status, body: { error, code } };
 }
 
-function requireOrganizer(body) {
-  return organizerKeyMatches(body && body.organizerKey)
+function requireStaffAccess(body, scopeValue) {
+  const scope = normalizeStaffScope(scopeValue);
+  if (!scope) return errorResult(400, "Choose a valid staff portal.", "INVALID_STAFF_SCOPE");
+  if (!STAFF_ACCESS_KEYS[scope]) {
+    return errorResult(
+      503,
+      "This staff portal password has not been configured on the server.",
+      "STAFF_KEY_NOT_CONFIGURED"
+    );
+  }
+  if (DUPLICATE_STAFF_KEY_SCOPES.has(scope)) {
+    return errorResult(
+      503,
+      "Staff portal passwords must be different from one another.",
+      "STAFF_KEY_CONFIGURATION_INVALID"
+    );
+  }
+  return staffKeyMatches(body && body.organizerKey, scope)
     ? null
-    : errorResult(401, "Organizer access key is invalid.", "AUTH_REQUIRED");
+    : errorResult(401, "This password does not unlock the selected staff portal.", "AUTH_REQUIRED");
+}
+
+function requireOrganizer(body) {
+  return requireStaffAccess(body, "overall");
+}
+
+function requireBoothOrganizer(body, boothId) {
+  return requireStaffAccess(body, boothId);
 }
 
 function findAttendeeById(db, attendeeId) {
@@ -2126,20 +2213,23 @@ function attendeePortalSession(body) {
 }
 
 function findOrRegisterByPhone(body) {
-  const { attendeeId, phone, name, raffleNumber, allowCreate, organizerKey, confirmPairing } = body;
+  const { attendeeId, phone, name, raffleNumber, allowCreate, confirmPairing } = body;
   const dPhone = digitsOnly(phone);
   if (dPhone.length !== 10) {
     return errorResult(400, "phone must contain exactly 10 digits", "INVALID_PHONE");
   }
-  const authError = requireOrganizer(body);
+  const requestedKioskScope = normalizeStaffScope(body && body.staffScope);
+  if (!["art", "newsong"].includes(requestedKioskScope)) {
+    return errorResult(400, "Choose the Art Therapy or New Song kiosk.", "INVALID_STAFF_SCOPE");
+  }
+  const authError = requireStaffAccess(body, requestedKioskScope);
   if (authError) return authError;
   const normalizedRaffle = normalizeRaffleNumber(raffleNumber);
-  const isOrganizer = organizerKeyMatches(organizerKey);
 
   // Staff kiosks have no attendee identity of their own. Their phone lookup,
-  // raffle pairing, and skip-entry creation path are organizer-only.
-  if (!attendeeId && !isOrganizer) return requireOrganizer(body);
-  if (normalizedRaffle && !isOrganizer) return requireOrganizer(body);
+  // raffle pairing, and skip-entry creation path are protected above by the
+  // corresponding Art Therapy or New Song password. There is no Overall
+  // Organizer fallback when the kiosk scope is missing or changed.
 
   const db = readDb();
   const phoneAttendees = findAttendeesByPhone(db, dPhone);
@@ -2236,12 +2326,8 @@ function findOrRegisterByPhone(body) {
     };
   }
 
-  // Self-service devices must have registered at Entry first. Only an
-  // authenticated staff kiosk may create a true skipped-entry visitor.
-  if (attendeeId && !isOrganizer) {
-    return errorResult(404, "attendee not found", "ATTENDEE_NOT_FOUND");
-  }
-
+  // Only the authenticated staff path above may create a true skipped-entry
+  // visitor. Public attendee pages do not call this protected endpoint.
   if (!attendeeId && allowCreate !== true) {
     return errorResult(409, "Enter the visitor's raffle number, or mark that they skipped entry.", "RAFFLE_REQUIRED");
   }
@@ -2268,14 +2354,23 @@ function findOrRegisterByPhone(body) {
   };
 }
 
-function boothCheckin(body) {
+const TRUSTED_CHECKIN_TOKEN = Symbol("trusted-booth-checkin");
+
+function boothCheckin(body, trustedToken) {
   const { attendeeId, phone, boothId, boothName, checkedInBy, rating, note, extraData } = body;
   if (!boothId) return { status: 400, body: { error: "boothId required" } };
-  if (checkedInBy === "staff-kiosk") {
-    const authError = requireOrganizer(body);
+  const checkinActor = String(checkedInBy || "self");
+  const trustedInternalCheckin = trustedToken === TRUSTED_CHECKIN_TOKEN;
+  if (!trustedInternalCheckin && !["self", "scheduled-attendee", "staff-kiosk"].includes(checkinActor)) {
+    return errorResult(400, "Choose a valid booth check-in method.", "INVALID_CHECKIN_ACTOR");
+  }
+  if (!trustedInternalCheckin && checkinActor === "staff-kiosk") {
+    const boothResult = requireBoothId(boothId);
+    if (boothResult.error) return boothResult.error;
+    const authError = requireBoothOrganizer(body, boothResult.boothId);
     if (authError) return authError;
   }
-  const attendeeCompletion = ["self", "scheduled-attendee"].includes(String(checkedInBy || "self"));
+  const attendeeCompletion = !trustedInternalCheckin && ["self", "scheduled-attendee"].includes(checkinActor);
   if (attendeeCompletion && boothId === "trivia") return completeTrivia({ attendeeId });
   if (attendeeCompletion && boothId === "heaven") return completeHeaven({ attendeeId });
   if (attendeeCompletion && boothId === "story") return completeStory({ attendeeId });
@@ -2305,7 +2400,7 @@ function boothCheckin(body) {
     phone: attendee.phone,
     name: attendee.name,
     boothId, boothName: boothName || boothId,
-    checkedInBy: checkedInBy || "self",
+    checkedInBy: checkinActor,
     checkedInAt: eventNowIso(),
     rating: rating || null, note: note || "", extraData: extraData || null,
   };
@@ -2835,7 +2930,7 @@ function triviaSessionStaffSummary(db, sessionNumber) {
 }
 
 function triviaDashboardData(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "trivia");
   if (authError) return authError;
   const db = readDb();
   return {
@@ -2974,7 +3069,7 @@ function submitTriviaAnswer(body) {
 }
 
 function advanceTriviaSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "trivia");
   if (authError) return authError;
   const sessionResult = requireTriviaSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3027,7 +3122,7 @@ function advanceTriviaSession(body) {
 }
 
 function resetTriviaSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "trivia");
   if (authError) return authError;
   const sessionResult = requireTriviaSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3079,7 +3174,7 @@ function completeTrivia(body) {
       answeredCount: score.answeredCount,
       totalQuestions: score.totalQuestions,
     },
-  });
+  }, TRUSTED_CHECKIN_TOKEN);
   if (checkin.status !== 200) return checkin;
   return {
     status: 200,
@@ -3176,7 +3271,7 @@ function heavenSessionStaffSummary(db, sessionNumber) {
 }
 
 function heavenDashboardData(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "heaven");
   if (authError) return authError;
   const db = readDb();
   return {
@@ -3286,7 +3381,7 @@ function confirmHeavenStep(body) {
 }
 
 function advanceHeavenSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "heaven");
   if (authError) return authError;
   const sessionResult = requireHeavenSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3329,7 +3424,7 @@ function advanceHeavenSession(body) {
 }
 
 function resetHeavenSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "heaven");
   if (authError) return authError;
   const sessionResult = requireHeavenSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3383,7 +3478,7 @@ function completeHeaven(body) {
       wristbandColor: normalizeWristbandColor(context.attendee.wristbandColor),
       completedActions: HEAVEN_CONFIRMATION_ACTIONS.length,
     },
-  });
+  }, TRUSTED_CHECKIN_TOKEN);
   if (checkin.status !== 200) return checkin;
   return {
     status: 200,
@@ -3486,7 +3581,7 @@ function artSessionStaffSummary(db, sessionNumber) {
 }
 
 function artDashboardData(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "art");
   if (authError) return authError;
   const db = readDb();
   return {
@@ -3526,7 +3621,7 @@ function artState(body) {
 }
 
 function advanceArtSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "art");
   if (authError) return authError;
   const sessionResult = requireArtSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3572,7 +3667,7 @@ function advanceArtSession(body) {
 }
 
 function resetArtSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "art");
   if (authError) return authError;
   const sessionResult = requireArtSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3780,7 +3875,7 @@ function newSongSessionStaffSummary(db, sessionNumber) {
 }
 
 function newSongDashboardData(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "newsong");
   if (authError) return authError;
   const db = readDb();
   return {
@@ -3797,7 +3892,7 @@ function newSongDashboardData(body) {
 }
 
 function advanceNewSongSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "newsong");
   if (authError) return authError;
   const sessionResult = requireNewSongSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3848,7 +3943,7 @@ function advanceNewSongSession(body) {
 }
 
 function resetNewSongSession(body) {
-  const authError = requireOrganizer(body);
+  const authError = requireBoothOrganizer(body, "newsong");
   if (authError) return authError;
   const sessionResult = requireNewSongSessionNumber(body && body.sessionNumber);
   if (sessionResult.error) return sessionResult.error;
@@ -3899,7 +3994,7 @@ function completeNewSong(body) {
       featuredWinner: session.result ? session.result.featuredWinner : null,
       tiedTitles: session.result ? session.result.tiedTitles : [],
     },
-  });
+  }, TRUSTED_CHECKIN_TOKEN);
   if (checkin.status !== 200) return checkin;
   return {
     status: 200,
@@ -4069,7 +4164,7 @@ function completeStory(body) {
       presentationVersion: presentation.version,
       wristbandColor: colorId,
     },
-  });
+  }, TRUSTED_CHECKIN_TOKEN);
   if (checkin.status !== 200) return checkin;
   return {
     status: 200,
@@ -4109,10 +4204,10 @@ function boothPresentation(body) {
 }
 
 function updateBoothPresentation(body) {
-  const authError = requireOrganizer(body);
-  if (authError) return authError;
   const boothResult = requireBoothId(body && body.boothId);
   if (boothResult.error) return boothResult.error;
+  const authError = requireBoothOrganizer(body, boothResult.boothId);
+  if (authError) return authError;
 
   const requestedStepIndex = Number(body && body.stepIndex);
   if (!Number.isInteger(requestedStepIndex) || requestedStepIndex < 0 || requestedStepIndex > MAX_PRESENTATION_STEP_INDEX) {
@@ -4187,10 +4282,10 @@ function updateBoothPresentation(body) {
 }
 
 function boothDashboardData(body) {
-  const authError = requireOrganizer(body);
-  if (authError) return authError;
   const boothResult = requireBoothId(body && body.boothId);
   if (boothResult.error) return boothResult.error;
+  const authError = requireBoothOrganizer(body, boothResult.boothId);
+  if (authError) return authError;
   const boothId = boothResult.boothId;
 
   const db = readDb();
@@ -4308,9 +4403,11 @@ function resetDemo(body) {
 }
 
 function verifyOrganizer(body) {
-  const authError = requireOrganizer(body);
+  const scope = normalizeStaffScope(body && body.staffScope);
+  if (!scope) return errorResult(400, "Choose a valid staff portal.", "INVALID_STAFF_SCOPE");
+  const authError = requireStaffAccess(body, scope);
   if (authError) return authError;
-  return { status: 200, body: { ok: true } };
+  return { status: 200, body: { ok: true, staffScope: scope } };
 }
 
 function googleSheetsExportStatus(body) {
@@ -4496,8 +4593,28 @@ function startServer(port = PORT) {
     console.log(`  Organizer portal:     http://localhost:${actualPort}/organizer/index.html`);
     console.log(`  QR codes (optional):  http://localhost:${actualPort}/organizer/qr-codes.html`);
     console.log("  Timer previews:       add ?preview=before, 1, 2, message, extra, or connections to an attendee/staff URL");
-    if (!process.env.EVENT_APP_ORGANIZER_KEY) {
-      console.log("  Local organizer key:  demo");
+    if (!HOSTED_RUNTIME) {
+      const localDefaults = {
+        overall: "demo",
+        heaven: "demo-draw-heaven",
+        trivia: "demo-bible-bowl",
+        story: "demo-heaven-booth",
+        art: "demo-art-therapy",
+        newsong: "demo-new-song",
+      };
+      Object.entries(STAFF_KEY_ENV_BY_SCOPE).forEach(([scope, environmentName]) => {
+        if (!process.env[environmentName]) {
+          console.log(`  Local ${scope} password: ${localDefaults[scope]}`);
+        }
+      });
+    } else {
+      const missingScopes = Object.keys(STAFF_ACCESS_KEYS).filter((scope) => !STAFF_ACCESS_KEYS[scope]);
+      if (missingScopes.length) {
+        console.warn(`  Staff passwords not configured for: ${missingScopes.join(", ")}`);
+      }
+      if (DUPLICATE_STAFF_KEY_SCOPES.size) {
+        console.warn(`  Staff passwords must be unique; duplicate scopes: ${Array.from(DUPLICATE_STAFF_KEY_SCOPES).join(", ")}`);
+      }
     }
     // A full startup snapshot closes the small window where a durable JSON
     // write succeeded immediately before a process restart. Never queue an

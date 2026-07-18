@@ -20,9 +20,9 @@
 
     <div class="organizer-access" id="organizer-access">
       <h2>Staff access</h2>
-      <p>Unlock this kiosk with the event organizer key.</p>
+      <p>Unlock this kiosk with the Art Therapy booth password.</p>
       <div class="field">
-        <label for="organizer-key">Organizer access key</label>
+        <label for="organizer-key">Art Therapy booth password</label>
         <input id="organizer-key" type="password" autocomplete="off">
         <div class="err" id="err-organizer-key"></div>
       </div>
@@ -130,6 +130,7 @@ document.getElementById("btn-lookup").addEventListener("click", async () => {
       raffleNumber: skippedEntry ? "" : raffleInput.value,
       allowCreate: skippedEntry,
       organizerKey,
+      staffScope: BOOTH_ID,
     };
     let result = await EventAPI.findOrRegisterByPhone(null, digits, skippedEntry ? skippedName : "Guest", options);
     if (!OrganizerAuth.isCurrent(authGeneration)) return;
@@ -219,7 +220,7 @@ document.getElementById("skipped-entry").addEventListener("change", (event) => {
   if (event.target.checked) input.value = "";
 });
 
-OrganizerAuth.init({ onLocked: resetKiosk });
+OrganizerAuth.init({ scope: "art", onLocked: resetKiosk });
 </script>
 </body>
 </html>

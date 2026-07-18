@@ -167,6 +167,40 @@ function initNewSongStaff() {
       : null;
   }
 
+  function selectedControlWindow() {
+    if (typeof EventSchedule === "undefined" || typeof EventSchedule.current !== "function") {
+      return {
+        open: false,
+        currentSessionNumber: 0,
+        message: "The shared event clock is unavailable, so attendee-screen controls are locked.",
+      };
+    }
+    const snapshot = EventSchedule.current();
+    const currentSessionNumber = snapshot && snapshot.session
+      ? integer(snapshot.session.number, 0)
+      : 0;
+    const livePhase = Boolean(snapshot && ["active", "extra"].includes(snapshot.phase));
+    if (livePhase && currentSessionNumber === selectedSessionNumber) {
+      return { open: true, currentSessionNumber, message: "One tap updates everyone in this session." };
+    }
+
+    const schedule = sessionSchedule();
+    const startsAt = schedule && typeof EventSchedule.formattedTime === "function"
+      ? EventSchedule.formattedTime(schedule.startsAt)
+      : "its scheduled time";
+    let message = "Booth time has ended. Attendee-screen controls are locked.";
+    if (!snapshot || snapshot.phase === "before") {
+      message = `Waiting lobby — controls unlock when ${sessionTitle(selectedSessionNumber)} begins at ${startsAt}.`;
+    } else if (livePhase && currentSessionNumber) {
+      message = `${sessionTitle(currentSessionNumber)} is live. Switch to that session before updating attendee phones.`;
+    } else if (snapshot.phase === "message") {
+      message = selectedSessionNumber === 3
+        ? `The message is in progress — Extra booth controls unlock at ${startsAt}.`
+        : "The message is in progress. This session's attendee-screen controls are locked.";
+    }
+    return { open: false, currentSessionNumber, message };
+  }
+
   function fallbackBand(sessionNumber = selectedSessionNumber) {
     if (sessionNumber === 3) return FALLBACK_BANDS[2];
     if (typeof EventSchedule !== "undefined" && typeof EventSchedule.groupForBooth === "function") {
@@ -316,7 +350,7 @@ function initNewSongStaff() {
         <div class="newsong-stage-icon verse" aria-hidden="true">📖</div>
         <h3>Revelation 14:3 is on attendee screens.</h3>
         <p>Lead the shared reflection, then finish only when guests are ready to save the booth and return to their routes.</p>
-        <blockquote>“And they sung as it were a new song before the throne, and before the four beasts, and the elders: and no man could learn that song but the hundred and forty and four thousand, which were redeemed from the earth.” — Revelation 14:3</blockquote>
+        <blockquote>“And they sang a new song before the throne and before the four living creatures and the elders. No one could learn the song except the 144,000 who had been redeemed from the earth.” — Revelation 14:3 · NIV</blockquote>
       `;
     } else {
       stage.innerHTML = `
@@ -329,15 +363,16 @@ function initNewSongStaff() {
   }
 
   function nextActionButton(id, description, action) {
+    const controlWindow = selectedControlWindow();
     return `
       <div class="booth-leader-dock">
         <div class="booth-leader-dock-copy">
           <span>Next on attendee phones</span>
           <strong>${escapeHtml(description)}</strong>
-          <small>One tap updates everyone in this session.</small>
+          <small data-newsong-control-help>${escapeHtml(controlWindow.message)}</small>
         </div>
         <div class="booth-leader-dock-actions">
-          <button type="button" class="btn btn-primary" id="${id}" data-newsong-action="${action}" aria-label="Next: ${escapeHtml(description)}">Next →</button>
+          <button type="button" class="btn btn-primary" id="${id}" data-newsong-action="${action}" data-ready-label="Next →" aria-label="Next: ${escapeHtml(description)}" ${controlWindow.open ? "" : "disabled"}>${controlWindow.open ? "Next →" : "Wait for booth time"}</button>
         </div>
       </div>
     `;
@@ -590,9 +625,21 @@ function initNewSongStaff() {
   }
 
   function syncBusyState() {
+    const controlWindow = selectedControlWindow();
     settings.classList.toggle("newsong-loading", controlBusy);
     tabs.forEach((tab) => { tab.disabled = controlBusy; });
-    actions.querySelectorAll("button").forEach((button) => { button.disabled = controlBusy; });
+    actions.querySelectorAll("button").forEach((button) => {
+      const changesPhones = button.hasAttribute("data-newsong-action");
+      button.disabled = controlBusy || (changesPhones && !controlWindow.open);
+      if (changesPhones) {
+        const readyLabel = button.dataset.readyLabel || button.textContent || "Next →";
+        button.dataset.readyLabel = readyLabel;
+        button.textContent = controlWindow.open ? readyLabel : "Wait for booth time";
+        button.title = controlWindow.open ? "" : controlWindow.message;
+      }
+    });
+    const controlHelp = actions.querySelector("[data-newsong-control-help]");
+    if (controlHelp) controlHelp.textContent = controlWindow.message;
     refreshButton.disabled = controlBusy;
     restartButton.disabled = controlBusy || !sessionByNumber();
   }
@@ -666,12 +713,19 @@ function initNewSongStaff() {
 
   async function advance(action) {
     if (controlBusy) return;
-    const activeSessionNumber = integer(dashboard && dashboard.eventState && dashboard.eventState.sessionNumber, 0);
+    const controlWindow = selectedControlWindow();
+    const activeSessionNumber = controlWindow.currentSessionNumber;
     if (activeSessionNumber >= 1 && activeSessionNumber <= SESSION_COUNT && activeSessionNumber !== selectedSessionNumber) {
       selectedSessionNumber = activeSessionNumber;
       selectionPinned = false;
       renderSelectedSession();
       toast(`No attendee screen changed. ${sessionTitle(activeSessionNumber)} became live, so controls switched there; review the next step, then tap Next.`);
+      return;
+    }
+    if (!controlWindow.open) {
+      syncBusyState();
+      toast(controlWindow.message);
+      setStatus(`${controlWindow.message} No attendee screen changed.`, "error");
       return;
     }
     const session = sessionByNumber();
@@ -705,7 +759,10 @@ function initNewSongStaff() {
     } catch (error) {
       console.error(error);
       if (OrganizerAuth.handleError(error, authGeneration)) return;
-      if (error && error.code === "NEW_SONG_NO_VOTES") {
+      if (error && error.code === "BOOTH_SESSION_NOT_ACTIVE") {
+        toast("Booth time changed. No attendee phone was updated.");
+        setStatus("Booth time changed. Controls are locked until this session is live again.", "error");
+      } else if (error && error.code === "NEW_SONG_NO_VOTES") {
         toast("Wait for at least one attendee vote before revealing a result.");
         setStatus("The poll is still open. No votes have arrived yet.", "error");
       } else if (error && (error.status === 409 || /CONFLICT|STALE/.test(String(error.code || "")))) {
@@ -822,6 +879,7 @@ function initNewSongStaff() {
   });
 
   OrganizerAuth.init({
+    scope: "newsong",
     onUnlocked: async () => {
       await startSharedDemoClock();
       await refresh();
@@ -829,7 +887,10 @@ function initNewSongStaff() {
         if (!refreshTimer) refreshTimer = setInterval(() => {
           if (!document.hidden) refresh({ silent: true });
         }, POLL_INTERVAL_MS);
-        if (!scheduleTimer) scheduleTimer = setInterval(renderSchedule, 1000);
+        if (!scheduleTimer) scheduleTimer = setInterval(() => {
+          renderSchedule();
+          syncBusyState();
+        }, 1000);
       }
     },
     onLocked: clearStaffState,

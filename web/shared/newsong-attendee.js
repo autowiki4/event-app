@@ -259,8 +259,8 @@ const NewSongAttendee = (() => {
           <span>Tap to view larger ↗</span>
         </button>
         <blockquote>
-          <p>“And they sung as it were a new song before the throne, and before the four beasts, and the elders: and no man could learn that song but the hundred and forty and four thousand, which were redeemed from the earth.”</p>
-          <cite>Revelation 14:3 · KJV</cite>
+          <p>“And they sang a new song before the throne and before the four living creatures and the elders. No one could learn the song except the 144,000 who had been redeemed from the earth.”</p>
+          <cite>Revelation 14:3 · NIV</cite>
         </blockquote>
         <p class="newsong-copy">The room could choose a favorite from eleven songs. Revelation points to a song that belongs to the redeemed — learned through a life with God, not simply selected from a list.</p>
         ${cloudNote("Hold onto the thought", "Your host will release the Finish booth button when the shared reflection is complete.", "✨")}

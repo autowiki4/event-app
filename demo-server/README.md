@@ -28,7 +28,12 @@ Event app demo server running: http://localhost:3000
   Organizer portal:     http://localhost:3000/organizer/index.html
   QR codes (optional):  http://localhost:3000/organizer/qr-codes.html
   Timer previews:       add ?preview=before, 1, 2, message, extra, or connections to the attendee/staff URL
-  Local organizer key:  demo
+  Local Overall password:      demo
+  Local Draw Heaven password:  demo-draw-heaven
+  Local Bible Bowl password:   demo-bible-bowl
+  Local Heaven Booth password: demo-heaven-booth
+  Local Art Therapy password:  demo-art-therapy
+  Local New Song password:     demo-new-song
 ```
 
 Start with Phase 1. Enter a name and mobile number, choose **In person** or
@@ -49,26 +54,51 @@ PORT=3001 node server.js
 
 Use `localhost:3001` in the URLs after changing the port.
 
-## Organizer key
+## Staff passwords
 
-The local default is `demo`. To use another rehearsal value:
+The organizer portal is the single staff starting link, but each destination
+has its own strict credential. Configure six unique, server-only values:
 
 ```bash
-EVENT_APP_ORGANIZER_KEY="a-long-test-key" node server.js
+EVENT_APP_ORGANIZER_KEY="overall-organizer-password" \
+EVENT_APP_DRAW_HEAVEN_KEY="draw-heaven-password" \
+EVENT_APP_BIBLE_BOWL_KEY="bible-bowl-password" \
+EVENT_APP_HEAVEN_BOOTH_KEY="heaven-booth-password" \
+EVENT_APP_ART_THERAPY_KEY="art-therapy-password" \
+EVENT_APP_NEW_SONG_KEY="new-song-password" \
+node server.js
 ```
 
-The organizer portal is the single staff starting link; choose the overall
-dashboard or one of the five booth-leader pages from it. The organizer
-dashboard, booth-leader updates, kiosk actions, sign-up
-confirmation, and reset endpoints require this key. All five booth-leader
-pages share it. API responses are scoped to the requested booth, but the key
-itself is not a booth-level role: its holder can access any staff page. Do not
-reuse the local default or this shared-key model for production.
+`EVENT_APP_ORGANIZER_KEY` grants only Overall Organizer actions, including the
+clock, reset, Google Sheets status/sync, registration dashboard, and next-step
+confirmation. Each booth variable grants only that booth's dashboard,
+presentation controls, run controls, and staff-assistance kiosk actions where
+applicable. A booth password cannot unlock another booth or Overall Organizer,
+and the overall password is not a booth fallback.
+
+Hosted runtimes fail closed. If one value is missing, only that portal reports
+that its staff key is not configured; if values are duplicated, the affected
+configuration is rejected rather than spanning scopes. Passwords are not sent
+in public API responses or stored in URLs or browser storage.
+
+For local development only, absent variables receive separate defaults:
+`demo`, `demo-draw-heaven`, `demo-bible-bowl`, `demo-heaven-booth`,
+`demo-art-therapy`, and `demo-new-song`, in the order shown in the startup
+output. Do not use these on Render.
+
+For a safe Render migration, retain the existing
+`EVENT_APP_ORGANIZER_KEY` value for Overall Organizer. Add the other five
+variables with different strong values **before deploying this code**. Choose
+**Save and deploy**, then give each booth leader only their booth password.
+Any already-open staff tab must authenticate again. Existing URLs, attendee
+records, the persistent database, and the Google Sheets credentials and tab
+schema do not change.
 
 ## Shared rehearsal clock
 
 Open the organizer portal, choose **Overall Organizer**, unlock the dashboard
-with the organizer key, and use its **Demo only · Shared event time** panel.
+with the Overall Organizer password, and use its **Demo only · Shared event
+time** panel.
 The continuous timeline accepts any exact second from **3:35:00 through
 5:10:00 PM America/Chicago**. Drag the slider, enter an exact time, or use the
 3:35, 3:55, 4:15, 4:50, and 5:10 boundary shortcuts, then choose **Apply simulated
@@ -82,10 +112,18 @@ overall-organizer, and booth-leader pages sample it about
 every five seconds with per-browser jitter, while their visible countdown
 advances locally every second. Hidden tabs stop polling and resynchronize when
 visible. The public clock read contains time state and a non-PII reset marker;
-changing the clock still requires the organizer key. Restarting the service
-returns the rehearsal clock to its default state; resetting attendee data
+changing the clock still requires the Overall Organizer password. Restarting
+the service returns the rehearsal clock to its default state; resetting attendee data
 leaves the selected clock in place so a rehearsal can continue at the same
 moment.
+
+Every booth portal also follows this clock at the write boundary. Until its
+selected session is the clock-current live session, its forward/publish
+control is disabled and reads **Wait for booth time**. The API repeats that
+check server-side for all five booths, so a waiting-lobby tab, stale session,
+or direct request cannot advance what attendees see. The control becomes
+available only during that selected session's regular or optional booth
+window.
 
 These controls work on the same-origin Node service locally or on Render. They
 are not implemented by the Apps Script adapter and must not be treated as
@@ -238,8 +276,8 @@ managed tab in that request and records the successful snapshot's
 
 Overall Organizer shows whether the export is connected, queued, syncing, up
 to date, or failing, plus the latest row counts. **Sync now** is protected by
-the organizer key and queues the current snapshot. The status never exposes
-the spreadsheet ID, service-account email/key, or access token. `resetDemo`
+the Overall Organizer password and queues the current snapshot. The status
+never exposes the spreadsheet ID, service-account email/key, or access token. `resetDemo`
 remains the deletion boundary; after it succeeds, the next export clears the
 live Sheet mirror too. The Sheet
 is therefore an operational view, not a separate backup or immutable archive.
@@ -254,7 +292,8 @@ npm test
 ```
 
 The suite starts an isolated temporary server and checks the main API/static
-contracts: organizer authorization, attendee registration and lookup,
+contracts: strict Overall/booth authorization, attendee registration and
+lookup,
 attendance-mode/color validation and persistence, Phase 2 eligibility,
 optional-extra selection, tap-backed
 booth check-ins and deduplication, public booth presentation reads, protected
@@ -298,6 +337,13 @@ The main protected staff actions are:
 - `syncGoogleSheetsExport` (Node service only; queues the current snapshot)
 - `resetDemo` (Node service only)
 - `setDemoClock` (Node service only)
+
+Overall Organizer owns `dashboardData`, `confirmSignupInPerson`, the clock,
+reset, and Sheets actions. Generic and specialized booth dashboards, publish
+or advance actions, resets, and kiosk assistance derive the target booth and
+require that booth's password. `verifyOrganizer` accepts a requested scope for
+the login screen, but each protected endpoint independently enforces its own
+scope rather than trusting the browser request.
 
 Bible Bowl adds a Node-service-only, leader-paced API:
 
@@ -344,7 +390,13 @@ attendees who choose New Song at 4:50 use Session 3. `newSongState`,
 `completeNewSong` serve attendees; protected `newSongDashboardData`,
 `advanceNewSongSession`, and `resetNewSongSession` serve staff. The leader
 advances `welcome → voting → winner → verse → complete`, choosing when to show
-the winner, Revelation 14:3, and the end. Tallies are live and isolated by
+the winner, **Revelation 14:3 · NIV**, and the end. The verse text is:
+
+> And they sang a new song before the throne and before the four living
+> creatures and the elders. No one could learn the song except the 144,000 who
+> had been redeemed from the earth.
+
+Tallies are live and isolated by
 session/run, the first attendee vote is locked, and session reset preserves an
 archived run before opening the next.
 
@@ -368,7 +420,9 @@ use matching session/run-history collections, with Art completions and New
 Song votes carrying their run ID.
 Run one Node instance with a persistent `EVENT_APP_DB_PATH`; the Apps Script
 adapter does not implement these synchronized booth workflows. Its New Song
-support remains the legacy unsynchronized vote path.
+support remains the legacy unsynchronized vote path, and its staff access
+retains one legacy organizer key. It is not deployed or called while
+`web/shared/config.js` uses the current same-origin `/api` backend.
 
 The optional direct Sheets API writer mirrors the complete Node data model into
 `Live_*` tabs and does not change `API_BASE_URL`. Apps Script is not in this
