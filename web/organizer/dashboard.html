@@ -269,6 +269,8 @@ let demoClockRequestInFlight = false;
 let latestDemoClockMode = "live";
 let demoTimelineOffsetSeconds = 0;
 let demoTimelineDirty = false;
+let demoTimelineRevision = null;
+let demoTimeInputEditing = false;
 let latestGoogleSheetsExport = null;
 let googleSheetsExportSyncInFlight = false;
 let dashboardRefreshInFlight = null;
@@ -487,7 +489,7 @@ function renderTimelineSelection() {
   range.setAttribute("aria-valuetext", `${formatTimelineTime()} · ${timelinePointContext()}`);
   input.min = timelineInputValue(0);
   input.max = timelineInputValue(demoEventWindowSeconds);
-  input.value = timelineInputValue();
+  if (!demoTimeInputEditing) input.value = timelineInputValue();
   selected.textContent = formatTimelineTime();
   context.textContent = timelinePointContext();
   applyButton.setAttribute("aria-pressed", String(latestDemoClockMode === "custom"));
@@ -507,6 +509,12 @@ function selectTimelineOffset(offsetSeconds) {
 }
 
 function syncTimelineSelection(state, snapshot) {
+  const incomingRevision = state && state.updatedAt ? String(state.updatedAt) : null;
+  if (incomingRevision && incomingRevision !== demoTimelineRevision) {
+    const remoteClockChanged = demoTimelineRevision !== null;
+    demoTimelineRevision = incomingRevision;
+    if (remoteClockChanged) demoTimelineDirty = false;
+  }
   if (demoTimelineDirty) return;
   const targetMs = snapshot && snapshot.nowMs;
   if (Number.isFinite(targetMs)) {
@@ -615,6 +623,15 @@ document.getElementById("demo-clock-range").addEventListener("input", (event) =>
 document.getElementById("demo-clock-time-input").addEventListener("input", (event) => {
   const offset = timelineOffsetFromInput(event.target.value);
   if (offset !== null) selectTimelineOffset(offset);
+});
+document.getElementById("demo-clock-time-input").addEventListener("focus", () => {
+  demoTimeInputEditing = true;
+});
+document.getElementById("demo-clock-time-input").addEventListener("blur", (event) => {
+  demoTimeInputEditing = false;
+  const offset = timelineOffsetFromInput(event.target.value);
+  if (offset === null) renderTimelineSelection();
+  else selectTimelineOffset(offset);
 });
 document.querySelectorAll("[data-timeline-offset]").forEach((button) => {
   button.addEventListener("click", () => selectTimelineOffset(button.dataset.timelineOffset));

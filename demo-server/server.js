@@ -160,6 +160,22 @@ function effectiveNowMs(realNowMs = Date.now()) {
   return demoClock.targetMs + (realNowMs - demoClock.anchoredAtMs);
 }
 
+function namedDemoClockTargetMs(mode) {
+  const firstStartMs = Date.parse(BOOTH_SESSIONS[0].startsAt);
+  const boothsEndMs = Date.parse(BOOTH_SESSIONS[BOOTH_SESSIONS.length - 1].endsAt);
+  if (mode === "before") return firstStartMs - (5 * 60 * 1000);
+  if (mode === "session1-start") return firstStartMs;
+  if (mode === "waiting") return boothsEndMs + Math.floor((EVENT_WINDOW_END_MS - boothsEndMs) / 2);
+  if (mode === "ended") return EVENT_WINDOW_END_MS;
+  const sessionMatch = /^session([12])(-final15)?$/.exec(mode);
+  if (!sessionMatch) return NaN;
+  const session = BOOTH_SESSIONS[Number(sessionMatch[1]) - 1];
+  if (!session) return NaN;
+  return sessionMatch[2]
+    ? Date.parse(session.endsAt) - (15 * 1000)
+    : Date.parse(session.startsAt) + (5 * 60 * 1000);
+}
+
 function eventNowIso() {
   return new Date(effectiveNowMs()).toISOString();
 }
@@ -3964,11 +3980,15 @@ function setDemoClock(body) {
     return { status: 200, body: demoClockResult() };
   }
 
-  const targetMs = Date.parse(body && body.targetIso);
+  const targetMs = mode === "custom"
+    ? Date.parse(body && body.targetIso)
+    : namedDemoClockTargetMs(mode);
   if (!Number.isFinite(targetMs)) {
     return errorResult(
       400,
-      "targetIso must be a valid event timestamp for this demo clock mode.",
+      mode === "custom"
+        ? "targetIso must be a valid event timestamp for custom demo time."
+        : "Choose a named demo clock point supported by the current event schedule.",
       "INVALID_DEMO_CLOCK_TARGET"
     );
   }

@@ -65,6 +65,19 @@ function normalizedCell(value) {
   return String(value);
 }
 
+function formattedExportPhone(value) {
+  const original = value === undefined || value === null ? "" : String(value).trim();
+  if (!original) return "";
+  const digits = original.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  return original;
+}
+
 function jsonCell(value, fallback) {
   let normalized = value;
   if (normalized === undefined || normalized === null) normalized = fallback;
@@ -170,7 +183,7 @@ function buildExportSnapshot(rawDb, options = {}) {
       attendee.attendeeId,
       jsonCell(arrayOrEmpty(attendee.aliasIds), []),
       attendee.name,
-      attendee.phone,
+      formattedExportPhone(attendee.phone),
       attendee.raffleNumber,
       attendee.wristbandColor,
       attendee.registeredAt,
@@ -190,7 +203,7 @@ function buildExportSnapshot(rawDb, options = {}) {
       checkin.id,
       attendeeValue(attendee, "attendeeId", checkin.attendeeId),
       attendeeValue(attendee, "name", checkin.name),
-      attendeeValue(attendee, "phone", checkin.phone),
+      formattedExportPhone(attendeeValue(attendee, "phone", checkin.phone)),
       attendeeValue(attendee, "raffleNumber"),
       attendeeValue(attendee, "wristbandColor"),
       checkin.boothId,
@@ -216,7 +229,7 @@ function buildExportSnapshot(rawDb, options = {}) {
       signup.id,
       attendeeValue(attendee, "attendeeId", signup.attendeeId),
       attendeeValue(attendee, "name", signup.name),
-      attendeeValue(attendee, "phone", signup.phone),
+      formattedExportPhone(attendeeValue(attendee, "phone", signup.phone)),
       attendeeValue(attendee, "raffleNumber"),
       attendeeValue(attendee, "wristbandColor"),
       signup.optionId,

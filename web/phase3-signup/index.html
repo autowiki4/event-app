@@ -40,6 +40,15 @@
       </div>
     </div>
 
+    <div class="waiting-lobby-card" id="phase3-event-notice" role="status" aria-live="polite" style="display:none;">
+      <div class="waiting-lobby-icon" id="phase3-event-notice-icon" aria-hidden="true">⏳</div>
+      <div>
+        <span class="status-pill waiting" id="phase3-event-notice-status">Booths finished</span>
+        <h2 id="phase3-event-notice-title">The main message starts at 4:00 PM.</h2>
+        <p id="phase3-event-notice-copy">Complete this quick selection, then stay nearby for the message.</p>
+      </div>
+    </div>
+
     <p class="eyebrow">Phase 3 · Tick and go</p>
     <h1 class="display">What's <em>next</em> for you?</h1>
     <p class="lede">Tick anything that fits, then finish. Your choices are already connected to the name and raffle number above.</p>
@@ -95,6 +104,27 @@ const demoClockReady = demoBackend && typeof EventSchedule.startDemoClockSync ==
   ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
 
+function renderPhase3EventNotice() {
+  const notice = document.getElementById("phase3-event-notice");
+  const schedule = EventSchedule.current();
+  if (!["waiting", "ended"].includes(schedule.phase)) {
+    notice.style.display = "none";
+    return;
+  }
+  const messageLive = schedule.phase === "ended";
+  const status = document.getElementById("phase3-event-notice-status");
+  notice.style.display = "flex";
+  document.getElementById("phase3-event-notice-icon").textContent = messageLive ? "📣" : "⏳";
+  status.className = `status-pill ${messageLive ? "live" : "waiting"}`;
+  status.textContent = messageLive ? "Message time" : "Booths finished";
+  document.getElementById("phase3-event-notice-title").textContent = messageLive
+    ? "It's time for the main message."
+    : "The main message starts at 4:00 PM.";
+  document.getElementById("phase3-event-notice-copy").textContent = messageLive
+    ? "Make your quick selection, save it, and then please get seated for the message."
+    : `${EventSchedule.formatCountdown(schedule.remainingMs)} remaining. Complete this quick selection, then stay nearby.`;
+}
+
 function reevaluateScheduleAccess() {
   if (!identity || !portalReady || scheduleRedirecting) return;
   const schedule = EventSchedule.current();
@@ -106,6 +136,7 @@ function reevaluateScheduleAccess() {
   const returnButton = document.getElementById("btn-return-phase2");
   returnButton.href = EventSchedule.linkWithPreview("../phase2-booths/hub.html");
   returnButton.style.display = schedule.phase === "active" ? "block" : "none";
+  renderPhase3EventNotice();
 }
 
 function showLogin(message) {
@@ -186,6 +217,7 @@ async function showPortal(attendeeIdentity) {
   renderProgress(phase2Complete);
   document.getElementById("phase3-login").style.display = "none";
   document.getElementById("phase3-content").style.display = "block";
+  renderPhase3EventNotice();
   document.getElementById("phase3-attendee-name").textContent = identity.name || "Guest";
   document.getElementById("phase3-attendee-raffle").textContent = `Raffle #${identity.raffleNumber || "----"}`;
   const color = wristbandColorById(identity.wristbandColor);

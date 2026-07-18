@@ -357,6 +357,7 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(formulaAttendee.attendeeId, "attendee-formula");
   assert.equal(formulaAttendee.aliasIds, '["attendee-alias"]');
   assert.equal(formulaAttendee.name, "=SUM(1,1)");
+  assert.equal(formulaAttendee.phone, "(615) 555-0101");
   assert.equal(formulaAttendee.completedBoothIds, '["trivia"]');
   assert.equal(formulaAttendee.completedBoothCount, 1);
   assert.equal(formulaAttendee.signupOptionIds, '["future"]');
@@ -370,6 +371,7 @@ async function runGoogleSheetsExporterRegression() {
   const boothResult = sheetRowObject(snapshot, "BoothResults");
   assert.equal(boothResult.attendeeId, "attendee-formula", "alias check-in should map to its canonical attendee");
   assert.equal(boothResult.name, "=SUM(1,1)");
+  assert.equal(boothResult.phone, "(615) 555-0101");
   assert.equal(boothResult.raffleNumber, "1001");
   assert.equal(boothResult.wristbandColor, "blue");
   assert.equal(boothResult.sessionNumber, 1);
@@ -390,6 +392,7 @@ async function runGoogleSheetsExporterRegression() {
 
   const signup = sheetRowObject(snapshot, "SignUps");
   assert.equal(signup.name, "=SUM(1,1)");
+  assert.equal(signup.phone, "(615) 555-0101");
   assert.equal(signup.raffleNumber, "1001");
   assert.equal(signup.optionTitle, "+Keep me posted");
   assert.equal(signup.confirmedInPerson, true);
@@ -402,6 +405,36 @@ async function runGoogleSheetsExporterRegression() {
   assert.equal(heavenConfirmation.action, "drawing_complete");
 
   assert.equal(snapshot.tabs.SongVotes.rows.length, 0);
+
+  const legacyPhoneSnapshot = buildExportSnapshot({
+    attendees: [{
+      attendeeId: "legacy-phone-attendee",
+      aliasIds: [],
+      name: "Legacy Phone Guest",
+      phone: "16155550102",
+      raffleNumber: "1099",
+    }],
+    boothCheckins: [{
+      id: "legacy-phone-checkin",
+      attendeeId: "legacy-phone-attendee",
+      phone: "16155550102",
+      boothId: "story",
+      boothName: "The Heaven Booth",
+    }],
+    signups: [{
+      id: "legacy-phone-signup",
+      attendeeId: "legacy-phone-attendee",
+      phone: "16155550102",
+      optionId: "future",
+      optionTitle: "Keep me posted on future events",
+    }],
+  }, { generatedAt });
+  assert.equal(sheetRowObject(legacyPhoneSnapshot, "Attendees").phone, "+1 (615) 555-0102");
+  assert.equal(sheetRowObject(legacyPhoneSnapshot, "BoothResults").phone, "+1 (615) 555-0102");
+  assert.equal(sheetRowObject(legacyPhoneSnapshot, "SignUps").phone, "+1 (615) 555-0102");
+  assert.equal(legacyPhoneSnapshot.tabs.TriviaAnswers.headers.includes("phone"), false);
+  assert.equal(legacyPhoneSnapshot.tabs.HeavenConfirmations.headers.includes("phone"), false);
+  assert.equal(legacyPhoneSnapshot.tabs.SongVotes.headers.includes("phone"), false);
 
   const exportMeta = Object.fromEntries(snapshot.tabs.ExportMeta.rows);
   assert.equal(exportMeta.schemaVersion, 1);
@@ -875,8 +908,8 @@ async function runApiRegression(port) {
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_DEMO_CLOCK_MODE");
   res = await request(port, "setDemoClock", { mode: "session1", targetIso: "not-a-date", organizerKey });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.targetIso, "2026-07-18T20:15:00.000Z");
   res = await request(port, "setDemoClock", { mode: "custom", targetIso: "not-a-date", organizerKey });
   assert.equal(res.status, 400);
   assert.equal(res.body.code, "INVALID_DEMO_CLOCK_TARGET");
@@ -925,18 +958,24 @@ async function runApiRegression(port) {
   assert.equal(res.body.mode, "session1");
   assert.ok(Date.parse(res.body.serverNow) > firstAnchoredMs, "anchored demo clock should tick forward");
 
-  for (const mode of [
-    "before",
-    "session1-start",
-    "session1-final15",
-    "session2",
-    "session2-final15",
-    "waiting",
-    "ended",
-  ]) {
-    res = await request(port, "setDemoClock", { mode, targetIso: anchoredTarget, organizerKey });
+  const namedClockTargets = new Map([
+    ["before", "2026-07-18T20:05:00.000Z"],
+    ["session1-start", "2026-07-18T20:10:00.000Z"],
+    ["session1-final15", "2026-07-18T20:29:45.000Z"],
+    ["session2", "2026-07-18T20:35:00.000Z"],
+    ["session2-final15", "2026-07-18T20:49:45.000Z"],
+    ["waiting", "2026-07-18T20:55:00.000Z"],
+    ["ended", "2026-07-18T21:00:00.000Z"],
+  ]);
+  for (const [mode, expectedTargetIso] of namedClockTargets) {
+    res = await request(port, "setDemoClock", {
+      mode,
+      targetIso: "2026-07-18T20:11:11.000Z",
+      organizerKey,
+    });
     assert.equal(res.status, 200, mode);
     assert.equal(res.body.mode, mode);
+    assert.equal(res.body.targetIso, expectedTargetIso, `${mode} must use its server-owned schedule point`);
   }
   for (const removedMode of ["session3", "session3-final15"]) {
     res = await request(port, "setDemoClock", {
@@ -962,11 +1001,23 @@ async function runApiRegression(port) {
     assert.equal(res.body.eventState.phase, expectedPhase, targetIso);
     assert.equal(res.body.eventState.sessionNumber, null, targetIso);
   }
+  const liveClockRequestStartedAt = Date.now();
   res = await request(port, "setDemoClock", { mode: "live", targetIso: null, organizerKey });
+  const liveClockRequestFinishedAt = Date.now();
   assert.equal(res.status, 200);
   assert.equal(res.body.mode, "live");
   assert.equal(res.body.controlled, true);
   assert.equal(res.body.targetIso, null);
+  const firstLiveClockMs = Date.parse(res.body.serverNow);
+  assert.ok(
+    firstLiveClockMs >= liveClockRequestStartedAt - 1000
+      && firstLiveClockMs <= liveClockRequestFinishedAt + 1000,
+    "live mode must return the real server clock rather than a rehearsal anchor"
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  res = await request(port, "eventClock", undefined, "GET");
+  assert.equal(res.body.mode, "live");
+  assert.ok(Date.parse(res.body.serverNow) > firstLiveClockMs, "live server time should keep ticking");
   const liveClockUpdatedAt = res.body.updatedAt;
 
   // Booth presentation state is public and PII-free. Each booth starts with
@@ -1626,7 +1677,7 @@ async function runApiRegression(port) {
   ));
   assert.deepEqual(
     sharedPhoneRows
-      .filter((row) => row.phone === "6155550301")
+      .filter((row) => row.phone === "(615) 555-0301")
       .map((row) => [row.attendeeId, row.name])
       .sort((a, b) => a[0].localeCompare(b[0])),
     [["entry-a", "Avery Again"], ["entry-household", "Blake"]]
@@ -4282,6 +4333,11 @@ async function runFrontendContractRegression() {
   assert.match(dashboardSource, /latestDemoClockMode === "custom"/);
   assert.match(dashboardSource, /\.demo-timeline-actions \.btn\[aria-pressed="true"\]/);
   assert.match(dashboardSource, /const targetMs = snapshot && snapshot\.nowMs/);
+  assert.match(dashboardSource, /const eventTimeZone = "America\/Chicago"/);
+  assert.match(dashboardSource, /demoTimelineOffsetSeconds = clampTimelineOffset\(\(targetMs - demoEventStartMs\) \/ 1000\)/);
+  assert.match(dashboardSource, /demoClockReadoutTimer = setInterval\(renderDemoClock, 1000\)/);
+  assert.match(dashboardSource, /if \(remoteClockChanged\) demoTimelineDirty = false/);
+  assert.match(dashboardSource, /if \(!demoTimeInputEditing\) input\.value = timelineInputValue\(\)/);
   assert.doesNotMatch(dashboardSource, /id="trivia-table"|id="song-table"/);
   assert.match(dashboardSource, /boothOnlyCountKeys = new Set\(\["triviaanswers", "songvotes"\]\)/);
   assert.doesNotMatch(dashboardSource, /triviaAnswers:\s*"Bible Bowl answers"|songVotes:\s*"New Song votes"/);
@@ -4319,6 +4375,8 @@ async function runFrontendContractRegression() {
   assert.match(phase1Source, /await phase1DemoClockReady/);
   assert.match(phase1Source, /AttendeePortal\.acceptDataReset\(result\.dataResetAt\)/);
   assert.match(phase1Source, /id="event-reset-note"/);
+  assert.match(phase1Source, /id="phase1-event-notice"/);
+  assert.match(phase1Source, /It's time for the main message\./);
   assert.match(phase1Source, /AttendeeMenu\.mount\("phase1-attendee-menu"/);
   assert.match(phase1Source, /id="in-phone"[^>]*autocomplete="tel-national"/);
   assert.doesNotMatch(phase1Source, /id="in-otp"|one-time-code/i);
@@ -4346,6 +4404,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /id="session-countdown"/);
   assert.match(phase2Source, /id="phase3-ready"/);
   assert.match(phase2Source, /id="waiting-lobby"/);
+  assert.match(phase2Source, /The main message is starting/);
   assert.match(phase2Source, /const cachedIdentity = Identity\.peek\(\)/);
   assert.match(phase2Source, /AttendeeMenu\.mount\("phase2-attendee-menu"/);
   assert.match(phase2Source, /function routeIsComplete\(\)/);
@@ -4367,6 +4426,8 @@ async function runFrontendContractRegression() {
   assert.match(boothRoomSource, /id="booth-welcome-raffle"/);
   assert.match(boothRoomSource, /id="booth-login-name"[^>]*autocomplete="off"/);
   assert.match(boothRoomSource, /id="booth-login-phone"[^>]*autocomplete="tel-national"/);
+  assert.match(boothRoomSource, /kicker: "Message time"/);
+  assert.match(boothRoomSource, /title: "It's time for the main message\."/);
   assert.match(boothRoomSource, /\[nameInput, phoneInput\][\s\S]*addEventListener\("keydown"/);
   assert.doesNotMatch(boothCommonSource, /findOrRegisterByPhone|booth-phone-input|btn-booth-checkin/);
   assert.doesNotMatch(boothCommonSource, /hub\.html/);
@@ -4677,6 +4738,8 @@ async function runFrontendContractRegression() {
   assert.match(phase3Source, /id="phase3-name"[^>]*autocomplete="name"/);
   assert.match(phase3Source, /id="phase3-phone"[^>]*autocomplete="tel-national"/);
   assert.match(phase3Source, /id="btn-return-phase2"/);
+  assert.match(phase3Source, /id="phase3-event-notice"/);
+  assert.match(phase3Source, /It's time for the main message\./);
   assert.match(phase3Source, /role="checkbox"/);
   assert.match(phase3Source, /Tick and go/i);
   assert.match(phase3Source, /EventAPI\.saveSignupSelections/);
@@ -5000,6 +5063,26 @@ async function runFrontendContractRegression() {
   assert.equal(demoSchedule.current().sessionIndex, null);
   assert.equal(dataResetEvents.length, 4);
   assert.equal(dataResetEvents[3].detail.changed, false);
+  assert.equal(demoSchedule.applyDemoClock({
+    serverNow: "2026-07-18T20:55:00.000Z",
+    mode: "live",
+    controlled: true,
+    targetIso: null,
+    updatedAt: "2026-07-15T12:30:00.000Z",
+    dataResetAt: "2026-07-15T11:20:00.000Z",
+  }, synchronizedAt, synchronizedAt), true);
+  assert.equal(demoSchedule.demoClockState().mode, "live");
+  assert.equal(demoSchedule.isPreviewing(), false, "server-controlled live mode must override URL rehearsal previews");
+  assert.equal(demoSchedule.current().phase, "waiting");
+  assert.equal(demoSchedule.applyDemoClock({
+    serverNow: "2026-07-18T20:54:59.000Z",
+    mode: "session1",
+    controlled: true,
+    targetIso: "2026-07-18T20:15:00.000Z",
+    updatedAt: "2026-07-15T12:30:00.000Z",
+    dataResetAt: "2026-07-15T11:20:00.000Z",
+  }, synchronizedAt, synchronizedAt), false, "an older equal-revision sample must not move the clock backward");
+  assert.equal(demoSchedule.demoClockState().mode, "live");
   demoSchedule.stopDemoClockSync();
   assert.equal(clearedPollerCount, 1);
 

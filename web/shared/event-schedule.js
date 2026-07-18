@@ -31,6 +31,7 @@ const EventSchedule = (() => {
   let demoClockRequest = null;
   let demoClockFirstSync = null;
   let demoClockVisibilityBound = false;
+  let lastDemoClockSampleMs = null;
 
   function sync(serverNow, requestStartedMs, responseReceivedMs, options) {
     // Once the organizer has selected a shared demo mode, only the versioned
@@ -120,9 +121,13 @@ const EventSchedule = (() => {
     if (!data.updatedAt) return true;
     const currentUpdatedMs = Date.parse(remoteDemoClock.updatedAt);
     const incomingUpdatedMs = Date.parse(data.updatedAt);
-    return Number.isFinite(currentUpdatedMs)
-      && Number.isFinite(incomingUpdatedMs)
-      && incomingUpdatedMs < currentUpdatedMs;
+    if (!Number.isFinite(currentUpdatedMs) || !Number.isFinite(incomingUpdatedMs)) return false;
+    if (incomingUpdatedMs < currentUpdatedMs) return true;
+    if (incomingUpdatedMs > currentUpdatedMs) return false;
+    const incomingSampleMs = Date.parse(data.serverNow);
+    return Number.isFinite(lastDemoClockSampleMs)
+      && Number.isFinite(incomingSampleMs)
+      && incomingSampleMs <= lastDemoClockSampleMs;
   }
 
   function applyDemoClock(data, requestStartedMs, responseReceivedMs) {
@@ -142,6 +147,7 @@ const EventSchedule = (() => {
       updatedAt: data.updatedAt || null,
       dataResetAt,
     };
+    lastDemoClockSampleMs = Date.parse(data.serverNow);
     if (
       typeof window !== "undefined"
       && window

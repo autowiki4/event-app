@@ -497,7 +497,9 @@ function renderSchedule() {
       ? "Tick your <em>next steps</em> and go."
       : "Continue with your <em>saved progress.</em>";
     document.getElementById("current-copy").textContent = phase2Complete
-      ? "Your two completion taps are saved. Finish Phase 3, then stay nearby for the 4:00 PM main message."
+      ? waitingForMessage
+        ? "Your two completion taps are saved. Finish Phase 3, then stay nearby for the 4:00 PM main message."
+        : "The main message is starting now. Complete Phase 3 quickly if needed, then please get seated."
       : catchUpCount
         ? `You marked ${completedCount} of ${route.length} visits complete. ${catchUpCount} ${catchUpCount === 1 ? "stop is" : "stops are"} marked for possible catch-up, and you can still continue.`
         : `You marked ${completedCount} of ${route.length} visits complete. Unclicked visits remain unmarked, but you can still continue.`;

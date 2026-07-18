@@ -149,6 +149,22 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
 
   function routeDetails(identity, snapshot) {
     const route = EventSchedule.route(identity.wristbandColor);
+    if (snapshot.phase === "ended") {
+      return {
+        kicker: "Message time",
+        title: "It's time for the main message.",
+        copy: "Both booth rotations are complete. Please get seated and turn your attention to the message.",
+        time: "Starting now",
+      };
+    }
+    if (snapshot.phase === "waiting") {
+      return {
+        kicker: "Booths finished",
+        title: "The main message starts at 4:00 PM.",
+        copy: "Return to your schedule, finish the quick Phase 3 selection if needed, and stay nearby for the message.",
+        time: `${EventSchedule.formatCountdown(snapshot.remainingMs)} until the message`,
+      };
+    }
     const routeIndex = route.indexOf(boothId);
     if (routeIndex < 0) {
       return {
@@ -174,7 +190,7 @@ function initBoothRoom({ boothId, boothName, roomName = boothName, onReady }) {
         time: sessionTime ? `Original session: ${sessionTime}` : "",
       };
     }
-    const isPast = snapshot.phase === "waiting" || snapshot.phase === "ended" || (snapshot.phase === "active" && routeIndex < snapshot.sessionIndex);
+    const isPast = snapshot.phase === "active" && routeIndex < snapshot.sessionIndex;
     if (isPast) {
       return {
         kicker: "Session ended",

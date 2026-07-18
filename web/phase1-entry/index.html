@@ -15,6 +15,15 @@
 <div class="phone" id="phone">
   <div class="progress" id="progress"></div>
 
+  <div class="waiting-lobby-card" id="phase1-event-notice" role="status" aria-live="polite" style="display:none; margin:0 22px 16px;">
+    <div class="waiting-lobby-icon" id="phase1-event-notice-icon" aria-hidden="true">⏳</div>
+    <div>
+      <span class="status-pill waiting" id="phase1-event-notice-status">Booths finished</span>
+      <h2 id="phase1-event-notice-title">The main message starts at 4:00 PM.</h2>
+      <p id="phase1-event-notice-copy">If you still need help with your event pass, please see an organizer.</p>
+    </div>
+  </div>
+
   <section class="screen" id="s-welcome">
     <p class="eyebrow" id="welcome-eyebrow">Lobby · Registration (Phase 1 of 3)</p>
     <h1 class="display" id="welcome-title">The&nbsp;Perfect&nbsp;Summer&nbsp;Day<em>: Experience Heaven</em></h1>
@@ -96,6 +105,30 @@ const returnLinkMode = phase1Params.get("resume") === "1" && !phase1Params.has("
 const phase1DemoClockReady = phase1DemoBackend && typeof EventSchedule.startDemoClockSync === "function"
   ? Promise.resolve(EventSchedule.startDemoClockSync(5000)).catch((error) => console.warn("Demo clock sync unavailable", error))
   : Promise.resolve();
+
+function renderPhase1EventNotice() {
+  const notice = document.getElementById("phase1-event-notice");
+  const schedule = EventSchedule.current();
+  if (!["waiting", "ended"].includes(schedule.phase)) {
+    notice.style.display = "none";
+    return;
+  }
+  const messageLive = schedule.phase === "ended";
+  const status = document.getElementById("phase1-event-notice-status");
+  notice.style.display = "flex";
+  document.getElementById("phase1-event-notice-icon").textContent = messageLive ? "📣" : "⏳";
+  status.className = `status-pill ${messageLive ? "live" : "waiting"}`;
+  status.textContent = messageLive ? "Message time" : "Booths finished";
+  document.getElementById("phase1-event-notice-title").textContent = messageLive
+    ? "It's time for the main message."
+    : "The main message starts at 4:00 PM.";
+  document.getElementById("phase1-event-notice-copy").textContent = messageLive
+    ? "Please get seated for the message. If you still need help with your event pass, see an organizer."
+    : `${EventSchedule.formatCountdown(schedule.remainingMs)} remaining. If you need help with your event pass, see an organizer.`;
+}
+
+phase1DemoClockReady.then(renderPhase1EventNotice);
+setInterval(renderPhase1EventNotice, 1000);
 
 if (phase1Params.has("eventReset")) {
   document.getElementById("event-reset-note").style.display = "block";

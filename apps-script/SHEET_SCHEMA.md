@@ -119,7 +119,12 @@ cannot collide with the tabs used when Apps Script itself is the app backend:
 
 The Node server creates an attendee immediately from the Phase 1 name and
 phone form. The collected phone is included in `Live_Attendees` and joined
-into the attendee's operational result and sign-up rows.
+into the attendee's operational result and sign-up rows. The backend database
+and attendee login continue to use digits-only phone values. For staff
+readability, the service-account export displays ten-digit US numbers as
+`(615) 555-0101` and legacy eleven-digit values beginning with `1` as
+`+1 (615) 555-0101`. This display formatting is limited to the phone columns
+in `Live_Attendees`, `Live_BoothResults`, and `Live_SignUps`.
 
 ### Live_BoothResults
 
