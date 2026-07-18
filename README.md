@@ -240,15 +240,16 @@ over a query preview. The query override is ignored on non-local hosts.
 `web/organizer/index.html` is the single staff starting link. It offers the
 overall organizer dashboard plus one portal for each of the five booths. The
 older `web/phase2-staff/index.html` URL redirects there so saved links and
-previously printed codes still work. After choosing and unlocking a booth
-page, its leader can publish:
-
-- a status: waiting, live, paused, wrap up, or complete;
-- the current booth-specific activity step; and
-- an optional short announcement.
+previously printed codes still work. After choosing and unlocking a booth,
+the leader uses the fixed **Next** control to publish the next activity screen.
+The Heaven Booth also offers **Back** and an optional short announcement. If a
+leader does not press Next, attendee phones simply remain on the current
+screen; there is no separate status selector.
 
 The attendee hub polls for that booth's published state and refreshes the
-current screen automatically. Leaders also see the wristband group scheduled
+current screen automatically. Restart controls remain separate and less
+prominent so they are not confused with normal presentation flow. Leaders also
+see the wristband group scheduled
 for their booth, the shared timer, and that booth's recent check-ins.
 
 ### Specialized Art Therapy controls

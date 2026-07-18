@@ -198,17 +198,21 @@ staff-assistance fallbacks and should not be printed as attendee links.
 `web/organizer/index.html` is the canonical staff entry point. It links to the
 overall organizer dashboard and one staff page per booth under
 `web/phase2-staff/`. The former `web/phase2-staff/index.html` directory remains
-as a compatibility redirect. Each booth page uses the same shared module but
-loads only that booth's metadata and API data.
+as a compatibility redirect. Bible Bowl, Draw Heaven, Art Therapy, and New
+Song use specialized ordered controllers. The Heaven Booth uses the shared
+ordered-screen controller.
 
-A booth leader chooses:
+Every booth exposes a fixed **Next** action that publishes the next screen to
+attendees. The Heaven Booth also exposes **Back**, direct screen selection, and
+an optional announcement. Leaving the controls alone holds the current screen,
+so booth leaders do not manage a separate waiting/live/paused/wrap selector.
+Restarting a run remains a separate, confirmed action.
 
-- a presentation status (`waiting`, `live`, `paused`, `wrap`, or `complete`);
-- one of the activity steps defined for that booth; and
-- an optional announcement.
-
-Saving calls the protected `updateBoothPresentation` action. The backend
-stores one current presentation record for that booth. The attendee hub calls
+The shared Heaven Booth controller calls the protected
+`updateBoothPresentation` action. The backend stores one current presentation
+record and retains the older status values for saved-data/API compatibility;
+the current UI derives waiting, active, and complete from the ordered flow.
+The attendee hub calls
 the read-only `boothPresentation` action without receiving the organizer key.
 `boothDashboardData` returns that booth's current presentation and recent
 check-ins to the authenticated staff page.

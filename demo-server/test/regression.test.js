@@ -4433,6 +4433,7 @@ async function runFrontendContractRegression() {
   assert.match(phase2Source, /serverScreenTitle\s*\?\s*"Leader screen · Current activity"/);
   assert.match(phase2Source, /tap Finish booth on its final screen/);
   assert.doesNotMatch(phase2Source, /tap Done on its final screen/);
+  assert.match(phase2Source, /booth\.id === "story" && \["paused", "wrap"\]\.includes\(state\.status\)/);
   assert.doesNotMatch(phase2Source, /window\.location\.href = "\.\.\/phase3-signup\/index\.html"/);
   assert.match(boothRoomSource, /const portal = `phase2\.\$\{boothId\}`/);
   assert.match(boothRoomSource, /AttendeePortal\.signIn\(portal/);
@@ -4488,6 +4489,9 @@ async function runFrontendContractRegression() {
   assert.match(storyAttendeeSource, /<h2>The Heaven Booth<\/h2>/);
   assert.match(storyAttendeeSource, /<h2>Thank you<\/h2>/);
   assert.match(storyAttendeeSource, /id="btn-booth-done"/);
+  assert.match(storyAttendeeSource, /\["live", "paused", "wrap"\]\.includes\(savedStatus\)[\s\S]*?: "waiting"/);
+  assert.match(storyAttendeeSource, /else if \(stepIndex >= FINAL_STEP_INDEX\)[\s\S]*?FINAL_STEP_INDEX - 1/);
+  assert.doesNotMatch(storyAttendeeSource, /story-leader-state|value\.status === "paused"|value\.status === "wrap"/);
   assert.doesNotMatch(storyAttendeeSource, /score|leaderboard|data-story-answer|btn-story-(?:next|prev)/i);
 
   // Bible Bowl questions are now speaker-controlled and server-scored. The
@@ -5134,13 +5138,14 @@ async function runFrontendContractRegression() {
   assert.match(boothStaffCommon, /data\.songVotes/);
   assert.doesNotMatch(boothStaffCommon, /EventAPI\.dashboardData\(/);
   ["Get ready", "Show activity", "Hold here", "Finish soon", "End booth"].forEach((label) => {
-    assert.ok(boothStaffCommon.includes(`label: "${label}"`), label);
+    assert.ok(!boothStaffCommon.includes(`label: "${label}"`), label);
   });
-  assert.match(boothStaffCommon, /class="staff-status-choice"/);
+  assert.doesNotMatch(boothStaffCommon, /staff-status-choice|staff-status-options|data-status/);
+  assert.match(boothStaffCommon, /Use Back or Next to change every attendee phone/);
+  assert.match(boothStaffCommon, /else if \(stepIndex >= steps\.length - 1\)[\s\S]*?steps\.length - 2/);
   assert.match(boothStaffCommon, /class="booth-leader-dock"/);
   assert.match(boothStaffCommon, /id="btn-staff-next">Next →<\/button>/);
   assert.doesNotMatch(boothStaffCommon, /Publish previous|Publish next|Save to attendee screen|Reset controls/);
-  assert.match(boothStaffCommon, /draft\.status = button\.dataset\.status;[\s\S]*?savePresentation\(\);/);
   assert.match(boothStaffCommon, /async function recoverPresentationConflict\(/);
   assert.match(boothStaffCommon, /samePublishedScreen\(latest, intended\)/);
   assert.match(boothStaffCommon, /Your change is still selected—tap the fixed Apply my change button/);
@@ -5151,6 +5156,7 @@ async function runFrontendContractRegression() {
   [triviaStaffSource, heavenStaffSource, artStaffSource, newSongStaffControllerSource].forEach((source) => {
     assert.match(source, /class="booth-leader-dock"/);
     assert.ok(source.includes("Next →"));
+    assert.doesNotMatch(source, /staff-status-choice|staff-status-options|data-status/);
   });
   [storyAttendeeSource, triviaAttendeeSource, heavenAttendeeSource, artAttendeeSource, newSongAttendeeSource].forEach((source) => {
     assert.match(source, /Finish booth →/);

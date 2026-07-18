@@ -1,6 +1,6 @@
-/* Shared behavior for the five booth-leader portals. Each page is scoped to
- * one booth: leaders can publish the step/status/message shown to attendees,
- * and can see only that booth's check-ins. */
+/* Ordered-screen behavior used by The Heaven Booth leader portal. Leaders
+ * move attendee phones with Back/Next, can add a short announcement, and see
+ * only this booth's check-ins. */
 function initBoothStaff(boothId) {
   const booth = CONNECTOR_BOOTHS.find((item) => item.id === boothId);
   if (!booth) {
@@ -9,14 +9,6 @@ function initBoothStaff(boothId) {
     return;
   }
 
-  const statusOptions = [
-    { value: "waiting", label: "Get ready", icon: "⏳", help: "Shows the welcome screen while the group waits for you to begin." },
-    { value: "live", label: "Show activity", icon: "▶", help: "Shows the activity screen you selected below." },
-    { value: "paused", label: "Hold here", icon: "Ⅱ", help: "Keeps the current activity screen visible while you pause." },
-    { value: "wrap", label: "Finish soon", icon: "◷", help: "Keeps the current screen visible and tells attendees the booth is nearly finished." },
-    { value: "complete", label: "End booth", icon: "✓", help: "Shows the final thank-you screen and gives attendees their Finish booth button." },
-  ];
-  const statusValues = statusOptions.map((option) => option.value);
   const steps = (Array.isArray(booth.leaderSteps) && booth.leaderSteps.length
     ? booth.leaderSteps
     : [{ title: "Welcome", text: `Welcome the group to ${booth.title}.` }])
@@ -57,12 +49,21 @@ function initBoothStaff(boothId) {
   function normalizePresentation(value) {
     const raw = value && typeof value === "object" ? value : {};
     const parsedStep = Number(raw.stepIndex);
-    const stepIndex = Number.isFinite(parsedStep)
+    const savedStatus = String(raw.status || "").toLowerCase();
+    let stepIndex = Number.isFinite(parsedStep)
       ? Math.max(0, Math.min(steps.length - 1, Math.trunc(parsedStep)))
       : 0;
+    const status = savedStatus === "complete"
+      ? "complete"
+      : ["live", "paused", "wrap"].includes(savedStatus)
+        ? "live"
+        : "waiting";
+    if (status === "waiting") stepIndex = 0;
+    else if (status === "complete") stepIndex = steps.length - 1;
+    else if (stepIndex >= steps.length - 1) stepIndex = Math.max(0, steps.length - 2);
     return {
       boothId: booth.id,
-      status: statusValues.includes(raw.status) ? raw.status : "waiting",
+      status,
       stepIndex,
       message: String(raw.message || "").slice(0, 140),
       updatedAt: raw.updatedAt || "",
@@ -81,18 +82,10 @@ function initBoothStaff(boothId) {
       </div>
 
       <div class="dash-card">
-        <div class="lbl">What attendee phones show</div>
-        <p style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:7px 0 0;">Tap one color to update every attendee phone right away.</p>
-        <div id="staff-status-options" class="staff-status-grid" role="radiogroup" aria-label="What attendee phones show">
-          ${statusOptions.map((option) => `
-            <button type="button" class="staff-status-choice" role="radio" aria-checked="false" data-status="${option.value}" title="${escapeHtml(option.help)}">
-              <span class="staff-status-icon" aria-hidden="true">${option.icon}</span><span>${escapeHtml(option.label)}</span>
-            </button>
-          `).join("")}
-        </div>
-        <p id="staff-status-help" style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:10px 0 0;"></p>
+        <div class="lbl">Attendee phones</div>
+        <p style="font-size:12px;line-height:1.45;color:var(--ink-soft);margin:7px 0 0;">Use Back or Next to change every attendee phone. If you do nothing, phones stay on the current screen.</p>
 
-        <div class="section-title" style="margin-top:22px;">Choose the attendee screen</div>
+        <div class="section-title" style="margin-top:18px;">Choose the attendee screen</div>
         <div class="booth-leader-dock" role="group" aria-label="Move attendee phones backward or forward">
           <div class="booth-leader-dock-copy">
             <span>Attendee phones</span>
@@ -131,15 +124,6 @@ function initBoothStaff(boothId) {
       </div>
     `;
 
-    controls.querySelectorAll("[data-status]").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (saving || (!dirty && draft.status === button.dataset.status)) return;
-        draft.status = button.dataset.status;
-        markDirty();
-        syncControlUi();
-        savePresentation();
-      });
-    });
     controls.querySelectorAll("[data-step-index]").forEach((button) => {
       button.addEventListener("click", () => {
         const nextIndex = Number(button.dataset.stepIndex);
@@ -197,16 +181,6 @@ function initBoothStaff(boothId) {
   }
 
   function syncControlUi(syncMessage) {
-    document.querySelectorAll("[data-status]").forEach((button) => {
-      const selected = button.dataset.status === draft.status;
-      button.setAttribute("aria-checked", String(selected));
-      button.classList.toggle("is-selected", selected);
-      button.disabled = saving;
-      button.style.opacity = saving ? ".55" : "1";
-    });
-    const activeStatus = statusOptions.find((option) => option.value === draft.status);
-    document.getElementById("staff-status-help").textContent = activeStatus ? activeStatus.help : "";
-
     document.querySelectorAll("[data-step-index]").forEach((button) => {
       const selected = Number(button.dataset.stepIndex) === draft.stepIndex;
       button.setAttribute("aria-checked", String(selected));
@@ -486,7 +460,7 @@ function initBoothStaff(boothId) {
           });
           dirty = true;
           syncControlUi(true);
-          document.getElementById("staff-publish-state").textContent = "A new session is ready. Tap Get ready to refresh the welcome screen, or tap Next to begin.";
+          document.getElementById("staff-publish-state").textContent = "A new session is ready. Attendee phones will wait on the welcome screen until you tap Next.";
         } else {
           draft = { ...published };
           syncControlUi(true);

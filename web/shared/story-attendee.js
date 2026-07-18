@@ -95,9 +95,14 @@ const StoryAttendee = (() => {
 
   function normalizePresentation(value) {
     const raw = object(value);
-    const status = ["waiting", "live", "paused", "wrap", "complete"].includes(String(raw.status || "").toLowerCase())
-      ? String(raw.status).toLowerCase()
-      : "waiting";
+    const savedStatus = String(raw.status || "").toLowerCase();
+    const status = savedStatus === "complete"
+      ? "complete"
+      : savedStatus === "waiting"
+        ? "waiting"
+        : ["live", "paused", "wrap"].includes(savedStatus)
+          ? "live"
+          : "waiting";
     return {
       boothId: BOOTH_ID,
       stepIndex: Math.max(0, Math.min(FINAL_STEP_INDEX, integer(raw.stepIndex))),
@@ -134,6 +139,8 @@ const StoryAttendee = (() => {
       status = "waiting";
     } else if (status === "complete") {
       stepIndex = FINAL_STEP_INDEX;
+    } else if (stepIndex >= FINAL_STEP_INDEX) {
+      stepIndex = FINAL_STEP_INDEX - 1;
     }
     return {
       ...value,
@@ -166,15 +173,9 @@ const StoryAttendee = (() => {
   }
 
   function announcement(value) {
-    const leaderState = value.status === "paused"
-      ? `<p class="story-leader-state paused" role="status"><strong>Hold here</strong><span>Keep this screen open. Your booth leader will continue soon.</span></p>`
-      : value.status === "wrap"
-        ? `<p class="story-leader-state wrap" role="status"><strong>Finishing soon</strong><span>Stay on this screen while your booth leader wraps up.</span></p>`
-        : "";
-    const message = value.message
+    return value.message
       ? `<p class="story-announcement" role="status">${escapeHtml(value.message)}</p>`
       : "";
-    return `${leaderState}${message}`;
   }
 
   function renderWelcome(value) {

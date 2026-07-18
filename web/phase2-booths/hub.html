@@ -245,6 +245,9 @@ function displayPresentation(booth) {
   if (!isLocalPreview && schedule.phase === "active" && Number.isFinite(updatedMs) && updatedMs < schedule.session.startMs) {
     state = { status: "waiting", stepIndex: 0, message: "", updatedAt: "" };
   }
+  if (booth.id === "story" && ["paused", "wrap"].includes(state.status)) {
+    state = { ...state, status: "live" };
+  }
   const maxIndex = Math.max(0, (booth.leaderSteps || []).length - 1);
   const stepIndex = Math.min(maxIndex, Math.max(0, Number(state.stepIndex) || 0));
   const step = (booth.leaderSteps || [])[stepIndex] || {

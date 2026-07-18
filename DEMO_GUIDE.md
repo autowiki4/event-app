@@ -104,18 +104,18 @@ synchronized Chicago time.
 ## 4. Let the booth leader control Session 1
 
 In Window C, move the timeline to **3:20:00 PM** and choose **Apply simulated
-time**. From the organizer directory in Window B, open **Can You Draw
-Heaven?** and unlock it with `demo`. The page should show that Blue wristbands
-are scheduled there in Session 1. Set the presentation to **Live**, choose an
-activity step, optionally add a short announcement, and choose **Save to
-attendee screen**.
+time**. From the organizer directory in Window B, open **Draw Heaven** and
+unlock it with `demo`. The page should show that Blue wristbands are scheduled
+there in Session 1. The fixed control names the next screen attendees will see;
+choose **Next →** once to open the drawing activity.
 
-Within the next refresh, the attendee card shows the leader's status, selected
-step, and announcement. Point out the Session 1 label, the 3:10–3:30 time, the
-20-minute-session countdown, and the sticky name/raffle banner. Choose **Mark
-this booth complete**. The route changes to **Completed ✓ · Reopen** only after
-that tap. Tap the current route row to show that the attendee can reopen the
-booth until the session ends.
+Within the next refresh, the attendee activity shows the leader's selected
+screen. Point out the Session 1 label, the 3:10–3:30 time, the
+20-minute-session countdown, and the sticky name/raffle banner. Continue with
+**Next →** to demonstrate that attendees cannot advance ahead of the leader.
+At the final screen, the attendee chooses **Finish booth →**. The route changes
+to **Completed ✓ · Reopen** only after that tap, and remains reopenable until
+the session ends.
 
 Suggested explanation: “The schedule decides which booth Jordan sees. The
 leader for that booth decides which instruction the group sees.”
